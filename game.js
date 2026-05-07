@@ -642,7 +642,7 @@ class Player extends Entity {
       };
     } else if (upwardJumping || falling) {
       // Jump is intentionally a single upward-motion pose: a slight forward
-      // lean, lifted arms, and bent legs that hold steady until downward fall.
+      // lean, compact balancing arms, and bent legs that hold steady until downward fall.
       const jumpLean = Math.PI / 40;
       const jumpTorso = { x: 0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: jumpLean };
       const jumpPose = {
@@ -654,13 +654,13 @@ class Player extends Entity {
         torso: jumpTorso,
         farArm: [
           { x: 1.4 - armAttachmentBackShift, y: 18 },
-          { x: -2.4, y: 14.7 },
-          { x: -5.8, y: 19.2 }
+          { x: 1.6, y: 22.1 },
+          { x: 2.2, y: 27.2 }
         ],
         nearArm: [
           { x: 3.8 - armAttachmentBackShift, y: 18 },
-          { x: 8.2, y: 13.8 },
-          { x: 11.6, y: 16.7 }
+          { x: 5.6, y: 22.3 },
+          { x: 7.1, y: 27.8 }
         ],
         farLeg: [
           { x: -1.4, y: 29 },
