@@ -323,6 +323,7 @@ class Player extends Entity {
     const sprinting = moving && this.isRunning && grounded && !this.isCrouching;
     const walking = moving && grounded && !sprinting && !this.isCrouching;
     const airborne = !grounded;
+    const upwardJumping = airborne && this.vy * this.gravitySign <= 0;
     const falling = airborne && this.vy * this.gravitySign > 0;
     const crouching = this.isCrouching && grounded;
     const visualScale = PLAYER_VISUAL_SCALE;
@@ -639,14 +640,38 @@ class Player extends Entity {
         farLeg: runningLeg((cycle + 0.5) % 1, -1.2),
         nearLeg: runningLeg(cycle, 1.2)
       };
-    } else if (airborne) {
+    } else if (upwardJumping || falling) {
+      // Jump is intentionally a single upward-motion pose: a slight forward
+      // lean, lifted arms, and bent legs that hold steady until downward fall.
+      const jumpLean = Math.PI / 40;
+      const jumpTorso = { x: 0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: jumpLean };
       const jumpPose = {
-        head: { x: -0.8, y: 6, r: 5.4 },
-        torso: { x: -0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: -0.05 },
-        farArm: [{ x: 4 - armAttachmentBackShift, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }],
-        nearArm: [{ x: -4 + armAttachmentBackShift, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }],
-        farLeg: [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }],
-        nearLeg: [{ x: 3, y: 29 }, { x: 9, y: 39 }, { x: 8, y: 49 }]
+        head: {
+          x: jumpTorso.x + Math.sin(jumpLean) * 17.1,
+          y: jumpTorso.y - Math.cos(jumpLean) * 17.1,
+          r: 5.4
+        },
+        torso: jumpTorso,
+        farArm: [
+          { x: 1.4 - armAttachmentBackShift, y: 18 },
+          { x: -2.4, y: 14.7 },
+          { x: -5.8, y: 19.2 }
+        ],
+        nearArm: [
+          { x: 3.8 - armAttachmentBackShift, y: 18 },
+          { x: 8.2, y: 13.8 },
+          { x: 11.6, y: 16.7 }
+        ],
+        farLeg: [
+          { x: -1.4, y: 29 },
+          { x: 4.8, y: 38.7 },
+          { x: -8.8, y: modelFeetY - 4.6 }
+        ],
+        nearLeg: [
+          { x: 2.4, y: 29 },
+          { x: 9.4, y: 37.1 },
+          { x: 5.6, y: modelFeetY - 5.2 }
+        ]
       };
 
       // Falling is a mostly single, side-view balancing pose: upright torso,
