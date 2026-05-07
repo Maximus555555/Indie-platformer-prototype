@@ -7,6 +7,10 @@ const JUMP_VELOCITY = -460;
 const MAX_FALL_SPEED = 900;
 const WALK_SPEED = 230;
 const RUN_SPEED = 340;
+const PLAYER_WIDTH = 46;
+const CROUCH_HEIGHT = 70;
+const STAND_HEIGHT = 108;
+const PLAYER_VISUAL_SCALE = 0.72;
 const CROUCH_HEIGHT = 82;
 const STAND_HEIGHT = 124;
 const PLAYER_VISUAL_SCALE = 0.84;
@@ -19,8 +23,8 @@ const CONTACT_DAMAGE_COOLDOWN = 0.8;
 const FALL_LIMIT = 640;
 const ROOM_WIDTH = 1280;
 
-const checkpoint = { x: 86, y: 346 };
-const safeAnchor = { x: 92, y: 346 };
+const checkpoint = { x: 86, y: 362 };
+const safeAnchor = { x: 92, y: 362 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
@@ -28,6 +32,7 @@ const pulses = [];
 let lastTime = performance.now();
 let gravityCastId = 0;
 let gravityFieldActive = false;
+let activeGravityEntities = new Set();
 let cameraX = 0;
 
 const platforms = [
@@ -110,6 +115,8 @@ class Entity {
   }
 
   resetGravity() {
+    this.lastGravityCastId = 0;
+    this.onSurface = false;
     if (this.gravitySign !== 1) {
       this.gravitySign = 1;
       this.vy = Math.abs(this.vy) * GRAVITY_FLIP_DAMPING;
@@ -119,7 +126,7 @@ class Entity {
 
 class Player extends Entity {
   constructor() {
-    super(checkpoint.x, checkpoint.y, 54, STAND_HEIGHT);
+    super(checkpoint.x, checkpoint.y, PLAYER_WIDTH, STAND_HEIGHT);
     this.hp = 3;
     this.facing = 1;
     this.pulseTimer = 0;
@@ -138,7 +145,7 @@ class Player extends Entity {
     const runHeld = keys.has("shift");
     const input = Number(right) - Number(left);
 
-    this.setCrouch(crouch && this.onSurface);
+    this.setCrouch(crouch && (this.onSurface || this.isCrouching));
 
     this.isRunning = runHeld && input !== 0 && !this.isCrouching;
     this.vx = input * (this.isRunning ? RUN_SPEED : WALK_SPEED);
@@ -165,18 +172,47 @@ class Player extends Entity {
   setCrouch(shouldCrouch) {
     if (shouldCrouch === this.isCrouching) return;
     const surfaceAnchor = this.gravitySign > 0 ? this.y + this.h : this.y;
+    const nextHeight = shouldCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
+    const nextY = this.gravitySign > 0 ? surfaceAnchor - nextHeight : surfaceAnchor;
+    const nextRect = { x: this.x, y: nextY, w: this.w, h: nextHeight };
+
+    // Never expand from crouch into a platform. This is especially important on
+    // the frame after a gravity flip, when the player may still be beside the
+    // previous surface while the held crouch input is changing state.
+    if (!shouldCrouch && platforms.some((platform) => rectsOverlap(nextRect, platform))) return;
+
+    this.isCrouching = shouldCrouch;
+    this.h = nextHeight;
     this.isCrouching = shouldCrouch;
     this.h = shouldCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
 
     // Resize from the body/top while keeping the feet glued to the touched surface.
     // This prevents both visual hovering and collision drift when crouching on
     // either floor or ceiling gravity.
+    this.y = nextY;
     if (this.gravitySign > 0) this.y = surfaceAnchor - this.h;
     else this.y = surfaceAnchor;
   }
 
   flipGravity(castId) {
     if (this.lastGravityCastId === castId) return;
+    const contacts = platforms.filter((platform) => this.isTouchingVerticalSurface(platform));
+    super.flipGravity(castId);
+    this.onSurface = false;
+
+    // Gravity flips should release the player from the current contact side, not
+    // let the collision solver see a crouched overlap and eject sideways or
+    // through the platform on the next frame.
+    for (const platform of contacts) {
+      if (Math.abs(this.y + this.h - platform.y) <= 1.5) this.y = platform.y - this.h - 0.1;
+      else if (Math.abs(this.y - (platform.y + platform.h)) <= 1.5) this.y = platform.y + platform.h + 0.1;
+    }
+  }
+
+  isTouchingVerticalSurface(platform) {
+    const overlapsX = this.x + this.w > platform.x && this.x < platform.x + platform.w;
+    if (!overlapsX) return false;
+    return Math.abs(this.y + this.h - platform.y) <= 1.5 || Math.abs(this.y - (platform.y + platform.h)) <= 1.5;
     const centerBeforeFlip = centerOf(this);
     super.flipGravity(castId);
 
@@ -201,30 +237,38 @@ class Player extends Entity {
   }
 
   takeDamage(amount) {
-    if (this.damageTimer > 0) return;
+    if (this.damageTimer > 0) return false;
     this.hp -= amount;
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
     if (this.hp <= 0) this.fullRespawn();
-    else this.respawnAtSafeAnchor();
+    return true;
+  }
+
+  fallOutOfWorld() {
+    if (this.takeDamage(1) && this.hp > 0) this.respawnAtSafeAnchor();
   }
 
   respawnAtSafeAnchor() {
-    this.x = safeAnchor.x;
-    this.y = safeAnchor.y;
-    this.vx = 0;
-    this.vy = 0;
-    this.setCrouch(false);
-    this.resetGravity();
+    resetGravityField(true);
+    this.placeAt(safeAnchor.x, safeAnchor.y);
   }
 
   fullRespawn() {
+    resetGravityField(true);
     this.hp = 3;
-    this.x = checkpoint.x;
-    this.y = checkpoint.y;
+    this.placeAt(checkpoint.x, checkpoint.y);
+  }
+
+  placeAt(x, y) {
+    this.x = x;
+    this.y = y;
     this.vx = 0;
     this.vy = 0;
-    this.setCrouch(false);
-    this.resetGravity();
+    this.gravitySign = 1;
+    this.lastGravityCastId = 0;
+    this.isCrouching = false;
+    this.h = STAND_HEIGHT;
+    this.onSurface = false;
   }
 
   draw() {
@@ -260,6 +304,7 @@ class Player extends Entity {
       : surfaceY + bob + modelFeetY * scaleY;
 
     ctx.save();
+    if (this.damageTimer > 0 && Math.floor(this.damageTimer * 18) % 2 === 0) ctx.globalAlpha = 0.62;
     ctx.translate(baseX, originY);
     ctx.scale(facing * visualScale, verticalFlip * scaleY);
     ctx.lineCap = "round";
@@ -302,6 +347,11 @@ class Player extends Entity {
     }
 
     function runningLeg(sideStep, footLift) {
+      const direction = Math.sign(sideStep || 1);
+      return [
+        { x: sideStep * 4, y: 78 },
+        { x: sideStep * 13 + direction * 2, y: 96 - footLift * 7 },
+        { x: sideStep * 27, y: modelFeetY - footLift * 9 }
       return [
         { x: sideStep * 6, y: 78 },
         { x: sideStep * 18 + Math.sign(sideStep || 1) * 4, y: 99 - footLift * 8 },
@@ -310,6 +360,8 @@ class Player extends Entity {
     }
 
     function arm(swing, energetic) {
+      const reach = energetic ? 17 : 10;
+      const bend = energetic ? 7 : 4;
       const reach = energetic ? 24 : 12;
       const bend = energetic ? 10 : 5;
       return [
@@ -323,6 +375,18 @@ class Player extends Entity {
     if (crouching) {
       const breathe = Math.sin(this.animTime * 1.8) * 0.8;
       pose = {
+        head: { x: -1, y: 40, r: 12 },
+        torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
+        farArm: [{ x: 8, y: 58 }, { x: 16, y: 76 }, { x: 2, y: 89 }],
+        nearArm: [{ x: -8, y: 58 }, { x: -16, y: 76 }, { x: -2, y: 90 }],
+        farLeg: [{ x: -2, y: 80 }, { x: -18, y: 98 }, { x: -24, y: modelFeetY }],
+        nearLeg: [{ x: 8, y: 81 }, { x: 20, y: 99 }, { x: 6, y: modelFeetY }]
+      };
+    } else if (sprinting) {
+      const lean = 3;
+      pose = {
+        head: { x: lean * 0.5, y: 18, r: 14 },
+        torso: { x: lean * 0.25, y: 61, rx: 16, ry: 29, rot: -0.06 },
         head: { x: -2, y: 45 + breathe, r: 13 },
         torso: { x: 1, y: 73 + breathe, rx: 22, ry: 20, rot: -0.14 },
         farArm: [{ x: 9, y: 62 }, { x: 24, y: 80 }, { x: 9, y: 91 }],
@@ -372,6 +436,11 @@ class Player extends Entity {
       };
     }
 
+    strokeLimb(pose.farLeg, 15, 8);
+    strokeLimb(pose.farArm, 12, 7);
+    drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
+    strokeLimb(pose.nearLeg, 16, 9);
+    strokeLimb(pose.nearArm, 13, 8);
     strokeLimb(pose.farLeg, 17, 9);
     strokeLimb(pose.farArm, 14, 8);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
@@ -495,21 +564,29 @@ function drawGravityMarker(entity) {
   ctx.restore();
 }
 
-function toggleGravityField() {
-  gravityFieldActive = !gravityFieldActive;
-  gravityCastId += 1;
+function resetGravityField(resetAll = false) {
+  const entitiesToReset = resetAll ? [player, ...enemies] : activeGravityEntities;
+  for (const entity of entitiesToReset) entity.resetGravity();
+  activeGravityEntities.clear();
+  gravityFieldActive = false;
+}
 
-  if (!gravityFieldActive) {
-    player.resetGravity();
-    enemies.forEach((enemy) => enemy.resetGravity());
+function toggleGravityField() {
+  if (gravityFieldActive) {
+    resetGravityField();
     return;
   }
+
+  gravityCastId += 1;
+  gravityFieldActive = true;
+  activeGravityEntities.clear();
 
   const origin = centerOf(player);
   const candidates = [player, ...enemies.filter((enemy) => enemy.hp > 0)];
   for (const entity of candidates) {
     if (distance(origin, centerOf(entity)) <= GRAVITY_FIELD_RADIUS) {
       entity.flipGravity(gravityCastId);
+      activeGravityEntities.add(entity);
     }
   }
 }
@@ -530,7 +607,7 @@ function update(dt) {
     if (enemy.hp > 0 && rectsOverlap(player, enemy)) player.takeDamage(1);
   }
 
-  if (player.y > FALL_LIMIT || player.y + player.h < -120) player.takeDamage(1);
+  if (player.y > FALL_LIMIT || player.y + player.h < -120) player.fallOutOfWorld();
 
   cameraX = clamp(player.x + player.w / 2 - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
   pressedThisFrame.clear();
