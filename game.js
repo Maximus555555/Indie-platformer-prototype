@@ -5,9 +5,10 @@ const ctx = canvas.getContext("2d");
 const GRAVITY = 1200;
 const JUMP_VELOCITY = -460;
 const MAX_FALL_SPEED = 900;
-const MOVE_SPEED = 260;
-const CROUCH_HEIGHT = 34;
-const STAND_HEIGHT = 58;
+const WALK_SPEED = 230;
+const RUN_SPEED = 340;
+const CROUCH_HEIGHT = 46;
+const STAND_HEIGHT = 74;
 const PULSE_SPEED = 620;
 const PULSE_COOLDOWN = 0.35;
 const PULSE_DAMAGE = 1;
@@ -17,8 +18,8 @@ const CONTACT_DAMAGE_COOLDOWN = 0.8;
 const FALL_LIMIT = 640;
 const ROOM_WIDTH = 1280;
 
-const checkpoint = { x: 86, y: 390 };
-const safeAnchor = { x: 92, y: 390 };
+const checkpoint = { x: 86, y: 396 };
+const safeAnchor = { x: 92, y: 396 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
@@ -35,14 +36,13 @@ const platforms = [
   { x: 220, y: 365, w: 150, h: 20 },
   { x: 535, y: 300, w: 190, h: 20 },
   { x: 805, y: 385, w: 155, h: 20 },
-  { x: 1010, y: 260, w: 155, h: 20 },
-  { x: 0, y: 0, w: ROOM_WIDTH, h: 18 }
+  { x: 1010, y: 260, w: 155, h: 20 }
 ];
 
 const spikes = [
-  { x: 318, y: 470, w: 70, h: 28, direction: -1 },
-  { x: 780, y: 18, w: 90, h: 28, direction: 1 },
-  { x: 970, y: 470, w: 80, h: 28, direction: -1 }
+  { x: 470, y: 442, w: 70, h: 28, direction: -1 },
+  { x: 980, y: 442, w: 80, h: 28, direction: -1 },
+  { x: 1060, y: 232, w: 70, h: 28, direction: -1 }
 ];
 
 function clamp(value, min, max) {
@@ -148,24 +148,31 @@ class Entity {
 
 class Player extends Entity {
   constructor() {
-    super(checkpoint.x, checkpoint.y, 30, STAND_HEIGHT);
+    super(checkpoint.x, checkpoint.y, 42, STAND_HEIGHT);
     this.hp = 3;
     this.facing = 1;
     this.pulseTimer = 0;
     this.damageTimer = 0;
     this.isCrouching = false;
+    this.isRunning = false;
+    this.animTime = 0;
+    this.landTimer = 0;
+    this.attackTimer = 0;
   }
 
   update(dt) {
     const left = keys.has("a") || keys.has("arrowleft");
     const right = keys.has("d") || keys.has("arrowright");
     const crouch = keys.has("s") || keys.has("arrowdown");
+    const runHeld = keys.has("shift");
     const input = Number(right) - Number(left);
 
-    this.vx = input * MOVE_SPEED;
-    if (input !== 0) this.facing = input;
-
     this.setCrouch(crouch && this.onSurface);
+
+    this.isRunning = runHeld && input !== 0 && !this.isCrouching;
+    this.vx = input * (this.isRunning ? RUN_SPEED : WALK_SPEED);
+    if (input !== 0) this.facing = input;
+    this.animTime += dt * (Math.abs(this.vx) * 0.055 + (this.onSurface ? 1 : 0));
 
     if ((pressedThisFrame.has("w") || pressedThisFrame.has("arrowup")) && this.onSurface) {
       this.vy = JUMP_VELOCITY * this.gravitySign;
@@ -175,8 +182,12 @@ class Player extends Entity {
     if (this.pulseTimer > 0) this.pulseTimer -= dt;
     if (this.damageTimer > 0) this.damageTimer -= dt;
 
+    const wasOnSurface = this.onSurface;
     this.applyGravity(dt);
     this.moveAndCollide(dt);
+    if (!wasOnSurface && this.onSurface) this.landTimer = 0.16;
+    if (this.landTimer > 0) this.landTimer -= dt;
+    if (this.attackTimer > 0) this.attackTimer -= dt;
     this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
   }
 
@@ -193,6 +204,7 @@ class Player extends Entity {
     const pulseX = this.facing > 0 ? this.x + this.w + 3 : this.x - 15;
     pulses.push(new SystemPulse(pulseX, this.y + this.h * 0.45, this.facing));
     this.pulseTimer = PULSE_COOLDOWN;
+    this.attackTimer = 0.18;
   }
 
   takeDamage(amount) {
@@ -223,41 +235,117 @@ class Player extends Entity {
   }
 
   draw() {
-    const glow = this.gravitySign < 0 ? "rgba(135, 255, 198, 0.7)" : "rgba(103, 216, 255, 0.58)";
+    const glow = this.gravitySign < 0 ? "rgba(135, 255, 198, 0.68)" : "rgba(82, 166, 240, 0.5)";
+    const outline = this.gravitySign < 0 ? "#7effc0" : "#4ea2f2";
+    const fill = "rgba(255, 255, 255, 0.94)";
+    const cx = this.x + this.w / 2;
+    const footY = this.gravitySign > 0 ? this.y + this.h - 1 : this.y + 1;
+    const facing = this.facing;
+    const moving = Math.abs(this.vx) > 1 && this.onSurface;
+    const runStride = this.isRunning ? 1 : 0.55;
+    const phase = this.animTime * (this.isRunning ? 1.45 : 1);
+    const stride = moving ? Math.sin(phase) * runStride : 0;
+    const counter = moving ? Math.sin(phase + Math.PI) * runStride : 0;
+    const airLift = this.onSurface ? 0 : clamp(this.vy / MAX_FALL_SPEED, -1, 1);
+    const crouch = this.isCrouching ? 1 : 0;
+    const landingSquash = this.landTimer > 0 ? this.landTimer / 0.16 : 0;
+
     ctx.save();
     ctx.shadowColor = glow;
-    ctx.shadowBlur = 15;
-    ctx.strokeStyle = this.gravitySign < 0 ? "#87ffc6" : "#64d8ff";
-    ctx.fillStyle = "#f4fdff";
-    ctx.lineWidth = 2;
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = outline;
+    ctx.fillStyle = fill;
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-    // Abstract humanoid silhouette: head, torso, limbs, and a small facing visor.
-    const cx = this.x + this.w / 2;
-    const headR = this.isCrouching ? 5 : 7;
-    const headY = this.y + headR + 3;
+    // Side-view-only abstract humanoid inspired by the supplied running pose.
+    const headR = crouch ? 10 : 13 - landingSquash * 1.5;
+    const headX = cx - facing * 2;
+    const headY = this.y + (crouch ? 12 : 14 + landingSquash * 2);
+    const neck = { x: cx - facing * 1, y: this.y + (crouch ? 24 : 29) };
+    const hip = { x: cx + facing * (crouch ? 2 : 4), y: this.y + (crouch ? 35 : 49 + landingSquash * 3) };
+    const shoulder = { x: cx - facing * 3, y: neck.y + (crouch ? 2 : 4) };
+
+    // Rounded head and tapered torso keep the character humanoid without details.
     ctx.beginPath();
-    ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+    ctx.arc(headX, headY, headR, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    const torsoTop = this.y + (this.isCrouching ? 12 : 18);
-    const torsoH = this.isCrouching ? 15 : 25;
-    ctx.fillRect(cx - 8, torsoTop, 16, torsoH);
-    ctx.strokeRect(cx - 8, torsoTop, 16, torsoH);
-
     ctx.beginPath();
-    ctx.moveTo(cx - 8, torsoTop + 6);
-    ctx.lineTo(cx - 14, torsoTop + torsoH - 2);
-    ctx.moveTo(cx + 8, torsoTop + 6);
-    ctx.lineTo(cx + 14, torsoTop + torsoH - 2);
-    ctx.moveTo(cx - 5, torsoTop + torsoH);
-    ctx.lineTo(cx - 10, this.y + this.h - 2);
-    ctx.moveTo(cx + 5, torsoTop + torsoH);
-    ctx.lineTo(cx + 10, this.y + this.h - 2);
+    ctx.moveTo(neck.x - facing * 7, neck.y);
+    ctx.quadraticCurveTo(cx - facing * 15, neck.y + 7, cx - facing * 14, hip.y - 8);
+    ctx.quadraticCurveTo(cx - facing * 5, hip.y + 4, hip.x + facing * 9, hip.y + 1);
+    ctx.quadraticCurveTo(cx + facing * 14, neck.y + 12, neck.x + facing * 7, neck.y + 1);
+    ctx.quadraticCurveTo(cx + facing * 5, neck.y - 3, neck.x - facing * 7, neck.y);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#9feaff";
-    ctx.fillRect(cx + this.facing * 4, headY - 2, this.facing * 7, 3);
+    const frontLeg = {
+      knee: { x: hip.x + facing * (10 + stride * 4), y: hip.y + 13 - Math.max(stride, 0) * 11 - airLift * 4 },
+      foot: { x: cx + facing * (14 + stride * 18), y: footY - Math.max(stride, 0) * 3 }
+    };
+    const backLeg = {
+      knee: { x: hip.x - facing * (8 + counter * 3), y: hip.y + 16 - Math.max(counter, 0) * 8 + airLift * 2 },
+      foot: { x: cx - facing * (21 + counter * 14), y: footY - Math.max(counter, 0) * 7 }
+    };
+
+    const frontArm = {
+      elbow: { x: shoulder.x - facing * (10 + stride * 7), y: shoulder.y + 18 + Math.max(stride, 0) * 3 },
+      hand: { x: cx - facing * (3 + stride * 15), y: shoulder.y + 30 - Math.max(stride, 0) * 6 }
+    };
+    const backArm = {
+      elbow: { x: shoulder.x + facing * (18 + counter * 8), y: shoulder.y + 14 - Math.max(counter, 0) * 5 },
+      hand: { x: cx + facing * (25 + counter * 15), y: shoulder.y + 20 - Math.max(counter, 0) * 8 }
+    };
+
+    if (crouch) {
+      frontLeg.knee.x = hip.x + facing * 8;
+      frontLeg.knee.y = footY - 14;
+      frontLeg.foot.x = cx + facing * 24;
+      backLeg.knee.x = hip.x - facing * 10;
+      backLeg.knee.y = footY - 12;
+      backLeg.foot.x = cx - facing * 18;
+      frontArm.hand.y = shoulder.y + 21;
+      backArm.hand.y = shoulder.y + 16;
+    } else if (!this.onSurface) {
+      frontLeg.foot.y -= airLift < 0 ? 6 : 0;
+      backLeg.foot.y -= airLift > 0 ? 8 : 4;
+      frontArm.hand.y -= airLift < 0 ? 10 : -2;
+      backArm.hand.y -= airLift < 0 ? 2 : 8;
+    }
+
+    if (this.attackTimer > 0) {
+      backArm.elbow.x = shoulder.x + facing * 20;
+      backArm.hand.x = cx + facing * 32;
+      backArm.hand.y = shoulder.y + 8;
+    }
+
+    function drawBentLimb(root, joint, end) {
+      ctx.beginPath();
+      ctx.moveTo(root.x, root.y);
+      ctx.lineTo(joint.x, joint.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.stroke();
+    }
+
+    // Draw far limbs first so the torso and near limbs read cleanly.
+    ctx.globalAlpha = 0.72;
+    drawBentLimb(hip, backLeg.knee, backLeg.foot);
+    drawBentLimb(shoulder, backArm.elbow, backArm.hand);
+    ctx.globalAlpha = 1;
+    drawBentLimb(hip, frontLeg.knee, frontLeg.foot);
+    drawBentLimb(shoulder, frontArm.elbow, frontArm.hand);
+
+    ctx.strokeStyle = "rgba(160, 229, 255, 0.65)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(neck.x - facing * 5, neck.y + 2);
+    ctx.quadraticCurveTo(cx - facing * 4, hip.y - 9, hip.x + facing * 4, hip.y - 2);
+    ctx.stroke();
+
     ctx.restore();
     drawGravityMarker(this);
   }
@@ -427,10 +515,14 @@ function drawGrid() {
 }
 
 function drawRoom() {
-  drawGrid();
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  sky.addColorStop(0, "#dff5ff");
+  sky.addColorStop(1, "#bfe7ff");
+  ctx.fillStyle = sky;
+  ctx.fillRect(cameraX, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = "#1a3147";
-  ctx.strokeStyle = "rgba(159, 234, 255, 0.34)";
+  ctx.fillStyle = "#c9ecff";
+  ctx.strokeStyle = "rgba(78, 162, 242, 0.38)";
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
@@ -446,12 +538,12 @@ function drawRoom() {
 function drawHud() {
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#dff6ff";
+  ctx.fillStyle = "#24577d";
   ctx.font = "16px system-ui, sans-serif";
   ctx.fillText(`HP: ${player.hp}/3`, 20, 30);
-  ctx.fillText("A/D move  W jump  S crouch  Space/click System Pulse", 20, 55);
+  ctx.fillText("A/D move  Shift run  W jump  S crouch  Space/click System Pulse", 20, 55);
   ctx.fillText("Hold Q preview range  E toggle Gravity Field", 20, 80);
-  ctx.fillStyle = gravityFieldActive ? "#87ffc6" : "rgba(223, 246, 255, 0.72)";
+  ctx.fillStyle = gravityFieldActive ? "#138a57" : "rgba(36, 87, 125, 0.72)";
   ctx.fillText(`Gravity Field: ${gravityFieldActive ? "ACTIVE" : "ready"}  Cast ID ${gravityCastId}`, 20, 105);
   ctx.restore();
 }
