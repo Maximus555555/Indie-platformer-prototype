@@ -470,7 +470,12 @@ class Player extends Entity {
         runBobFrames[(bobIndex + 1) % runBobFrames.length],
         scaledBob - Math.floor(scaledBob)
       );
-      const lean = -0.11;
+      // Positive rotation is forward in the player-local coordinate space;
+      // the outer facing scale mirrors it when running left. A 10-degree lean
+      // reads clearly without shifting the stable collision body or feet.
+      const runLean = Math.PI / 18;
+      const shoulderLeanX = Math.sin(runLean) * 8;
+      const headLeanX = Math.sin(runLean) * 18;
 
       // A mirrored eight-pose run keeps contact/compression/passing/push-off
       // readable while interpolation prevents snapping between key poses.
@@ -508,18 +513,18 @@ class Player extends Entity {
           { elbowX: -1, elbowY: 25, handX: -2, handY: 33 },
           { elbowX: -6, elbowY: 24, handX: -10, handY: 32 }
         ];
-        const shoulder = { x: 3.4 + depthOffset, y: 18 + bodyY };
+        const shoulder = { x: 3.4 + shoulderLeanX + depthOffset, y: 18 + bodyY };
 
         return interpolateKeyframes(frames.map((frame) => [
           shoulder,
-          { x: frame.elbowX + depthOffset, y: frame.elbowY + bodyY * 0.7 },
-          { x: frame.handX + depthOffset, y: frame.handY + bodyY * 0.55 }
+          { x: frame.elbowX + shoulderLeanX * 0.7 + depthOffset, y: frame.elbowY + bodyY * 0.7 },
+          { x: frame.handX + shoulderLeanX * 0.45 + depthOffset, y: frame.handY + bodyY * 0.55 }
         ]), legCycle);
       }
 
       pose = {
-        head: { x: 1.4, y: 5.8 + bodyY * 0.35, r: 5.4 },
-        torso: { x: 0.8, y: 23 + bodyY, rx: 6.4, ry: 12, rot: lean },
+        head: { x: 1.4 + headLeanX, y: 5.8 + bodyY * 0.35, r: 5.4 },
+        torso: { x: 0.8, y: 23 + bodyY, rx: 6.4, ry: 12, rot: runLean },
         farArm: runningArm(cycle, -1.2),
         nearArm: runningArm((cycle + 0.5) % 1, 0.6),
         farLeg: runningLeg((cycle + 0.5) % 1, -1.2),
