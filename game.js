@@ -21,10 +21,10 @@ const JUMP_VELOCITY = config.jumpVelocity ?? -460;
 const MAX_FALL_SPEED = config.maxFallSpeed ?? 900;
 const WALK_SPEED = config.walkSpeed ?? 230;
 const RUN_SPEED = config.runSpeed ?? 340;
-const PLAYER_WIDTH = config.playerWidth ?? 46;
-const CROUCH_HEIGHT = config.crouchHeight ?? 70;
-const STAND_HEIGHT = config.standHeight ?? 108;
-const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 0.72;
+const PLAYER_WIDTH = config.playerWidth ?? 24;
+const CROUCH_HEIGHT = config.crouchHeight ?? 34;
+const STAND_HEIGHT = config.standHeight ?? 50;
+const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.1;
 const PULSE_SPEED = config.pulseSpeed ?? 620;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
@@ -145,6 +145,7 @@ class Player extends Entity {
     this.isCrouching = false;
     this.isRunning = false;
     this.animTime = 0;
+    this.walkTime = 0;
     this.landTimer = 0;
     this.attackTimer = 0;
   }
@@ -161,7 +162,9 @@ class Player extends Entity {
     this.isRunning = runHeld && input !== 0 && !this.isCrouching;
     this.vx = input * (this.isRunning ? RUN_SPEED : WALK_SPEED);
     if (input !== 0) this.facing = input;
-    this.animTime += dt * (Math.abs(this.vx) * 0.055 + (this.onSurface ? 1 : 0));
+    this.animTime += dt;
+    if (input !== 0 && !runHeld && this.onSurface && !this.isCrouching) this.walkTime += dt;
+    else this.walkTime = 0;
 
     if ((pressedThisFrame.has("w") || pressedThisFrame.has("arrowup")) && this.onSurface) {
       this.vy = JUMP_VELOCITY * this.gravitySign;
@@ -290,28 +293,21 @@ class Player extends Entity {
     const speed = Math.abs(this.vx);
     const grounded = this.onSurface;
     const moving = speed > 2;
-    const sprinting = this.isRunning && grounded;
-    const walking = moving && grounded && !sprinting;
+    const sprinting = this.isRunning && grounded && !this.isCrouching;
+    const walking = moving && grounded && !sprinting && !this.isCrouching;
     const airborne = !grounded;
     const crouching = this.isCrouching;
     const visualScale = PLAYER_VISUAL_SCALE;
-    const modelFeetY = STAND_HEIGHT;
+    const modelFeetY = 50;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
-    const stride = sprinting ? 1.35 : walking ? 0.85 : 0.45;
-    const phase = this.animTime * stride;
-    const step = Math.sin(phase);
-    const counterStep = -step;
-    const lift = Math.max(0, Math.cos(phase));
-    const counterLift = Math.max(0, -Math.cos(phase));
-    const bob = grounded && moving ? (sprinting ? 3.8 : 1.7) * Math.abs(Math.cos(phase)) : 0;
     const landSquash = this.landTimer > 0 ? this.landTimer / 0.16 : 0;
-    const poseSquash = crouching ? 0 : landSquash * 0.045;
+    const poseSquash = crouching ? 0 : landSquash * 0.035;
     const scaleY = visualScale * (1 - poseSquash);
     const originY = this.gravitySign > 0
-      ? surfaceY - bob - modelFeetY * scaleY
-      : surfaceY + bob + modelFeetY * scaleY;
+      ? surfaceY - modelFeetY * scaleY
+      : surfaceY + modelFeetY * scaleY;
 
     ctx.save();
     if (this.damageTimer > 0 && Math.floor(this.damageTimer * 18) % 2 === 0) ctx.globalAlpha = 0.62;
@@ -320,7 +316,7 @@ class Player extends Entity {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.shadowColor = glow;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 10;
 
     function strokeLimb(points, outlineWidth, fillWidth) {
       ctx.strokeStyle = outline;
@@ -339,124 +335,173 @@ class Player extends Entity {
     }
 
     function drawTorso(cx, cy, rx, ry, rotation) {
+      const sideHalf = Math.max(ry - rx, ry * 0.42);
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rotation);
       ctx.fillStyle = fill;
       ctx.strokeStyle = outline;
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, rx, ry, rotation, 0, Math.PI * 2);
+      ctx.moveTo(-rx, -sideHalf);
+      ctx.lineTo(-rx, sideHalf);
+      ctx.quadraticCurveTo(-rx, ry, 0, ry);
+      ctx.quadraticCurveTo(rx, ry, rx, sideHalf);
+      ctx.lineTo(rx, -sideHalf);
+      ctx.quadraticCurveTo(rx, -ry, 0, -ry);
+      ctx.quadraticCurveTo(-rx, -ry, -rx, -sideHalf);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.restore();
     }
 
-    function walkingLeg(sideStep, footLift) {
+    function mix(a, b, amount) {
+      return a + (b - a) * amount;
+    }
+
+    function interpolateKeyframes(frames, cycle) {
+      const wrapped = ((cycle % 1) + 1) % 1;
+      const scaled = wrapped * frames.length;
+      const index = Math.floor(scaled) % frames.length;
+      const nextIndex = (index + 1) % frames.length;
+      const amount = scaled - Math.floor(scaled);
+      const current = frames[index];
+      const next = frames[nextIndex];
+      return current.map((point, pointIndex) => ({
+        x: mix(point.x, next[pointIndex].x, amount),
+        y: mix(point.y, next[pointIndex].y, amount)
+      }));
+    }
+
+    // Eight keyed contact/down/passing/up stages are interpolated into a calm
+    // side-view walk. Feet remain anchored to modelFeetY at contact poses while
+    // torso/head bob is applied separately so collision stays glued to ground.
+    function walkingLeg(cycle, hipOffsetY) {
+      const frames = [
+        [{ x: -1, y: 28 + hipOffsetY }, { x: 4, y: 39 }, { x: 10, y: modelFeetY }],
+        [{ x: -1, y: 29 + hipOffsetY }, { x: 5, y: 41 }, { x: 6, y: modelFeetY }],
+        [{ x: -1, y: 28 + hipOffsetY }, { x: 1, y: 39 }, { x: 0, y: modelFeetY - 2 }],
+        [{ x: -1, y: 27 + hipOffsetY }, { x: -3, y: 38 }, { x: -8, y: modelFeetY - 1 }],
+        [{ x: -1, y: 28 + hipOffsetY }, { x: -6, y: 40 }, { x: -10, y: modelFeetY }],
+        [{ x: -1, y: 29 + hipOffsetY }, { x: -6, y: 41 }, { x: -6, y: modelFeetY }],
+        [{ x: -1, y: 28 + hipOffsetY }, { x: -1, y: 38 }, { x: 0, y: modelFeetY - 3 }],
+        [{ x: -1, y: 27 + hipOffsetY }, { x: 3, y: 38 }, { x: 8, y: modelFeetY - 1 }]
+      ];
+      return interpolateKeyframes(frames, cycle);
+    }
+
+    function walkingArm(legCycle, shoulderOffsetY, depthOffset) {
+      const swing = -Math.cos(legCycle * Math.PI * 2);
+      const shoulder = { x: 2.8 + depthOffset, y: 18 + shoulderOffsetY };
       return [
-        { x: sideStep * 4, y: 79 },
-        { x: sideStep * 13, y: 101 - footLift * 3 },
-        { x: sideStep * 22, y: modelFeetY - footLift * 5 }
+        shoulder,
+        { x: 2.4 + depthOffset + swing * 4.4, y: 25 + shoulderOffsetY },
+        { x: 2 + depthOffset + swing * 8.8, y: 33 + shoulderOffsetY }
       ];
     }
 
-    function runningLeg(sideStep, footLift) {
-      const direction = Math.sign(sideStep || 1);
+    function restingArm(side, breathe) {
       return [
-        { x: sideStep * 4, y: 78 },
-        { x: sideStep * 13 + direction * 2, y: 96 - footLift * 7 },
-        { x: sideStep * 27, y: modelFeetY - footLift * 9 }
+        { x: 2.8 + side * 1.2, y: 18 + breathe },
+        { x: 2.4 + side * 3.6, y: 27 + breathe * 0.4 },
+        { x: 2 + side * 2.6, y: 36 }
       ];
     }
 
-    function arm(swing, energetic) {
-      const reach = energetic ? 17 : 10;
-      const bend = energetic ? 7 : 4;
+    function restingLeg(side) {
       return [
-        { x: -swing * 3, y: 45 },
-        { x: -swing * reach * 0.55, y: 63 - Math.abs(swing) * bend },
-        { x: -swing * reach, y: 78 - Math.abs(swing) * bend * 0.3 }
+        { x: side * 2, y: 29 },
+        { x: side * 2.5, y: 40 },
+        { x: side * 3, y: modelFeetY }
       ];
     }
 
     let pose;
-    if (crouching) {
-      const breathe = Math.sin(this.animTime * 1.8) * 0.8;
+    if (walking) {
+      const cycle = (this.walkTime % 0.62) / 0.62;
+      const bob = [0, 1.4, 0, -0.8, 0, 1.4, 0, -0.8];
+      const scaled = cycle * bob.length;
+      const bobIndex = Math.floor(scaled) % bob.length;
+      const bodyY = mix(bob[bobIndex], bob[(bobIndex + 1) % bob.length], scaled - Math.floor(scaled));
+      const torsoTilt = Math.sin(cycle * Math.PI * 4) * 0.035;
       pose = {
-        head: { x: -1, y: 40, r: 12 },
-        torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
-        farArm: [{ x: 8, y: 58 }, { x: 16, y: 76 }, { x: 2, y: 89 }],
-        nearArm: [{ x: -8, y: 58 }, { x: -16, y: 76 }, { x: -2, y: 90 }],
-        farLeg: [{ x: -2, y: 80 }, { x: -18, y: 98 }, { x: -24, y: modelFeetY }],
-        nearLeg: [{ x: 8, y: 81 }, { x: 20, y: 99 }, { x: 6, y: modelFeetY }]
+        head: { x: 0, y: 5.8 + bodyY * 0.35, r: 5.4 },
+        torso: { x: 0, y: 23 + bodyY, rx: 6.4, ry: 12, rot: torsoTilt },
+        farArm: walkingArm((cycle + 0.5) % 1, bodyY, -1.2),
+        nearArm: walkingArm(cycle, bodyY, 0.6),
+        farLeg: walkingLeg((cycle + 0.5) % 1, bodyY * 0.35),
+        nearLeg: walkingLeg(cycle, bodyY * 0.35)
+      };
+    } else if (crouching) {
+      const breathe = Math.sin(this.animTime * 1.6) * 0.35;
+      pose = {
+        head: { x: -0.5, y: 16 + breathe, r: 5.3 },
+        torso: { x: 1, y: 30 + breathe, rx: 6.8, ry: 10, rot: -0.08 },
+        farArm: [{ x: 3.2, y: 26 }, { x: 9, y: 34 }, { x: 3, y: 40 }],
+        nearArm: [{ x: 1.4, y: 26 }, { x: -6, y: 34 }, { x: -2, y: 40 }],
+        farLeg: [{ x: -1, y: 36 }, { x: -8, y: 44 }, { x: -11, y: modelFeetY }],
+        nearLeg: [{ x: 4, y: 36 }, { x: 10, y: 44 }, { x: 3, y: modelFeetY }]
       };
     } else if (sprinting) {
-      const lean = 3;
+      const phase = this.animTime * 14;
+      const step = Math.sin(phase);
+      const lift = Math.max(0, Math.cos(phase));
       pose = {
-        head: { x: -1, y: 40, r: 12 },
-        torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
-        farArm: [{ x: 8, y: 58 }, { x: 16, y: 76 }, { x: 2, y: 89 }],
-        nearArm: [{ x: -8, y: 58 }, { x: -16, y: 76 }, { x: -2, y: 90 }],
-        farLeg: [{ x: -2, y: 80 }, { x: -18, y: 98 }, { x: -24, y: modelFeetY }],
-        nearLeg: [{ x: 8, y: 81 }, { x: 20, y: 99 }, { x: 6, y: modelFeetY }]
-      };
-    } else if (sprinting) {
-      const lean = 3;
-      pose = {
-        head: { x: lean * 0.5, y: 18, r: 14 },
-        torso: { x: lean * 0.25, y: 61, rx: 16, ry: 29, rot: -0.06 },
-        farArm: arm(counterStep, true),
-        nearArm: arm(step, true),
-        farLeg: runningLeg(counterStep, counterLift),
-        nearLeg: runningLeg(step, lift)
-      };
-    } else if (walking) {
-      pose = {
-        head: { x: 0, y: 18, r: 14 },
-        torso: { x: 0, y: 61, rx: 16, ry: 30, rot: 0 },
-        farArm: arm(counterStep * 0.65, false),
-        nearArm: arm(step * 0.65, false),
-        farLeg: walkingLeg(counterStep, counterLift),
-        nearLeg: walkingLeg(step, lift)
+        head: { x: 1.2, y: 6, r: 5.4 },
+        torso: { x: 0.7, y: 23, rx: 6.4, ry: 12, rot: -0.06 },
+        farArm: [{ x: 2.8, y: 18 }, { x: 2 - step * 6, y: 25 }, { x: 1.5 - step * 10, y: 34 }],
+        nearArm: [{ x: 3.6, y: 18 }, { x: 2.6 + step * 6, y: 25 }, { x: 2 + step * 10, y: 34 }],
+        farLeg: [{ x: -1, y: 28 }, { x: -step * 7, y: 39 - lift * 2 }, { x: -step * 12, y: modelFeetY - lift * 3 }],
+        nearLeg: [{ x: 1, y: 28 }, { x: step * 7, y: 39 - Math.max(0, -Math.cos(phase)) * 2 }, { x: step * 12, y: modelFeetY - Math.max(0, -Math.cos(phase)) * 3 }]
       };
     } else if (airborne) {
       const rising = this.vy * this.gravitySign < 0;
       const tuck = rising ? -1 : 1;
       pose = {
-        head: { x: tuck * 2, y: 18, r: 14 },
-        torso: { x: tuck * 1.5, y: 61, rx: 16, ry: 30, rot: tuck * 0.06 },
-        farArm: rising ? [{ x: 8, y: 44 }, { x: 22, y: 31 }, { x: 32, y: 45 }] : [{ x: 8, y: 44 }, { x: 22, y: 62 }, { x: 36, y: 58 }],
-        nearArm: rising ? [{ x: -8, y: 44 }, { x: -23, y: 55 }, { x: -11, y: 70 }] : [{ x: -8, y: 44 }, { x: -21, y: 64 }, { x: 2, y: 78 }],
-        farLeg: rising ? [{ x: -2, y: 80 }, { x: -20, y: 100 }, { x: -30, y: 118 }] : [{ x: -2, y: 80 }, { x: -7, y: 103 }, { x: -4, y: modelFeetY }],
-        nearLeg: rising ? [{ x: 7, y: 80 }, { x: 20, y: 100 }, { x: 18, y: 119 }] : [{ x: 7, y: 80 }, { x: 20, y: 102 }, { x: 31, y: 120 }]
+        head: { x: tuck * 0.8, y: 6, r: 5.4 },
+        torso: { x: tuck * 0.6, y: 23, rx: 6.4, ry: 12, rot: tuck * 0.05 },
+        farArm: rising ? [{ x: 4, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }] : [{ x: 4, y: 18 }, { x: 10, y: 27 }, { x: 14, y: 26 }],
+        nearArm: rising ? [{ x: -4, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }] : [{ x: -4, y: 18 }, { x: -9, y: 29 }, { x: 1, y: 36 }],
+        farLeg: rising ? [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }] : [{ x: -1, y: 29 }, { x: -3, y: 40 }, { x: -2, y: modelFeetY }],
+        nearLeg: rising ? [{ x: 3, y: 29 }, { x: 9, y: 39 }, { x: 8, y: 49 }] : [{ x: 3, y: 29 }, { x: 9, y: 40 }, { x: 13, y: modelFeetY }]
       };
     } else {
-      const breathe = Math.sin(this.animTime * 0.9) * 0.9;
+      const breathe = Math.sin(this.animTime * 1.2) * 0.45;
       pose = {
-        head: { x: 0, y: 18 + breathe, r: 14 },
-        torso: { x: 0, y: 61 + breathe, rx: 16, ry: 30, rot: 0 },
-        farArm: [{ x: 8, y: 44 + breathe }, { x: 14, y: 64 }, { x: 10, y: 82 }],
-        nearArm: [{ x: -8, y: 44 + breathe }, { x: -14, y: 64 }, { x: -10, y: 82 }],
-        farLeg: [{ x: -4, y: 80 }, { x: -6, y: 103 }, { x: -6, y: modelFeetY }],
-        nearLeg: [{ x: 6, y: 80 }, { x: 7, y: 103 }, { x: 7, y: modelFeetY }]
+        head: { x: 0, y: 5.8 + breathe * 0.35, r: 5.4 },
+        torso: { x: 0, y: 23 + breathe, rx: 6.4, ry: 12, rot: 0 },
+        farArm: restingArm(1, breathe),
+        nearArm: restingArm(-1, breathe),
+        farLeg: restingLeg(-1),
+        nearLeg: restingLeg(1)
       };
     }
 
-    strokeLimb(pose.farLeg, 15, 8);
-    strokeLimb(pose.farArm, 12, 7);
+    strokeLimb(pose.farLeg, 5.5, 2.8);
+    strokeLimb(pose.farArm, 4.5, 2.4);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
-    strokeLimb(pose.nearLeg, 16, 9);
-    strokeLimb(pose.nearArm, 13, 8);
+    strokeLimb(pose.nearLeg, 6, 3.2);
+    strokeLimb(pose.nearArm, 5, 2.7);
 
     ctx.fillStyle = fill;
     ctx.strokeStyle = outline;
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
     ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.translate(pose.torso.x + 1.2, pose.torso.y + 1.7);
+    ctx.rotate(pose.torso.rot);
     ctx.fillStyle = inner;
     ctx.beginPath();
-    ctx.ellipse(pose.torso.x + 3, pose.torso.y + 5, pose.torso.rx * 0.48, pose.torso.ry * 0.72, pose.torso.rot, 0, Math.PI * 2);
+    ctx.roundRect(-pose.torso.rx * 0.24, -pose.torso.ry * 0.42, pose.torso.rx * 0.48, pose.torso.ry * 0.84, pose.torso.rx * 0.22);
     ctx.fill();
+    ctx.restore();
 
     ctx.restore();
     drawGravityMarker(this);
