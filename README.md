@@ -16,6 +16,8 @@ python3 -m http.server 8000
 
 Then visit `http://localhost:8000`.
 
+If a workspace/browser preview still shows an older player or old spikes, hard refresh the page. The page also version-tags its local CSS and JavaScript URLs so preview caches fetch the current files.
+
 ## Controls
 
 - **A / D**: Move left and right
