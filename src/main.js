@@ -7,6 +7,12 @@ const ctx = canvas.getContext("2d");
 const keys = {};
 const previousKeys = {};
 
+const colors = {
+  playerFill: "#f4fdff",
+  playerOutline: "#64d8ff",
+  playerCore: "#9feaff"
+};
+
 const movement = {
   acceleration: 0.7,
   friction: 0.82,
@@ -19,7 +25,8 @@ const movement = {
 
 const player = {
   x: 100,
-  y: 380,
+  // Spawn directly on the floor platform so the player is visible immediately.
+  y: 422,
   w: 28,
   h: 48,
   vx: 0,
@@ -72,6 +79,14 @@ function isTouching(a, b) {
 function moveHorizontally() {
   const moveLeft = keys["a"] || keys["arrowleft"];
   const moveRight = keys["d"] || keys["arrowright"];
+  const input = (moveRight ? 1 : 0) - (moveLeft ? 1 : 0);
+
+  if (input !== 0) {
+    player.vx += input * movement.acceleration;
+    player.vx = Math.max(-player.maxSpeed, Math.min(player.vx, player.maxSpeed));
+  } else {
+    player.vx *= movement.friction;
+
   const input = Number(moveRight) - Number(moveLeft);
 
   if (input !== 0) {
@@ -176,6 +191,58 @@ function update() {
   rememberInputState();
 }
 
+function drawPlayer() {
+  // High-contrast geometric placeholder: still a simple rectangle, but outlined
+  // so it remains visible against the dark canvas and blue platforms.
+  ctx.fillStyle = colors.playerFill;
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+
+  ctx.strokeStyle = colors.playerOutline;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(player.x + 1.5, player.y + 1.5, player.w - 3, player.h - 3);
+
+  ctx.fillStyle = colors.playerCore;
+  ctx.fillRect(player.x + 8, player.y + 8, player.w - 16, player.h - 16);
+  if (isJumpJustPressed()) {
+    player.jumpBufferTimer = movement.jumpBufferTime;
+  } else if (player.jumpBufferTimer > 0) {
+    player.jumpBufferTimer -= 1;
+  }
+}
+
+function applyJump() {
+  // Coyote time lets a jump still fire for a few frames after leaving a ledge.
+  if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0) {
+    player.vy = player.jumpPower;
+    player.onGround = false;
+    player.coyoteTimer = 0;
+    player.jumpBufferTimer = 0;
+  }
+
+  // Releasing jump early cuts upward velocity for a shorter, controllable hop.
+  if (isJumpJustReleased() && player.vy < 0) {
+    player.vy *= movement.jumpCutMultiplier;
+  }
+}
+
+function rememberInputState() {
+  previousKeys["a"] = keys["a"];
+  previousKeys["d"] = keys["d"];
+  previousKeys["w"] = keys["w"];
+  previousKeys[" "] = keys[" "];
+  previousKeys["arrowleft"] = keys["arrowleft"];
+  previousKeys["arrowright"] = keys["arrowright"];
+  previousKeys["arrowup"] = keys["arrowup"];
+}
+
+function update() {
+  updateJumpTimers();
+  applyJump();
+  moveHorizontally();
+  moveVertically();
+  rememberInputState();
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -201,8 +268,7 @@ function draw() {
     ctx.fillRect(p.x, p.y, p.w, p.h);
   }
 
-  ctx.fillStyle = "#dff6ff";
-  ctx.fillRect(player.x, player.y, player.w, player.h);
+  drawPlayer();
 
   ctx.fillStyle = "#dff6ff";
   ctx.font = "18px Arial";
