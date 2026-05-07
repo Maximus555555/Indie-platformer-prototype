@@ -11,6 +11,9 @@ const PLAYER_WIDTH = 46;
 const CROUCH_HEIGHT = 70;
 const STAND_HEIGHT = 108;
 const PLAYER_VISUAL_SCALE = 0.72;
+const CROUCH_HEIGHT = 82;
+const STAND_HEIGHT = 124;
+const PLAYER_VISUAL_SCALE = 0.84;
 const PULSE_SPEED = 620;
 const PULSE_COOLDOWN = 0.35;
 const PULSE_DAMAGE = 1;
@@ -180,11 +183,17 @@ class Player extends Entity {
 
     this.isCrouching = shouldCrouch;
     this.h = nextHeight;
+    this.isCrouching = shouldCrouch;
+    this.h = nextHeight;
+    this.isCrouching = shouldCrouch;
+    this.h = shouldCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
 
     // Resize from the body/top while keeping the feet glued to the touched surface.
     // This prevents both visual hovering and collision drift when crouching on
     // either floor or ceiling gravity.
     this.y = nextY;
+    if (this.gravitySign > 0) this.y = surfaceAnchor - this.h;
+    else this.y = surfaceAnchor;
   }
 
   flipGravity(castId) {
@@ -206,6 +215,19 @@ class Player extends Entity {
     const overlapsX = this.x + this.w > platform.x && this.x < platform.x + platform.w;
     if (!overlapsX) return false;
     return Math.abs(this.y + this.h - platform.y) <= 1.5 || Math.abs(this.y - (platform.y + platform.h)) <= 1.5;
+    const centerBeforeFlip = centerOf(this);
+    super.flipGravity(castId);
+
+    // A gravity cast can happen while crouched and exactly touching a platform.
+    // Keep the player on the same side of any current contact instead of letting
+    // height changes or collision correction snap them through the platform.
+    for (const platform of platforms) {
+      if (centerBeforeFlip.x <= platform.x || centerBeforeFlip.x >= platform.x + platform.w) continue;
+      const floorContact = Math.abs(this.y + this.h - platform.y) < 1.5;
+      const ceilingContact = Math.abs(this.y - (platform.y + platform.h)) < 1.5;
+      if (floorContact) this.y = platform.y - this.h;
+      if (ceilingContact) this.y = platform.y + platform.h;
+    }
   }
 
   firePulse() {
@@ -241,6 +263,12 @@ class Player extends Entity {
 
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
     this.respawnAtSafeAnchor();
+    if (this.hp <= 0) this.fullRespawn();
+    return true;
+  }
+
+  fallOutOfWorld() {
+    if (this.takeDamage(1) && this.hp > 0) this.respawnAtSafeAnchor();
   }
 
   respawnAtSafeAnchor() {
@@ -348,12 +376,18 @@ class Player extends Entity {
         { x: sideStep * 4, y: 78 },
         { x: sideStep * 13 + direction * 2, y: 96 - footLift * 7 },
         { x: sideStep * 27, y: modelFeetY - footLift * 9 }
+      return [
+        { x: sideStep * 6, y: 78 },
+        { x: sideStep * 18 + Math.sign(sideStep || 1) * 4, y: 99 - footLift * 8 },
+        { x: sideStep * 36, y: modelFeetY - footLift * 12 }
       ];
     }
 
     function arm(swing, energetic) {
       const reach = energetic ? 17 : 10;
       const bend = energetic ? 7 : 4;
+      const reach = energetic ? 24 : 12;
+      const bend = energetic ? 10 : 5;
       return [
         { x: -swing * 3, y: 45 },
         { x: -swing * reach * 0.55, y: 63 - Math.abs(swing) * bend },
@@ -363,6 +397,17 @@ class Player extends Entity {
 
     let pose;
     if (crouching) {
+      const breathe = Math.sin(this.animTime * 1.8) * 0.8;
+      pose = {
+        head: { x: -1, y: 40, r: 12 },
+        torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
+        farArm: [{ x: 8, y: 58 }, { x: 16, y: 76 }, { x: 2, y: 89 }],
+        nearArm: [{ x: -8, y: 58 }, { x: -16, y: 76 }, { x: -2, y: 90 }],
+        farLeg: [{ x: -2, y: 80 }, { x: -18, y: 98 }, { x: -24, y: modelFeetY }],
+        nearLeg: [{ x: 8, y: 81 }, { x: 20, y: 99 }, { x: 6, y: modelFeetY }]
+      };
+    } else if (sprinting) {
+      const lean = 3;
       pose = {
         head: { x: -1, y: 40, r: 12 },
         torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
@@ -376,6 +421,20 @@ class Player extends Entity {
       pose = {
         head: { x: lean * 0.5, y: 18, r: 14 },
         torso: { x: lean * 0.25, y: 61, rx: 16, ry: 29, rot: -0.06 },
+        head: { x: lean * 0.5, y: 18, r: 14 },
+        torso: { x: lean * 0.25, y: 61, rx: 16, ry: 29, rot: -0.06 },
+        head: { x: -2, y: 45 + breathe, r: 13 },
+        torso: { x: 1, y: 73 + breathe, rx: 22, ry: 20, rot: -0.14 },
+        farArm: [{ x: 9, y: 62 }, { x: 24, y: 80 }, { x: 9, y: 91 }],
+        nearArm: [{ x: -10, y: 61 }, { x: -23, y: 80 }, { x: -5, y: 92 }],
+        farLeg: [{ x: 4, y: 88 }, { x: -19, y: 108 }, { x: -32, y: modelFeetY }],
+        nearLeg: [{ x: 12, y: 89 }, { x: 28, y: 109 }, { x: 8, y: modelFeetY }]
+      };
+    } else if (sprinting) {
+      const lean = 7;
+      pose = {
+        head: { x: lean * 0.5, y: 18, r: 14 },
+        torso: { x: lean * 0.25, y: 61, rx: 17, ry: 29, rot: -0.12 },
         farArm: arm(counterStep, true),
         nearArm: arm(step, true),
         farLeg: runningLeg(counterStep, counterLift),
@@ -418,6 +477,11 @@ class Player extends Entity {
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
     strokeLimb(pose.nearLeg, 16, 9);
     strokeLimb(pose.nearArm, 13, 8);
+    strokeLimb(pose.farLeg, 17, 9);
+    strokeLimb(pose.farArm, 14, 8);
+    drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
+    strokeLimb(pose.nearLeg, 18, 10);
+    strokeLimb(pose.nearArm, 15, 9);
 
     ctx.fillStyle = fill;
     ctx.strokeStyle = outline;
