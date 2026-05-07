@@ -299,6 +299,7 @@ class Player extends Entity {
     const crouching = this.isCrouching;
     const visualScale = PLAYER_VISUAL_SCALE;
     const modelFeetY = 50;
+    const characterOutlineWidth = 1.25;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -318,9 +319,9 @@ class Player extends Entity {
     ctx.shadowColor = glow;
     ctx.shadowBlur = 10;
 
-    function strokeLimb(points, outlineWidth, fillWidth) {
+    function strokeLimb(points, fillWidth) {
       ctx.strokeStyle = outline;
-      ctx.lineWidth = outlineWidth;
+      ctx.lineWidth = fillWidth + characterOutlineWidth * 2;
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
@@ -342,7 +343,7 @@ class Player extends Entity {
       ctx.rotate(rotation);
       ctx.fillStyle = fill;
       ctx.strokeStyle = outline;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = characterOutlineWidth;
       ctx.beginPath();
       ctx.moveTo(-rx, -sideHalf);
       ctx.lineTo(-rx, sideHalf);
@@ -379,17 +380,32 @@ class Player extends Entity {
     // side-view walk. Feet remain anchored to modelFeetY at contact poses while
     // torso/head bob is applied separately so collision stays glued to ground.
     function walkingLeg(cycle, hipOffsetY) {
+      const hipX = -1;
+      const hipY = 28 + hipOffsetY;
+      const facingKneeBend = 3.1;
       const frames = [
-        [{ x: -1, y: 28 + hipOffsetY }, { x: 4, y: 39 }, { x: 10, y: modelFeetY }],
-        [{ x: -1, y: 29 + hipOffsetY }, { x: 5, y: 41 }, { x: 6, y: modelFeetY }],
-        [{ x: -1, y: 28 + hipOffsetY }, { x: 1, y: 39 }, { x: 0, y: modelFeetY - 2 }],
-        [{ x: -1, y: 27 + hipOffsetY }, { x: -3, y: 38 }, { x: -8, y: modelFeetY - 1 }],
-        [{ x: -1, y: 28 + hipOffsetY }, { x: -6, y: 40 }, { x: -10, y: modelFeetY }],
-        [{ x: -1, y: 29 + hipOffsetY }, { x: -6, y: 41 }, { x: -6, y: modelFeetY }],
-        [{ x: -1, y: 28 + hipOffsetY }, { x: -1, y: 38 }, { x: 0, y: modelFeetY - 3 }],
-        [{ x: -1, y: 27 + hipOffsetY }, { x: 3, y: 38 }, { x: 8, y: modelFeetY - 1 }]
+        { hipY: hipY, footX: 10, footY: modelFeetY, kneeY: 39, kneeBend: 2.7 },
+        { hipY: 29 + hipOffsetY, footX: 6, footY: modelFeetY, kneeY: 41, kneeBend: 3.1 },
+        { hipY: hipY, footX: 0, footY: modelFeetY - 2, kneeY: 39, kneeBend: 3.4 },
+        { hipY: 27 + hipOffsetY, footX: -8, footY: modelFeetY - 1, kneeY: 38, kneeBend: 3.8 },
+        { hipY: hipY, footX: -10, footY: modelFeetY, kneeY: 40, kneeBend: 4.3 },
+        { hipY: 29 + hipOffsetY, footX: -6, footY: modelFeetY, kneeY: 41, kneeBend: 4.0 },
+        { hipY: hipY, footX: 0, footY: modelFeetY - 3, kneeY: 38, kneeBend: 3.5 },
+        { hipY: 27 + hipOffsetY, footX: 8, footY: modelFeetY - 1, kneeY: 38, kneeBend: 2.9 }
       ];
-      return interpolateKeyframes(frames, cycle);
+
+      return interpolateKeyframes(frames.map((frame) => {
+        const hip = { x: hipX, y: frame.hipY };
+        const foot = { x: frame.footX, y: frame.footY };
+        // Local +X is the character's facing direction after the draw transform,
+        // so this keeps both knees bending forward instead of following whichever
+        // way the individual foot is swinging.
+        const knee = {
+          x: mix(hip.x, foot.x, 0.42) + facingKneeBend + frame.kneeBend * 0.18,
+          y: frame.kneeY
+        };
+        return [hip, knee, foot];
+      }), cycle);
     }
 
     function walkingArm(legCycle, shoulderOffsetY, depthOffset) {
@@ -479,15 +495,15 @@ class Player extends Entity {
       };
     }
 
-    strokeLimb(pose.farLeg, 5.5, 2.8);
-    strokeLimb(pose.farArm, 4.5, 2.4);
+    strokeLimb(pose.farLeg, 2.8);
+    strokeLimb(pose.farArm, 2.4);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
-    strokeLimb(pose.nearLeg, 6, 3.2);
-    strokeLimb(pose.nearArm, 5, 2.7);
+    strokeLimb(pose.nearLeg, 3.2);
+    strokeLimb(pose.nearArm, 2.7);
 
     ctx.fillStyle = fill;
     ctx.strokeStyle = outline;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = characterOutlineWidth;
     ctx.beginPath();
     ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
     ctx.fill();
