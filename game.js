@@ -30,6 +30,7 @@ let gravityFieldActive = false;
 let cameraX = 0;
 
 const platforms = [
+  { x: 0, y: 0, w: ROOM_WIDTH, h: 28 },
   { x: 0, y: 470, w: 300, h: 70 },
   { x: 410, y: 470, w: 360, h: 70 },
   { x: 860, y: 470, w: 420, h: 70 },
@@ -206,21 +207,34 @@ class Player extends Entity {
   draw() {
     const outline = "#4ea2f2";
     const fill = "rgba(255, 255, 255, 0.96)";
-    const glow = "rgba(82, 166, 240, 0.38)";
+    const inner = "rgba(226, 245, 255, 0.82)";
+    const glow = "rgba(82, 166, 240, 0.34)";
     const facing = this.facing;
     const baseX = this.x + this.w / 2;
     const topY = this.gravitySign > 0 ? this.y + this.h - STAND_HEIGHT : this.y + STAND_HEIGHT;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
+    const speed = Math.abs(this.vx);
+    const grounded = this.onSurface;
+    const moving = speed > 2;
+    const sprinting = this.isRunning && grounded;
+    const walking = moving && grounded && !sprinting;
+    const airborne = !grounded;
+    const crouching = this.isCrouching;
+    const cycle = Math.sin(this.animTime);
+    const counterCycle = Math.sin(this.animTime + Math.PI);
+    const bob = grounded ? Math.abs(cycle) * (sprinting ? 4 : walking ? 2 : 0.7) : 0;
+    const lean = sprinting ? 8 : walking ? 2.5 * cycle : airborne ? (this.vy * this.gravitySign < 0 ? -4 : 5) : 0;
+    const squash = crouching ? 0.76 : 1;
 
     ctx.save();
-    ctx.translate(baseX, topY);
-    ctx.scale(facing, verticalFlip);
+    ctx.translate(baseX, topY + bob);
+    ctx.scale(facing, verticalFlip * squash);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.shadowColor = glow;
     ctx.shadowBlur = 12;
 
-    function strokeRoundedPath(points, outlineWidth, fillWidth) {
+    function strokeLimb(points, outlineWidth, fillWidth) {
       ctx.strokeStyle = outline;
       ctx.lineWidth = outlineWidth;
       ctx.beginPath();
@@ -236,61 +250,93 @@ class Player extends Entity {
       ctx.stroke();
     }
 
-    // Fixed, code-generated silhouette matching the supplied blue-outline runner.
-    const shoulder = { x: -7, y: 39 };
-    const hip = { x: 6, y: 73 };
+    function drawBodyPath(points) {
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) {
+        const p = points[i];
+        if (p.cx !== undefined) ctx.quadraticCurveTo(p.cx, p.cy, p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
 
-    // Far leg tucked behind the body and sweeping back to the left.
-    strokeRoundedPath([
-      { x: 1, y: 70 },
-      { x: -13, y: 101 },
-      { x: -46, y: 110 }
-    ], 19, 11);
+    let pose;
+    if (crouching) {
+      pose = {
+        shoulder: { x: -9, y: 43 }, hip: { x: 2, y: 77 }, head: { x: -2, y: 22 },
+        torso: [{ x: -11, y: 39 }, { cx: -23, cy: 47, x: -29, y: 67 }, { cx: -23, cy: 80, x: -5, y: 82 }, { x: 16, y: 77 }, { cx: 14, cy: 51, x: 2, y: 41 }],
+        farArm: [{ x: 0, y: 48 }, { x: 20, y: 62 }, { x: 35, y: 54 }],
+        nearArm: [{ x: -10, y: 45 }, { x: -17, y: 65 }, { x: 13, y: 75 }],
+        farLeg: [{ x: 2, y: 77 }, { x: -12, y: 94 }, { x: -39, y: 96 }],
+        nearLeg: [{ x: 8, y: 78 }, { x: 24, y: 96 }, { x: 4, y: 105 }]
+      };
+    } else if (sprinting) {
+      // The long-stride silhouette from the player drawing is reserved for Shift-running.
+      const s = cycle >= 0 ? 1 : -1;
+      pose = {
+        shoulder: { x: -7 + lean * 0.2, y: 39 }, hip: { x: 6 + lean * 0.35, y: 73 }, head: { x: 1 + lean * 0.55, y: 15 },
+        torso: [{ x: -8 + lean * 0.45, y: 33 }, { cx: -18 + lean * 0.2, cy: 40, x: -27 + lean * 0.1, y: 64 }, { cx: -25 + lean * 0.2, cy: 72, x: -14 + lean * 0.25, y: 75 }, { x: 14 + lean * 0.4, y: 85 }, { cx: 18 + lean * 0.55, cy: 63, x: 9 + lean * 0.5, y: 43 }, { cx: 5 + lean * 0.55, cy: 33, x: -8 + lean * 0.45, y: 33 }],
+        farArm: [{ x: 3, y: 43 }, { x: 22 + 7 * s, y: 59 - 8 * s }, { x: 42 + 10 * s, y: 47 - 5 * s }],
+        nearArm: [{ x: -7, y: 39 }, { x: -19 - 7 * s, y: 63 + 5 * s }, { x: 17 - 10 * s, y: 78 + 3 * s }],
+        farLeg: s > 0 ? [{ x: 1, y: 70 }, { x: -13, y: 101 }, { x: -46, y: 110 }] : [{ x: 2, y: 72 }, { x: 20, y: 97 }, { x: 10, y: 124 }],
+        nearLeg: s > 0 ? [{ x: 6, y: 73 }, { x: 23, y: 97 }, { x: 10, y: 124 }] : [{ x: 6, y: 73 }, { x: -18, y: 101 }, { x: -52, y: 112 }]
+      };
+    } else if (walking) {
+      pose = {
+        shoulder: { x: -8 + lean * 0.2, y: 40 }, hip: { x: 4, y: 75 }, head: { x: 0, y: 17 },
+        torso: [{ x: -10, y: 35 }, { cx: -20, cy: 43, x: -26, y: 65 }, { cx: -22, cy: 75, x: -8, y: 81 }, { x: 13, y: 86 }, { cx: 17, cy: 63, x: 8, y: 44 }, { cx: 4, cy: 35, x: -10, y: 35 }],
+        farArm: [{ x: 2, y: 45 }, { x: 14 + 13 * cycle, y: 61 }, { x: 23 + 14 * cycle, y: 75 }],
+        nearArm: [{ x: -9, y: 42 }, { x: -17 - 13 * cycle, y: 61 }, { x: -9 - 18 * cycle, y: 80 }],
+        farLeg: [{ x: 1, y: 75 }, { x: -6 + 16 * counterCycle, y: 97 }, { x: -8 + 24 * counterCycle, y: 123 }],
+        nearLeg: [{ x: 7, y: 76 }, { x: 10 + 16 * cycle, y: 98 }, { x: 7 + 24 * cycle, y: 123 }]
+      };
+    } else if (airborne) {
+      const rising = this.vy * this.gravitySign < 0;
+      pose = {
+        shoulder: { x: -8 + lean * 0.25, y: 39 }, hip: { x: 5 + lean * 0.25, y: 74 }, head: { x: 0 + lean * 0.45, y: 16 },
+        torso: [{ x: -10 + lean * 0.35, y: 35 }, { cx: -21, cy: 43, x: -27, y: 65 }, { cx: -22, cy: 75, x: -8, y: 81 }, { x: 13 + lean * 0.2, y: 86 }, { cx: 17 + lean * 0.3, cy: 63, x: 8 + lean * 0.35, y: 44 }, { cx: 4 + lean * 0.35, cy: 35, x: -10 + lean * 0.35, y: 35 }],
+        farArm: rising ? [{ x: 1, y: 43 }, { x: 17, y: 30 }, { x: 29, y: 42 }] : [{ x: 2, y: 43 }, { x: 21, y: 58 }, { x: 36, y: 54 }],
+        nearArm: rising ? [{ x: -9, y: 41 }, { x: -25, y: 53 }, { x: -13, y: 68 }] : [{ x: -9, y: 41 }, { x: -20, y: 62 }, { x: 5, y: 76 }],
+        farLeg: rising ? [{ x: 1, y: 75 }, { x: -18, y: 92 }, { x: -34, y: 112 }] : [{ x: 1, y: 75 }, { x: -8, y: 100 }, { x: -5, y: 124 }],
+        nearLeg: rising ? [{ x: 7, y: 76 }, { x: 22, y: 96 }, { x: 21, y: 118 }] : [{ x: 7, y: 76 }, { x: 19, y: 99 }, { x: 33, y: 119 }]
+      };
+    } else {
+      const breathe = Math.sin(this.animTime * 0.55) * 1.2;
+      pose = {
+        shoulder: { x: -8, y: 40 + breathe }, hip: { x: 4, y: 76 }, head: { x: 0, y: 17 + breathe },
+        torso: [{ x: -10, y: 35 + breathe }, { cx: -20, cy: 43, x: -25, y: 65 }, { cx: -21, cy: 76, x: -8, y: 81 }, { x: 13, y: 86 }, { cx: 16, cy: 64, x: 8, y: 44 + breathe }, { cx: 4, cy: 35 + breathe, x: -10, y: 35 + breathe }],
+        farArm: [{ x: 1, y: 44 }, { x: 13, y: 61 }, { x: 24, y: 72 }],
+        nearArm: [{ x: -9, y: 42 }, { x: -17, y: 62 }, { x: -9, y: 82 }],
+        farLeg: [{ x: 0, y: 76 }, { x: -5, y: 99 }, { x: -8, y: 124 }],
+        nearLeg: [{ x: 8, y: 77 }, { x: 10, y: 100 }, { x: 8, y: 124 }]
+      };
+    }
 
-    // Far arm bends forward with an open, raised hand.
-    strokeRoundedPath([
-      { x: 3, y: 43 },
-      { x: 22, y: 59 },
-      { x: 42, y: 47 }
-    ], 16, 9);
+    strokeLimb(pose.farLeg, 19, 11);
+    strokeLimb(pose.farArm, 16, 9);
+    drawBodyPath(pose.torso);
+    strokeLimb(pose.nearLeg, 20, 12);
+    strokeLimb(pose.nearArm, 18, 10);
 
-    // Torso: simple white tapered body with no facial or clothing details.
     ctx.fillStyle = fill;
     ctx.strokeStyle = outline;
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(-8, 33);
-    ctx.quadraticCurveTo(-18, 40, -27, 64);
-    ctx.quadraticCurveTo(-25, 72, -14, 75);
-    ctx.lineTo(14, 85);
-    ctx.quadraticCurveTo(18, 63, 9, 43);
-    ctx.quadraticCurveTo(5, 33, -8, 33);
-    ctx.closePath();
+    ctx.arc(pose.head.x, pose.head.y, 15, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // Near front leg lifts forward, then drops nearly vertical like the reference.
-    strokeRoundedPath([
-      hip,
-      { x: 23, y: 97 },
-      { x: 10, y: 124 }
-    ], 20, 12);
-
-    // Near arm crosses diagonally in front of the torso.
-    strokeRoundedPath([
-      shoulder,
-      { x: -19, y: 63 },
-      { x: 17, y: 78 }
-    ], 18, 10);
-
-    // Head is an unfilled-feature circle, exactly matching the simple reference style.
-    ctx.fillStyle = fill;
-    ctx.strokeStyle = outline;
-    ctx.lineWidth = 6;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = inner;
     ctx.beginPath();
-    ctx.arc(1, 15, 15, 0, Math.PI * 2);
+    ctx.ellipse(pose.hip.x + 3, 69, 8, 24, -0.2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.stroke();
 
     ctx.restore();
     drawGravityMarker(this);
@@ -460,16 +506,12 @@ function drawRoom() {
   ctx.fillStyle = sky;
   ctx.fillRect(cameraX, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = "#c9ecff";
-  ctx.strokeStyle = "rgba(78, 162, 242, 0.38)";
+  ctx.fillStyle = "#9fd0f4";
+  ctx.strokeStyle = "rgba(45, 126, 204, 0.48)";
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
   }
-
-  ctx.fillStyle = "#87ffc6";
-  ctx.fillRect(checkpoint.x - 12, checkpoint.y + STAND_HEIGHT - 70, 8, 70);
-  ctx.fillRect(safeAnchor.x - 10, safeAnchor.y + STAND_HEIGHT + 8, 42, 5);
 }
 
 function drawHud() {
