@@ -7,8 +7,8 @@ const JUMP_VELOCITY = -460;
 const MAX_FALL_SPEED = 900;
 const WALK_SPEED = 230;
 const RUN_SPEED = 340;
-const CROUCH_HEIGHT = 46;
-const STAND_HEIGHT = 74;
+const CROUCH_HEIGHT = 82;
+const STAND_HEIGHT = 124;
 const PULSE_SPEED = 620;
 const PULSE_COOLDOWN = 0.35;
 const PULSE_DAMAGE = 1;
@@ -18,8 +18,8 @@ const CONTACT_DAMAGE_COOLDOWN = 0.8;
 const FALL_LIMIT = 640;
 const ROOM_WIDTH = 1280;
 
-const checkpoint = { x: 86, y: 396 };
-const safeAnchor = { x: 92, y: 396 };
+const checkpoint = { x: 86, y: 346 };
+const safeAnchor = { x: 92, y: 346 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
@@ -148,7 +148,7 @@ class Entity {
 
 class Player extends Entity {
   constructor() {
-    super(checkpoint.x, checkpoint.y, 42, STAND_HEIGHT);
+    super(checkpoint.x, checkpoint.y, 54, STAND_HEIGHT);
     this.hp = 3;
     this.facing = 1;
     this.pulseTimer = 0;
@@ -235,115 +235,92 @@ class Player extends Entity {
   }
 
   draw() {
-    const glow = this.gravitySign < 0 ? "rgba(135, 255, 198, 0.68)" : "rgba(82, 166, 240, 0.5)";
-    const outline = this.gravitySign < 0 ? "#7effc0" : "#4ea2f2";
-    const fill = "rgba(255, 255, 255, 0.94)";
-    const cx = this.x + this.w / 2;
-    const footY = this.gravitySign > 0 ? this.y + this.h - 1 : this.y + 1;
+    const outline = "#4ea2f2";
+    const fill = "rgba(255, 255, 255, 0.96)";
+    const glow = "rgba(82, 166, 240, 0.38)";
     const facing = this.facing;
-    const moving = Math.abs(this.vx) > 1 && this.onSurface;
-    const runStride = this.isRunning ? 1 : 0.55;
-    const phase = this.animTime * (this.isRunning ? 1.45 : 1);
-    const stride = moving ? Math.sin(phase) * runStride : 0;
-    const counter = moving ? Math.sin(phase + Math.PI) * runStride : 0;
-    const airLift = this.onSurface ? 0 : clamp(this.vy / MAX_FALL_SPEED, -1, 1);
-    const crouch = this.isCrouching ? 1 : 0;
-    const landingSquash = this.landTimer > 0 ? this.landTimer / 0.16 : 0;
+    const baseX = this.x + this.w / 2;
+    const topY = this.gravitySign > 0 ? this.y + this.h - STAND_HEIGHT : this.y + STAND_HEIGHT;
+    const verticalFlip = this.gravitySign > 0 ? 1 : -1;
 
     ctx.save();
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = 12;
-    ctx.strokeStyle = outline;
-    ctx.fillStyle = fill;
-    ctx.lineWidth = 5;
+    ctx.translate(baseX, topY);
+    ctx.scale(facing, verticalFlip);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 12;
 
-    // Side-view-only abstract humanoid inspired by the supplied running pose.
-    const headR = crouch ? 10 : 13 - landingSquash * 1.5;
-    const headX = cx - facing * 2;
-    const headY = this.y + (crouch ? 12 : 14 + landingSquash * 2);
-    const neck = { x: cx - facing * 1, y: this.y + (crouch ? 24 : 29) };
-    const hip = { x: cx + facing * (crouch ? 2 : 4), y: this.y + (crouch ? 35 : 49 + landingSquash * 3) };
-    const shoulder = { x: cx - facing * 3, y: neck.y + (crouch ? 2 : 4) };
+    function strokeRoundedPath(points, outlineWidth, fillWidth) {
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = outlineWidth;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+      ctx.stroke();
 
-    // Rounded head and tapered torso keep the character humanoid without details.
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = fillWidth;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+      ctx.stroke();
+    }
+
+    // Fixed, code-generated silhouette matching the supplied blue-outline runner.
+    const shoulder = { x: -7, y: 39 };
+    const hip = { x: 6, y: 73 };
+
+    // Far leg tucked behind the body and sweeping back to the left.
+    strokeRoundedPath([
+      { x: 1, y: 70 },
+      { x: -13, y: 101 },
+      { x: -46, y: 110 }
+    ], 19, 11);
+
+    // Far arm bends forward with an open, raised hand.
+    strokeRoundedPath([
+      { x: 3, y: 43 },
+      { x: 22, y: 59 },
+      { x: 42, y: 47 }
+    ], 16, 9);
+
+    // Torso: simple white tapered body with no facial or clothing details.
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.arc(headX, headY, headR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(neck.x - facing * 7, neck.y);
-    ctx.quadraticCurveTo(cx - facing * 15, neck.y + 7, cx - facing * 14, hip.y - 8);
-    ctx.quadraticCurveTo(cx - facing * 5, hip.y + 4, hip.x + facing * 9, hip.y + 1);
-    ctx.quadraticCurveTo(cx + facing * 14, neck.y + 12, neck.x + facing * 7, neck.y + 1);
-    ctx.quadraticCurveTo(cx + facing * 5, neck.y - 3, neck.x - facing * 7, neck.y);
+    ctx.moveTo(-8, 33);
+    ctx.quadraticCurveTo(-18, 40, -27, 64);
+    ctx.quadraticCurveTo(-25, 72, -14, 75);
+    ctx.lineTo(14, 85);
+    ctx.quadraticCurveTo(18, 63, 9, 43);
+    ctx.quadraticCurveTo(5, 33, -8, 33);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    const frontLeg = {
-      knee: { x: hip.x + facing * (10 + stride * 4), y: hip.y + 13 - Math.max(stride, 0) * 11 - airLift * 4 },
-      foot: { x: cx + facing * (14 + stride * 18), y: footY - Math.max(stride, 0) * 3 }
-    };
-    const backLeg = {
-      knee: { x: hip.x - facing * (8 + counter * 3), y: hip.y + 16 - Math.max(counter, 0) * 8 + airLift * 2 },
-      foot: { x: cx - facing * (21 + counter * 14), y: footY - Math.max(counter, 0) * 7 }
-    };
+    // Near front leg lifts forward, then drops nearly vertical like the reference.
+    strokeRoundedPath([
+      hip,
+      { x: 23, y: 97 },
+      { x: 10, y: 124 }
+    ], 20, 12);
 
-    const frontArm = {
-      elbow: { x: shoulder.x - facing * (10 + stride * 7), y: shoulder.y + 18 + Math.max(stride, 0) * 3 },
-      hand: { x: cx - facing * (3 + stride * 15), y: shoulder.y + 30 - Math.max(stride, 0) * 6 }
-    };
-    const backArm = {
-      elbow: { x: shoulder.x + facing * (18 + counter * 8), y: shoulder.y + 14 - Math.max(counter, 0) * 5 },
-      hand: { x: cx + facing * (25 + counter * 15), y: shoulder.y + 20 - Math.max(counter, 0) * 8 }
-    };
+    // Near arm crosses diagonally in front of the torso.
+    strokeRoundedPath([
+      shoulder,
+      { x: -19, y: 63 },
+      { x: 17, y: 78 }
+    ], 18, 10);
 
-    if (crouch) {
-      frontLeg.knee.x = hip.x + facing * 8;
-      frontLeg.knee.y = footY - 14;
-      frontLeg.foot.x = cx + facing * 24;
-      backLeg.knee.x = hip.x - facing * 10;
-      backLeg.knee.y = footY - 12;
-      backLeg.foot.x = cx - facing * 18;
-      frontArm.hand.y = shoulder.y + 21;
-      backArm.hand.y = shoulder.y + 16;
-    } else if (!this.onSurface) {
-      frontLeg.foot.y -= airLift < 0 ? 6 : 0;
-      backLeg.foot.y -= airLift > 0 ? 8 : 4;
-      frontArm.hand.y -= airLift < 0 ? 10 : -2;
-      backArm.hand.y -= airLift < 0 ? 2 : 8;
-    }
-
-    if (this.attackTimer > 0) {
-      backArm.elbow.x = shoulder.x + facing * 20;
-      backArm.hand.x = cx + facing * 32;
-      backArm.hand.y = shoulder.y + 8;
-    }
-
-    function drawBentLimb(root, joint, end) {
-      ctx.beginPath();
-      ctx.moveTo(root.x, root.y);
-      ctx.lineTo(joint.x, joint.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
-    }
-
-    // Draw far limbs first so the torso and near limbs read cleanly.
-    ctx.globalAlpha = 0.72;
-    drawBentLimb(hip, backLeg.knee, backLeg.foot);
-    drawBentLimb(shoulder, backArm.elbow, backArm.hand);
-    ctx.globalAlpha = 1;
-    drawBentLimb(hip, frontLeg.knee, frontLeg.foot);
-    drawBentLimb(shoulder, frontArm.elbow, frontArm.hand);
-
-    ctx.strokeStyle = "rgba(160, 229, 255, 0.65)";
-    ctx.lineWidth = 2;
+    // Head is an unfilled-feature circle, exactly matching the simple reference style.
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(neck.x - facing * 5, neck.y + 2);
-    ctx.quadraticCurveTo(cx - facing * 4, hip.y - 9, hip.x + facing * 4, hip.y - 2);
+    ctx.arc(1, 15, 15, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
 
     ctx.restore();
