@@ -7,6 +7,7 @@
     maxFallSpeed: 900,
     walkSpeed: 230,
     runSpeed: 340,
+    crouchSpeed: 120,
     playerWidth: 24,
     crouchHeight: 34,
     standHeight: 50,
