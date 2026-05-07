@@ -184,6 +184,8 @@ class Player extends Entity {
     this.isCrouching = shouldCrouch;
     this.h = nextHeight;
     this.isCrouching = shouldCrouch;
+    this.h = nextHeight;
+    this.isCrouching = shouldCrouch;
     this.h = shouldCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
 
     // Resize from the body/top while keeping the feet glued to the touched surface.
@@ -239,7 +241,28 @@ class Player extends Entity {
   takeDamage(amount) {
     if (this.damageTimer > 0) return false;
     this.hp -= amount;
+
+    if (this.hp <= 0) {
+      this.fullRespawn();
+      return true;
+    }
+
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
+    return true;
+  }
+
+  fallOutOfWorld() {
+    // Death-zone recovery must always move the player back into the room, even
+    // if contact-damage invulnerability is active while they are falling.
+    if (this.damageTimer <= 0) this.hp -= 1;
+
+    if (this.hp <= 0) {
+      this.fullRespawn();
+      return;
+    }
+
+    this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
+    this.respawnAtSafeAnchor();
     if (this.hp <= 0) this.fullRespawn();
     return true;
   }
@@ -256,6 +279,7 @@ class Player extends Entity {
   fullRespawn() {
     resetGravityField(true);
     this.hp = 3;
+    this.damageTimer = 0;
     this.placeAt(checkpoint.x, checkpoint.y);
   }
 
@@ -385,6 +409,18 @@ class Player extends Entity {
     } else if (sprinting) {
       const lean = 3;
       pose = {
+        head: { x: -1, y: 40, r: 12 },
+        torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
+        farArm: [{ x: 8, y: 58 }, { x: 16, y: 76 }, { x: 2, y: 89 }],
+        nearArm: [{ x: -8, y: 58 }, { x: -16, y: 76 }, { x: -2, y: 90 }],
+        farLeg: [{ x: -2, y: 80 }, { x: -18, y: 98 }, { x: -24, y: modelFeetY }],
+        nearLeg: [{ x: 8, y: 81 }, { x: 20, y: 99 }, { x: 6, y: modelFeetY }]
+      };
+    } else if (sprinting) {
+      const lean = 3;
+      pose = {
+        head: { x: lean * 0.5, y: 18, r: 14 },
+        torso: { x: lean * 0.25, y: 61, rx: 16, ry: 29, rot: -0.06 },
         head: { x: lean * 0.5, y: 18, r: 14 },
         torso: { x: lean * 0.25, y: 61, rx: 16, ry: 29, rot: -0.06 },
         head: { x: -2, y: 45 + breathe, r: 13 },
