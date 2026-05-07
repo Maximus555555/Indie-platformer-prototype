@@ -4,13 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Indie Platformer Prototype</title>
-  <link rel="stylesheet" href="style.css?v=20260507-boot-guard">
+  <link rel="stylesheet" href="style.css?v=prototype">
 </head>
 <body>
   <main class="game-shell" aria-label="Indie platformer prototype">
     <canvas id="game" width="960" height="540" aria-label="Minimalist canvas platformer" role="img"></canvas>
     <p class="hint">A/D move · Shift run · W jump · S crouch · Space/click pulse · Hold Q preview · E toggle gravity field</p>
   </main>
-  <script src="game.js?v=20260507-boot-guard"></script>
+  <!-- Keep asset query strings stable; changing them every PR causes avoidable merge conflicts. -->
+  <script src="game-config.js?v=prototype"></script>
+  <script src="game.js?v=prototype"></script>
 </body>
 </html>

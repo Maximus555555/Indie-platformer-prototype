@@ -14,26 +14,28 @@ if (window.__indiePlatformerStarted) {
 window.__indiePlatformerStarted = true;
 
 // Easy-to-tune prototype constants. Distances are pixels, time is seconds.
-const GRAVITY = 1200;
-const JUMP_VELOCITY = -460;
-const MAX_FALL_SPEED = 900;
-const WALK_SPEED = 230;
-const RUN_SPEED = 340;
-const PLAYER_WIDTH = 46;
-const CROUCH_HEIGHT = 70;
-const STAND_HEIGHT = 108;
-const PLAYER_VISUAL_SCALE = 0.72;
-const PULSE_SPEED = 620;
-const PULSE_COOLDOWN = 0.35;
-const PULSE_DAMAGE = 1;
-const GRAVITY_FIELD_RADIUS = 260;
-const GRAVITY_FLIP_DAMPING = 0.45;
-const CONTACT_DAMAGE_COOLDOWN = 0.8;
-const FALL_LIMIT = 640;
-const ROOM_WIDTH = 1280;
+// Prefer editing game-config.js for tuning so future merges touch a small file.
+const config = window.IndiePlatformerConfig ?? {};
+const GRAVITY = config.gravity ?? 1200;
+const JUMP_VELOCITY = config.jumpVelocity ?? -460;
+const MAX_FALL_SPEED = config.maxFallSpeed ?? 900;
+const WALK_SPEED = config.walkSpeed ?? 230;
+const RUN_SPEED = config.runSpeed ?? 340;
+const PLAYER_WIDTH = config.playerWidth ?? 46;
+const CROUCH_HEIGHT = config.crouchHeight ?? 70;
+const STAND_HEIGHT = config.standHeight ?? 108;
+const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 0.72;
+const PULSE_SPEED = config.pulseSpeed ?? 620;
+const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
+const PULSE_DAMAGE = config.pulseDamage ?? 1;
+const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
+const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
+const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
+const FALL_LIMIT = config.fallLimit ?? 640;
+const ROOM_WIDTH = config.roomWidth ?? 1280;
 
-const checkpoint = { x: 86, y: 362 };
-const safeAnchor = { x: 92, y: 362 };
+const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
+const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
