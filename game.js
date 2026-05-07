@@ -491,12 +491,22 @@ class Player extends Entity {
 
       function crouchArm(side, phaseOffset) {
         const cycle = crouchWalking ? crouchWalkCycle : 0;
-        const tuckPulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) * 0.65 : 0;
-        return [
-          { x: mix(2.8 + side * 1.2, 3.2 + side * 0.8, lower), y: shoulderY },
-          { x: mix(2.4 + side * 3.6, 6.2 + side * 0.8 + tuckPulse, lower), y: mix(27, 33 + bodyY * 0.4, lower) },
-          { x: mix(2 + side * 2.6, 3.2 + side * 0.6 + tuckPulse * 0.5, lower), y: mix(36, 39, lower) }
-        ];
+        const tuckPulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) * 0.38 : 0;
+        const shoulder = {
+          x: mix(2.8 + side * 1.2, 2.6 + side * 0.85, lower),
+          y: shoulderY
+        };
+        const elbow = {
+          x: mix(2.4 + side * 3.6, 6.7 + side * 0.55 + tuckPulse, lower),
+          y: mix(27, 32.2 + bodyY * 0.35, lower)
+        };
+        // Local +X is always the player's facing direction after mirroring, so
+        // keep crouched forearms tucked ahead of the torso instead of folding back.
+        const hand = {
+          x: mix(2 + side * 2.6, 7.8 + side * 0.35 + tuckPulse * 0.7, lower),
+          y: mix(36, 37.6 + bodyY * 0.25, lower)
+        };
+        return [shoulder, elbow, hand];
       }
 
       function crouchLeg(legCycle, hipOffsetX) {
