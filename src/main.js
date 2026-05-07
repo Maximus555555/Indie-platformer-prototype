@@ -1,5 +1,8 @@
+// Visible main.js edit for GitHub sync check.
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+
+// Codex GitHub visibility test comment.
 
 const keys = {};
 const previousKeys = {};
@@ -77,6 +80,14 @@ function moveHorizontally() {
   const moveLeft = keys["a"] || keys["arrowleft"];
   const moveRight = keys["d"] || keys["arrowright"];
   const input = (moveRight ? 1 : 0) - (moveLeft ? 1 : 0);
+
+  if (input !== 0) {
+    player.vx += input * movement.acceleration;
+    player.vx = Math.max(-player.maxSpeed, Math.min(player.vx, player.maxSpeed));
+  } else {
+    player.vx *= movement.friction;
+
+  const input = Number(moveRight) - Number(moveLeft);
 
   if (input !== 0) {
     player.vx += input * movement.acceleration;
@@ -192,6 +203,44 @@ function drawPlayer() {
 
   ctx.fillStyle = colors.playerCore;
   ctx.fillRect(player.x + 8, player.y + 8, player.w - 16, player.h - 16);
+  if (isJumpJustPressed()) {
+    player.jumpBufferTimer = movement.jumpBufferTime;
+  } else if (player.jumpBufferTimer > 0) {
+    player.jumpBufferTimer -= 1;
+  }
+}
+
+function applyJump() {
+  // Coyote time lets a jump still fire for a few frames after leaving a ledge.
+  if (player.jumpBufferTimer > 0 && player.coyoteTimer > 0) {
+    player.vy = player.jumpPower;
+    player.onGround = false;
+    player.coyoteTimer = 0;
+    player.jumpBufferTimer = 0;
+  }
+
+  // Releasing jump early cuts upward velocity for a shorter, controllable hop.
+  if (isJumpJustReleased() && player.vy < 0) {
+    player.vy *= movement.jumpCutMultiplier;
+  }
+}
+
+function rememberInputState() {
+  previousKeys["a"] = keys["a"];
+  previousKeys["d"] = keys["d"];
+  previousKeys["w"] = keys["w"];
+  previousKeys[" "] = keys[" "];
+  previousKeys["arrowleft"] = keys["arrowleft"];
+  previousKeys["arrowright"] = keys["arrowright"];
+  previousKeys["arrowup"] = keys["arrowup"];
+}
+
+function update() {
+  updateJumpTimers();
+  applyJump();
+  moveHorizontally();
+  moveVertically();
+  rememberInputState();
 }
 
 function draw() {
