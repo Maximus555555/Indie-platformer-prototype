@@ -321,6 +321,7 @@ class Player extends Entity {
     const visualScale = PLAYER_VISUAL_SCALE;
     const modelFeetY = 50;
     const characterOutlineWidth = 1.25;
+    const torsoRadiusX = 5.4;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -466,7 +467,7 @@ class Player extends Entity {
       const torsoTilt = Math.sin(cycle * Math.PI * 4) * 0.035;
       pose = {
         head: { x: 0, y: 5.8 + bodyY * 0.35, r: 5.4 },
-        torso: { x: 0, y: 23 + bodyY, rx: 6.4, ry: 12, rot: torsoTilt },
+        torso: { x: 0, y: 23 + bodyY, rx: torsoRadiusX, ry: 12, rot: torsoTilt },
         farArm: walkingArm((cycle + 0.5) % 1, bodyY, -1.2),
         nearArm: walkingArm(cycle, bodyY, 0.6),
         farLeg: walkingLeg((cycle + 0.5) % 1, bodyY * 0.35),
@@ -491,20 +492,21 @@ class Player extends Entity {
 
       function crouchArm(side, phaseOffset) {
         const cycle = crouchWalking ? crouchWalkCycle : 0;
-        const tuckPulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) * 0.38 : 0;
+        const balancePulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) : 0;
         const shoulder = {
           x: mix(2.8 + side * 1.2, 2.6 + side * 0.85, lower),
           y: shoulderY
         };
+        // Local +X is always the player's facing direction after mirroring.
+        // Crouched arms reach toward that front side; the elbow stays behind the
+        // hand so the bend faces backward instead of hooking forward.
         const elbow = {
-          x: mix(2.4 + side * 3.6, 6.7 + side * 0.55 + tuckPulse, lower),
-          y: mix(27, 32.2 + bodyY * 0.35, lower)
+          x: mix(2.4 + side * 3.6, 8.7 + side * 0.45 + balancePulse * 0.3, lower),
+          y: mix(27, 32.4 + bodyY * 0.25 + balancePulse * 0.2, lower)
         };
-        // Local +X is always the player's facing direction after mirroring, so
-        // keep crouched forearms tucked ahead of the torso instead of folding back.
         const hand = {
-          x: mix(2 + side * 2.6, 7.8 + side * 0.35 + tuckPulse * 0.7, lower),
-          y: mix(36, 37.6 + bodyY * 0.25, lower)
+          x: mix(2 + side * 2.6, 13.2 + side * 0.35 + balancePulse * 0.45, lower),
+          y: mix(36, 30.6 + bodyY * 0.2 - balancePulse * 0.25, lower)
         };
         return [shoulder, elbow, hand];
       }
@@ -540,7 +542,7 @@ class Player extends Entity {
       const cycle = crouchWalkCycle;
       pose = {
         head: { x: mix(0, 3.2, lower), y: mix(5.8, 15.8 + bodyY * 0.35, lower), r: 5.4 },
-        torso: { x: torsoCenter.x, y: torsoCenter.y, rx: 6.2, ry: 12, rot: torsoLean },
+        torso: { x: torsoCenter.x, y: torsoCenter.y, rx: torsoRadiusX, ry: 12, rot: torsoLean },
         farArm: crouchArm(1, 0.5),
         nearArm: crouchArm(-1, 0),
         farLeg: crouchLeg((cycle + 0.5) % 1, -1.2),
@@ -613,7 +615,7 @@ class Player extends Entity {
 
       pose = {
         head: { x: 1.4 + headLeanX, y: 5.8 + bodyY * 0.35, r: 5.4 },
-        torso: { x: torsoCenterX, y: 23 + bodyY, rx: 6.4, ry: 12, rot: runLean },
+        torso: { x: torsoCenterX, y: 23 + bodyY, rx: torsoRadiusX, ry: 12, rot: runLean },
         farArm: runningArm(cycle, -1.2),
         nearArm: runningArm((cycle + 0.5) % 1, 0.6),
         farLeg: runningLeg((cycle + 0.5) % 1, -1.2),
@@ -624,7 +626,7 @@ class Player extends Entity {
       const tuck = rising ? -1 : 1;
       pose = {
         head: { x: tuck * 0.8, y: 6, r: 5.4 },
-        torso: { x: tuck * 0.6, y: 23, rx: 6.4, ry: 12, rot: tuck * 0.05 },
+        torso: { x: tuck * 0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: tuck * 0.05 },
         farArm: rising ? [{ x: 4, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }] : [{ x: 4, y: 18 }, { x: 10, y: 27 }, { x: 14, y: 26 }],
         nearArm: rising ? [{ x: -4, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }] : [{ x: -4, y: 18 }, { x: -9, y: 29 }, { x: 1, y: 36 }],
         farLeg: rising ? [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }] : [{ x: -1, y: 29 }, { x: -3, y: 40 }, { x: -2, y: modelFeetY }],
@@ -634,7 +636,7 @@ class Player extends Entity {
       const breathe = Math.sin(this.animTime * 1.2) * 0.45;
       pose = {
         head: { x: 0, y: 5.8 + breathe * 0.35, r: 5.4 },
-        torso: { x: 0, y: 23 + breathe, rx: 6.4, ry: 12, rot: 0 },
+        torso: { x: 0, y: 23 + breathe, rx: torsoRadiusX, ry: 12, rot: 0 },
         farArm: restingArm(1, breathe),
         nearArm: restingArm(-1, breathe),
         farLeg: restingLeg(-1),
