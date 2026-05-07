@@ -21,10 +21,10 @@ const JUMP_VELOCITY = config.jumpVelocity ?? -460;
 const MAX_FALL_SPEED = config.maxFallSpeed ?? 900;
 const WALK_SPEED = config.walkSpeed ?? 230;
 const RUN_SPEED = config.runSpeed ?? 340;
-const PLAYER_WIDTH = config.playerWidth ?? 22;
-const CROUCH_HEIGHT = config.crouchHeight ?? 32;
-const STAND_HEIGHT = config.standHeight ?? 48;
-const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1;
+const PLAYER_WIDTH = config.playerWidth ?? 24;
+const CROUCH_HEIGHT = config.crouchHeight ?? 34;
+const STAND_HEIGHT = config.standHeight ?? 50;
+const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.1;
 const PULSE_SPEED = config.pulseSpeed ?? 620;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
@@ -335,13 +335,26 @@ class Player extends Entity {
     }
 
     function drawTorso(cx, cy, rx, ry, rotation) {
+      const sideHalf = Math.max(ry - rx, ry * 0.42);
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rotation);
       ctx.fillStyle = fill;
       ctx.strokeStyle = outline;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, rx, ry, rotation, 0, Math.PI * 2);
+      ctx.moveTo(-rx, -sideHalf);
+      ctx.lineTo(-rx, sideHalf);
+      ctx.quadraticCurveTo(-rx, ry, 0, ry);
+      ctx.quadraticCurveTo(rx, ry, rx, sideHalf);
+      ctx.lineTo(rx, -sideHalf);
+      ctx.quadraticCurveTo(rx, -ry, 0, -ry);
+      ctx.quadraticCurveTo(-rx, -ry, -rx, -sideHalf);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.restore();
     }
 
     function mix(a, b, amount) {
@@ -367,33 +380,33 @@ class Player extends Entity {
     // torso/head bob is applied separately so collision stays glued to ground.
     function walkingLeg(cycle, hipOffsetY) {
       const frames = [
-        [{ x: -1, y: 28 + hipOffsetY }, { x: 3, y: 39 }, { x: 10, y: modelFeetY }],
-        [{ x: -1, y: 29 + hipOffsetY }, { x: 2, y: 40 }, { x: 6, y: modelFeetY }],
-        [{ x: -1, y: 28 + hipOffsetY }, { x: 0, y: 39 }, { x: 0, y: modelFeetY - 2 }],
-        [{ x: -1, y: 27 + hipOffsetY }, { x: -4, y: 39 }, { x: -8, y: modelFeetY - 1 }],
-        [{ x: -1, y: 28 + hipOffsetY }, { x: -5, y: 40 }, { x: -10, y: modelFeetY }],
-        [{ x: -1, y: 29 + hipOffsetY }, { x: -3, y: 40 }, { x: -6, y: modelFeetY }],
-        [{ x: -1, y: 28 + hipOffsetY }, { x: 0, y: 38 }, { x: 0, y: modelFeetY - 3 }],
-        [{ x: -1, y: 27 + hipOffsetY }, { x: 4, y: 39 }, { x: 8, y: modelFeetY - 1 }]
+        [{ x: -1, y: 28 + hipOffsetY }, { x: 4, y: 39 }, { x: 10, y: modelFeetY }],
+        [{ x: -1, y: 29 + hipOffsetY }, { x: 5, y: 41 }, { x: 6, y: modelFeetY }],
+        [{ x: -1, y: 28 + hipOffsetY }, { x: 1, y: 39 }, { x: 0, y: modelFeetY - 2 }],
+        [{ x: -1, y: 27 + hipOffsetY }, { x: -3, y: 38 }, { x: -8, y: modelFeetY - 1 }],
+        [{ x: -1, y: 28 + hipOffsetY }, { x: -6, y: 40 }, { x: -10, y: modelFeetY }],
+        [{ x: -1, y: 29 + hipOffsetY }, { x: -6, y: 41 }, { x: -6, y: modelFeetY }],
+        [{ x: -1, y: 28 + hipOffsetY }, { x: -1, y: 38 }, { x: 0, y: modelFeetY - 3 }],
+        [{ x: -1, y: 27 + hipOffsetY }, { x: 3, y: 38 }, { x: 8, y: modelFeetY - 1 }]
       ];
       return interpolateKeyframes(frames, cycle);
     }
 
-    function walkingArm(legCycle, shoulderOffsetY) {
+    function walkingArm(legCycle, shoulderOffsetY, depthOffset) {
       const swing = -Math.cos(legCycle * Math.PI * 2);
-      const shoulder = { x: 0, y: 18 + shoulderOffsetY };
+      const shoulder = { x: 2.8 + depthOffset, y: 18 + shoulderOffsetY };
       return [
         shoulder,
-        { x: swing * 4.6, y: 25 + shoulderOffsetY },
-        { x: swing * 9.2, y: 33 + shoulderOffsetY }
+        { x: 2.4 + depthOffset + swing * 4.4, y: 25 + shoulderOffsetY },
+        { x: 2 + depthOffset + swing * 8.8, y: 33 + shoulderOffsetY }
       ];
     }
 
     function restingArm(side, breathe) {
       return [
-        { x: side * 4, y: 18 + breathe },
-        { x: side * 5, y: 27 + breathe * 0.4 },
-        { x: side * 3, y: 36 }
+        { x: 2.8 + side * 1.2, y: 18 + breathe },
+        { x: 2.4 + side * 3.6, y: 27 + breathe * 0.4 },
+        { x: 2 + side * 2.6, y: 36 }
       ];
     }
 
@@ -415,9 +428,9 @@ class Player extends Entity {
       const torsoTilt = Math.sin(cycle * Math.PI * 4) * 0.035;
       pose = {
         head: { x: 0, y: 5.8 + bodyY * 0.35, r: 5.4 },
-        torso: { x: 0, y: 23 + bodyY, rx: 7, ry: 11.5, rot: torsoTilt },
-        farArm: walkingArm((cycle + 0.5) % 1, bodyY),
-        nearArm: walkingArm(cycle, bodyY),
+        torso: { x: 0, y: 23 + bodyY, rx: 6.4, ry: 12, rot: torsoTilt },
+        farArm: walkingArm((cycle + 0.5) % 1, bodyY, -1.2),
+        nearArm: walkingArm(cycle, bodyY, 0.6),
         farLeg: walkingLeg((cycle + 0.5) % 1, bodyY * 0.35),
         nearLeg: walkingLeg(cycle, bodyY * 0.35)
       };
@@ -425,9 +438,9 @@ class Player extends Entity {
       const breathe = Math.sin(this.animTime * 1.6) * 0.35;
       pose = {
         head: { x: -0.5, y: 16 + breathe, r: 5.3 },
-        torso: { x: 1, y: 30 + breathe, rx: 7.5, ry: 9.5, rot: -0.08 },
-        farArm: [{ x: 4, y: 26 }, { x: 9, y: 34 }, { x: 3, y: 40 }],
-        nearArm: [{ x: -4, y: 26 }, { x: -9, y: 34 }, { x: -2, y: 40 }],
+        torso: { x: 1, y: 30 + breathe, rx: 6.8, ry: 10, rot: -0.08 },
+        farArm: [{ x: 3.2, y: 26 }, { x: 9, y: 34 }, { x: 3, y: 40 }],
+        nearArm: [{ x: 1.4, y: 26 }, { x: -6, y: 34 }, { x: -2, y: 40 }],
         farLeg: [{ x: -1, y: 36 }, { x: -8, y: 44 }, { x: -11, y: modelFeetY }],
         nearLeg: [{ x: 4, y: 36 }, { x: 10, y: 44 }, { x: 3, y: modelFeetY }]
       };
@@ -437,9 +450,9 @@ class Player extends Entity {
       const lift = Math.max(0, Math.cos(phase));
       pose = {
         head: { x: 1.2, y: 6, r: 5.4 },
-        torso: { x: 0.7, y: 23, rx: 7, ry: 11.5, rot: -0.06 },
-        farArm: [{ x: 3, y: 18 }, { x: -step * 6, y: 25 }, { x: -step * 10, y: 34 }],
-        nearArm: [{ x: -3, y: 18 }, { x: step * 6, y: 25 }, { x: step * 10, y: 34 }],
+        torso: { x: 0.7, y: 23, rx: 6.4, ry: 12, rot: -0.06 },
+        farArm: [{ x: 2.8, y: 18 }, { x: 2 - step * 6, y: 25 }, { x: 1.5 - step * 10, y: 34 }],
+        nearArm: [{ x: 3.6, y: 18 }, { x: 2.6 + step * 6, y: 25 }, { x: 2 + step * 10, y: 34 }],
         farLeg: [{ x: -1, y: 28 }, { x: -step * 7, y: 39 - lift * 2 }, { x: -step * 12, y: modelFeetY - lift * 3 }],
         nearLeg: [{ x: 1, y: 28 }, { x: step * 7, y: 39 - Math.max(0, -Math.cos(phase)) * 2 }, { x: step * 12, y: modelFeetY - Math.max(0, -Math.cos(phase)) * 3 }]
       };
@@ -448,7 +461,7 @@ class Player extends Entity {
       const tuck = rising ? -1 : 1;
       pose = {
         head: { x: tuck * 0.8, y: 6, r: 5.4 },
-        torso: { x: tuck * 0.6, y: 23, rx: 7, ry: 11.5, rot: tuck * 0.05 },
+        torso: { x: tuck * 0.6, y: 23, rx: 6.4, ry: 12, rot: tuck * 0.05 },
         farArm: rising ? [{ x: 4, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }] : [{ x: 4, y: 18 }, { x: 10, y: 27 }, { x: 14, y: 26 }],
         nearArm: rising ? [{ x: -4, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }] : [{ x: -4, y: 18 }, { x: -9, y: 29 }, { x: 1, y: 36 }],
         farLeg: rising ? [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }] : [{ x: -1, y: 29 }, { x: -3, y: 40 }, { x: -2, y: modelFeetY }],
@@ -458,7 +471,7 @@ class Player extends Entity {
       const breathe = Math.sin(this.animTime * 1.2) * 0.45;
       pose = {
         head: { x: 0, y: 5.8 + breathe * 0.35, r: 5.4 },
-        torso: { x: 0, y: 23 + breathe, rx: 7, ry: 11.5, rot: 0 },
+        torso: { x: 0, y: 23 + breathe, rx: 6.4, ry: 12, rot: 0 },
         farArm: restingArm(1, breathe),
         nearArm: restingArm(-1, breathe),
         farLeg: restingLeg(-1),
@@ -481,10 +494,14 @@ class Player extends Entity {
     ctx.stroke();
 
     ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.translate(pose.torso.x + 1.2, pose.torso.y + 1.7);
+    ctx.rotate(pose.torso.rot);
     ctx.fillStyle = inner;
     ctx.beginPath();
-    ctx.ellipse(pose.torso.x + 1.5, pose.torso.y + 2, pose.torso.rx * 0.38, pose.torso.ry * 0.64, pose.torso.rot, 0, Math.PI * 2);
+    ctx.roundRect(-pose.torso.rx * 0.24, -pose.torso.ry * 0.42, pose.torso.rx * 0.48, pose.torso.ry * 0.84, pose.torso.rx * 0.22);
     ctx.fill();
+    ctx.restore();
 
     ctx.restore();
     drawGravityMarker(this);
