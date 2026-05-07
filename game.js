@@ -377,6 +377,17 @@ class Player extends Entity {
 
     let pose;
     if (crouching) {
+      const breathe = Math.sin(this.animTime * 1.8) * 0.8;
+      pose = {
+        head: { x: -1, y: 40, r: 12 },
+        torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
+        farArm: [{ x: 8, y: 58 }, { x: 16, y: 76 }, { x: 2, y: 89 }],
+        nearArm: [{ x: -8, y: 58 }, { x: -16, y: 76 }, { x: -2, y: 90 }],
+        farLeg: [{ x: -2, y: 80 }, { x: -18, y: 98 }, { x: -24, y: modelFeetY }],
+        nearLeg: [{ x: 8, y: 81 }, { x: 20, y: 99 }, { x: 6, y: modelFeetY }]
+      };
+    } else if (sprinting) {
+      const lean = 3;
       pose = {
         head: { x: -1, y: 40, r: 12 },
         torso: { x: 2, y: 66, rx: 19, ry: 18, rot: -0.08 },
