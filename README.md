@@ -32,7 +32,7 @@ Then visit `http://localhost:8000`.
 - Abstract white/light-blue humanoid player silhouette that faces left or right.
 - Crouching visually compresses the player and lowers the collision height.
 - Player health starts at 3 HP.
-- Falling off the room or touching hazards causes 1 damage and respawns at a safe anchor.
+- Falling off the room causes 1 damage and respawns at a safe anchor.
 - Reaching 0 HP resets the player to the checkpoint with 3 HP.
 - **System Pulse** fires a glowing geometric pulse horizontally, deals 1 damage, and has a cooldown.
 - Simple enemy placeholder with 2 HP, contact damage, patrol movement, and collision boxes.
@@ -40,7 +40,7 @@ Then visit `http://localhost:8000`.
 - Pressing E tags valid entities inside the range for the current cast ID and flips their gravity.
 - Pressing E again deactivates the ability and resets affected entities to normal gravity.
 - Affected entities show a small marker and retain flipped gravity even after leaving the original range.
-- Test room includes platforms, a checkpoint marker, safe respawn anchor, pit gap, spikes, and one enemy target.
+- Test room includes platforms, a checkpoint marker, safe respawn anchor, pit gap, and one enemy target.
 
 ## GitHub Pages
 

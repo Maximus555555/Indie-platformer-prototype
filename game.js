@@ -39,12 +39,6 @@ const platforms = [
   { x: 1010, y: 260, w: 155, h: 20 }
 ];
 
-const spikes = [
-  { x: 470, y: 442, w: 70, h: 28, direction: -1 },
-  { x: 980, y: 442, w: 80, h: 28, direction: -1 },
-  { x: 1060, y: 232, w: 70, h: 28, direction: -1 }
-];
-
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -59,31 +53,6 @@ function centerOf(entity) {
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function drawTriangleSpike(spike) {
-  const count = Math.max(2, Math.floor(spike.w / 18));
-  const tooth = spike.w / count;
-  ctx.fillStyle = "#ff5578";
-  ctx.shadowColor = "rgba(255, 85, 120, 0.45)";
-  ctx.shadowBlur = 10;
-
-  for (let i = 0; i < count; i += 1) {
-    const x = spike.x + i * tooth;
-    ctx.beginPath();
-    if (spike.direction < 0) {
-      ctx.moveTo(x, spike.y + spike.h);
-      ctx.lineTo(x + tooth / 2, spike.y);
-      ctx.lineTo(x + tooth, spike.y + spike.h);
-    } else {
-      ctx.moveTo(x, spike.y);
-      ctx.lineTo(x + tooth / 2, spike.y + spike.h);
-      ctx.lineTo(x + tooth, spike.y);
-    }
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.shadowBlur = 0;
 }
 
 class Entity {
@@ -461,13 +430,6 @@ function update(dt) {
     if (enemy.hp > 0 && rectsOverlap(player, enemy)) player.takeDamage(1);
   }
 
-  for (const spike of spikes) {
-    if (rectsOverlap(player, spike)) player.takeDamage(1);
-    for (const enemy of enemies) {
-      if (enemy.hp > 0 && rectsOverlap(enemy, spike)) enemy.hit(2);
-    }
-  }
-
   if (player.y > FALL_LIMIT || player.y + player.h < -120) player.takeDamage(1);
 
   cameraX = clamp(player.x + player.w / 2 - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
@@ -504,8 +466,6 @@ function drawRoom() {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
   }
-
-  spikes.forEach(drawTriangleSpike);
 
   ctx.fillStyle = "#87ffc6";
   ctx.fillRect(checkpoint.x - 12, checkpoint.y + STAND_HEIGHT - 70, 8, 70);
