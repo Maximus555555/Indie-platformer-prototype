@@ -471,11 +471,14 @@ class Player extends Entity {
         scaledBob - Math.floor(scaledBob)
       );
       // Positive rotation is forward in the player-local coordinate space;
-      // the outer facing scale mirrors it when running left. A 10-degree lean
-      // reads clearly without shifting the stable collision body or feet.
+      // the outer facing scale mirrors it when running left. Anchor the lean
+      // around the hips so the feet and stable collision body stay grounded.
       const runLean = Math.PI / 18;
-      const shoulderLeanX = Math.sin(runLean) * 8;
-      const headLeanX = Math.sin(runLean) * 18;
+      const torsoHipAnchorX = 0.4;
+      const torsoLeanX = Math.sin(runLean) * 12;
+      const torsoCenterX = torsoHipAnchorX + torsoLeanX;
+      const shoulderLeanX = torsoLeanX + 2.4;
+      const headLeanX = Math.sin(runLean) * 25;
 
       // A mirrored eight-pose run keeps contact/compression/passing/push-off
       // readable while interpolation prevents snapping between key poses.
@@ -524,7 +527,7 @@ class Player extends Entity {
 
       pose = {
         head: { x: 1.4 + headLeanX, y: 5.8 + bodyY * 0.35, r: 5.4 },
-        torso: { x: 0.8, y: 23 + bodyY, rx: 6.4, ry: 12, rot: runLean },
+        torso: { x: torsoCenterX, y: 23 + bodyY, rx: 6.4, ry: 12, rot: runLean },
         farArm: runningArm(cycle, -1.2),
         nearArm: runningArm((cycle + 0.5) % 1, 0.6),
         farLeg: runningLeg((cycle + 0.5) % 1, -1.2),
