@@ -483,7 +483,8 @@ class Player extends Entity {
         : settle;
       const lower = crouchBlend;
       const torsoLean = 0.18 * lower;
-      const hipY = mix(29, 37.5 + bodyY * 0.3, lower);
+      // Keep crouched hips in the torso's lower third so folded legs stay visibly attached.
+      const hipY = mix(29, 40.6 + bodyY * 0.3, lower);
       const shoulderY = mix(18, 27 + bodyY, lower);
       const torsoCenter = {
         x: mix(0, 2.1, lower),
