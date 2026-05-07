@@ -21,6 +21,7 @@ const JUMP_VELOCITY = config.jumpVelocity ?? -460;
 const MAX_FALL_SPEED = config.maxFallSpeed ?? 900;
 const WALK_SPEED = config.walkSpeed ?? 230;
 const RUN_SPEED = config.runSpeed ?? 340;
+const CROUCH_SPEED = config.crouchSpeed ?? WALK_SPEED * 0.52;
 const PLAYER_WIDTH = config.playerWidth ?? 24;
 const CROUCH_HEIGHT = config.crouchHeight ?? 34;
 const STAND_HEIGHT = config.standHeight ?? 50;
@@ -146,6 +147,8 @@ class Player extends Entity {
     this.isRunning = false;
     this.animTime = 0;
     this.walkTime = 0;
+    this.crouchWalkTime = 0;
+    this.crouchBlend = 0;
     this.landTimer = 0;
     this.attackTimer = 0;
   }
@@ -153,18 +156,23 @@ class Player extends Entity {
   update(dt) {
     const left = keys.has("a") || keys.has("arrowleft");
     const right = keys.has("d") || keys.has("arrowright");
-    const crouch = keys.has("s") || keys.has("arrowdown");
+    const crouchHeld = keys.has("s") || keys.has("arrowdown");
     const runHeld = keys.has("shift");
     const input = Number(right) - Number(left);
+    const wantsGroundCrouch = crouchHeld && this.onSurface;
 
-    this.setCrouch(crouch && (this.onSurface || this.isCrouching));
+    this.setCrouch(wantsGroundCrouch);
+    this.updateCrouchShape(dt);
 
-    this.isRunning = runHeld && input !== 0 && !this.isCrouching;
-    this.vx = input * (this.isRunning ? RUN_SPEED : WALK_SPEED);
+    // Held crouch has priority over sprinting and uses a slower, careful speed.
+    this.isRunning = runHeld && input !== 0 && !this.isCrouching && !wantsGroundCrouch;
+    this.vx = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
     if (input !== 0) this.facing = input;
     this.animTime += dt;
     if (input !== 0 && !runHeld && this.onSurface && !this.isCrouching) this.walkTime += dt;
     else this.walkTime = 0;
+    if (input !== 0 && this.onSurface && this.isCrouching) this.crouchWalkTime += dt;
+    else this.crouchWalkTime = 0;
 
     if ((pressedThisFrame.has("w") || pressedThisFrame.has("arrowup")) && this.onSurface) {
       this.vy = JUMP_VELOCITY * this.gravitySign;
@@ -184,24 +192,37 @@ class Player extends Entity {
   }
 
   setCrouch(shouldCrouch) {
-    if (shouldCrouch === this.isCrouching) return;
+    if (shouldCrouch) {
+      this.isCrouching = true;
+      return;
+    }
+
     const surfaceAnchor = this.gravitySign > 0 ? this.y + this.h : this.y;
-    const nextHeight = shouldCrouch ? CROUCH_HEIGHT : STAND_HEIGHT;
-    const nextY = this.gravitySign > 0 ? surfaceAnchor - nextHeight : surfaceAnchor;
-    const nextRect = { x: this.x, y: nextY, w: this.w, h: nextHeight };
+    const standY = this.gravitySign > 0 ? surfaceAnchor - STAND_HEIGHT : surfaceAnchor;
+    const standRect = { x: this.x, y: standY, w: this.w, h: STAND_HEIGHT };
 
     // Never expand from crouch into a platform. This is especially important on
     // the frame after a gravity flip, when the player may still be beside the
     // previous surface while the held crouch input is changing state.
-    if (!shouldCrouch && platforms.some((platform) => rectsOverlap(nextRect, platform))) return;
+    if (platforms.some((platform) => rectsOverlap(standRect, platform))) return;
 
-    this.isCrouching = shouldCrouch;
-    this.h = nextHeight;
+    this.isCrouching = false;
+  }
+
+  updateCrouchShape(dt) {
+    const surfaceAnchor = this.gravitySign > 0 ? this.y + this.h : this.y;
+    const targetHeight = this.isCrouching ? CROUCH_HEIGHT : STAND_HEIGHT;
+    const heightDelta = targetHeight - this.h;
+    const heightStep = (STAND_HEIGHT - CROUCH_HEIGHT) * dt / 0.14;
+
+    if (Math.abs(heightDelta) <= heightStep) this.h = targetHeight;
+    else this.h += Math.sign(heightDelta) * heightStep;
 
     // Resize from the body/top while keeping the feet glued to the touched surface.
     // This prevents both visual hovering and collision drift when crouching on
     // either floor or ceiling gravity.
-    this.y = nextY;
+    this.y = this.gravitySign > 0 ? surfaceAnchor - this.h : surfaceAnchor;
+    this.crouchBlend = clamp((STAND_HEIGHT - this.h) / (STAND_HEIGHT - CROUCH_HEIGHT), 0, 1);
   }
 
   flipGravity(castId) {
@@ -296,15 +317,16 @@ class Player extends Entity {
     const sprinting = moving && this.isRunning && grounded && !this.isCrouching;
     const walking = moving && grounded && !sprinting && !this.isCrouching;
     const airborne = !grounded;
-    const crouching = this.isCrouching;
+    const crouching = this.isCrouching && grounded;
     const visualScale = PLAYER_VISUAL_SCALE;
     const modelFeetY = 50;
     const characterOutlineWidth = 1.25;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
+    const crouchBlend = grounded ? this.crouchBlend : 0;
     const landSquash = this.landTimer > 0 ? this.landTimer / 0.16 : 0;
-    const poseSquash = crouching ? 0 : landSquash * 0.035;
+    const poseSquash = crouchBlend > 0 ? 0 : landSquash * 0.035;
     const scaleY = visualScale * (1 - poseSquash);
     const originY = this.gravitySign > 0
       ? surfaceY - modelFeetY * scaleY
@@ -451,14 +473,68 @@ class Player extends Entity {
         nearLeg: walkingLeg(cycle, bodyY * 0.35)
       };
     } else if (crouching) {
-      const breathe = Math.sin(this.animTime * 1.6) * 0.35;
+      const crouchWalking = moving && grounded;
+      const settle = crouchWalking ? 0 : Math.sin(this.animTime * 1.6) * 0.28;
+      const bodyY = crouchWalking
+        ? Math.sin((this.crouchWalkTime % 0.76) / 0.76 * Math.PI * 4) * 0.45
+        : settle;
+      const lower = crouchBlend;
+      const torsoLean = 0.18 * lower;
+      const hipY = mix(29, 37.5 + bodyY * 0.3, lower);
+      const shoulderY = mix(18, 27 + bodyY, lower);
+      const torsoCenter = {
+        x: mix(0, 2.1, lower),
+        y: mix(23, 31.5 + bodyY, lower)
+      };
+
+      const crouchWalkCycle = (this.crouchWalkTime % 0.76) / 0.76;
+
+      function crouchArm(side, phaseOffset) {
+        const cycle = crouchWalking ? crouchWalkCycle : 0;
+        const tuckPulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) * 0.65 : 0;
+        return [
+          { x: mix(2.8 + side * 1.2, 3.2 + side * 0.8, lower), y: shoulderY },
+          { x: mix(2.4 + side * 3.6, 6.2 + side * 0.8 + tuckPulse, lower), y: mix(27, 33 + bodyY * 0.4, lower) },
+          { x: mix(2 + side * 2.6, 3.2 + side * 0.6 + tuckPulse * 0.5, lower), y: mix(36, 39, lower) }
+        ];
+      }
+
+      function crouchLeg(legCycle, hipOffsetX) {
+        const cycle = crouchWalking ? legCycle : 0;
+        const frames = [
+          { footX: 8, footY: modelFeetY, kneeY: 44.5, kneeForward: 6.4 },
+          { footX: 5, footY: modelFeetY, kneeY: 45.2, kneeForward: 7.2 },
+          { footX: 0, footY: modelFeetY - 0.8, kneeY: 43.8, kneeForward: 7.8 },
+          { footX: -6, footY: modelFeetY, kneeY: 44.6, kneeForward: 6.8 },
+          { footX: -8, footY: modelFeetY, kneeY: 44.5, kneeForward: 6.4 },
+          { footX: -5, footY: modelFeetY, kneeY: 45.2, kneeForward: 7.2 },
+          { footX: 0, footY: modelFeetY - 0.8, kneeY: 43.8, kneeForward: 7.8 },
+          { footX: 6, footY: modelFeetY, kneeY: 44.6, kneeForward: 6.8 }
+        ];
+        const folded = interpolateKeyframes(frames.map((frame) => {
+          const hip = { x: hipOffsetX, y: hipY };
+          const foot = { x: frame.footX, y: frame.footY };
+          const knee = {
+            x: mix(hip.x, foot.x, 0.42) + frame.kneeForward,
+            y: frame.kneeY + bodyY * 0.2
+          };
+          return [hip, knee, foot];
+        }), cycle);
+        const standing = restingLeg(hipOffsetX < 0 ? -1 : 1);
+        return folded.map((point, index) => ({
+          x: mix(standing[index].x, point.x, lower),
+          y: mix(standing[index].y, point.y, lower)
+        }));
+      }
+
+      const cycle = crouchWalkCycle;
       pose = {
-        head: { x: -0.5, y: 16 + breathe, r: 5.3 },
-        torso: { x: 1, y: 30 + breathe, rx: 6.8, ry: 10, rot: -0.08 },
-        farArm: [{ x: 3.2, y: 26 }, { x: 9, y: 34 }, { x: 3, y: 40 }],
-        nearArm: [{ x: 1.4, y: 26 }, { x: -6, y: 34 }, { x: -2, y: 40 }],
-        farLeg: [{ x: -1, y: 36 }, { x: -8, y: 44 }, { x: -11, y: modelFeetY }],
-        nearLeg: [{ x: 4, y: 36 }, { x: 10, y: 44 }, { x: 3, y: modelFeetY }]
+        head: { x: mix(0, 3.2, lower), y: mix(5.8, 15.8 + bodyY * 0.35, lower), r: 5.4 },
+        torso: { x: torsoCenter.x, y: torsoCenter.y, rx: 6.2, ry: 12, rot: torsoLean },
+        farArm: crouchArm(1, 0.5),
+        nearArm: crouchArm(-1, 0),
+        farLeg: crouchLeg((cycle + 0.5) % 1, -1.2),
+        nearLeg: crouchLeg(cycle, 1.2)
       };
     } else if (sprinting) {
       const cycle = (this.animTime % 0.4) / 0.4;
