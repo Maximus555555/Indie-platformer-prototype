@@ -495,21 +495,22 @@ class Player extends Entity {
       function crouchArm(side, phaseOffset) {
         const cycle = crouchWalking ? crouchWalkCycle : 0;
         const balancePulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) : 0;
-        const strideShift = crouchWalking ? -Math.cos((cycle + phaseOffset) * Math.PI * 2) : 0;
+        const handShift = crouchWalking ? -Math.cos((cycle + phaseOffset) * Math.PI * 2) : 0;
+        const elbowShift = crouchWalking ? handShift * 0.28 : 0;
         const shoulder = {
-          x: mix(2.8 - armAttachmentBackShift + side * 1.2, 2.6 - armAttachmentBackShift + side * 0.85, lower),
+          x: mix(2.8 - armAttachmentBackShift + side * 1.2, 2.3 - armAttachmentBackShift + side * 0.65, lower),
           y: shoulderY
         };
         // Local +X is always the player's facing direction after mirroring.
-        // Crouched arms reach toward that front side; the elbow stays behind the
-        // hand so the bend faces backward instead of hooking forward.
+        // Keep crouched elbows compact around the middle/back of the torso while
+        // the forearms can still reach forward for balance.
         const elbow = {
-          x: mix(2.4 + side * 3.6, 8.7 + side * 0.45 + strideShift * 1.05, lower),
-          y: mix(27, 32.4 + bodyY * 0.25 + balancePulse * 0.22, lower)
+          x: mix(2.4 + side * 3.6, -0.6 + side * 0.42 + elbowShift, lower),
+          y: mix(27, 31.5 + bodyY * 0.25 + balancePulse * 0.18, lower)
         };
         const hand = {
-          x: mix(2 + side * 2.6, 13.2 + side * 0.35 + strideShift * 1.25, lower),
-          y: mix(36, 30.6 + bodyY * 0.2 - balancePulse * 0.25, lower)
+          x: mix(2 + side * 2.6, 11.2 + side * 0.35 + handShift * 0.75, lower),
+          y: mix(36, 30.4 + bodyY * 0.2 - balancePulse * 0.22, lower)
         };
         return [shoulder, elbow, hand];
       }
@@ -543,8 +544,14 @@ class Player extends Entity {
       }
 
       const cycle = crouchWalkCycle;
+      const headRadius = 5.4;
+      const crouchHeadDistance = 12 + headRadius + 0.5;
+      const crouchHeadCenter = {
+        x: torsoCenter.x + Math.sin(torsoLean) * crouchHeadDistance,
+        y: torsoCenter.y - Math.cos(torsoLean) * crouchHeadDistance + bodyY * 0.08
+      };
       pose = {
-        head: { x: mix(0, torsoCenter.x, lower), y: mix(5.8, 15.8 + bodyY * 0.35, lower), r: 5.4 },
+        head: { x: mix(0, crouchHeadCenter.x, lower), y: mix(5.8, crouchHeadCenter.y, lower), r: headRadius },
         torso: { x: torsoCenter.x, y: torsoCenter.y, rx: torsoRadiusX, ry: 12, rot: torsoLean },
         farArm: crouchArm(1, 0.5),
         nearArm: crouchArm(-1, 0),
@@ -640,7 +647,7 @@ class Player extends Entity {
       pose = {
         head: { x: 0, y: 5.8 + breathe * 0.35, r: 5.4 },
         torso: { x: 0, y: 23 + breathe, rx: torsoRadiusX, ry: 12, rot: 0 },
-        farArm: restingArm(1, breathe),
+        farArm: null,
         nearArm: restingArm(-1, breathe),
         farLeg: restingLeg(-1),
         nearLeg: restingLeg(1)
@@ -648,10 +655,10 @@ class Player extends Entity {
     }
 
     strokeLimb(pose.farLeg, 2.8);
-    strokeLimb(pose.farArm, 2.4);
+    if (pose.farArm) strokeLimb(pose.farArm, 2.4);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
     strokeLimb(pose.nearLeg, 3.2);
-    strokeLimb(pose.nearArm, 2.7);
+    if (pose.nearArm) strokeLimb(pose.nearArm, 2.7);
 
     ctx.fillStyle = fill;
     ctx.strokeStyle = outline;
