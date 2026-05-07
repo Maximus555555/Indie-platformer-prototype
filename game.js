@@ -322,6 +322,8 @@ class Player extends Entity {
     const modelFeetY = 50;
     const characterOutlineWidth = 1.25;
     const torsoRadiusX = 5.4;
+    // Pull shoulder anchors just off the front edge so arms attach near the upper-middle torso.
+    const armAttachmentBackShift = 0.65;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -433,7 +435,7 @@ class Player extends Entity {
 
     function walkingArm(legCycle, shoulderOffsetY, depthOffset) {
       const swing = -Math.cos(legCycle * Math.PI * 2);
-      const shoulder = { x: 2.8 + depthOffset, y: 18 + shoulderOffsetY };
+      const shoulder = { x: 2.8 - armAttachmentBackShift + depthOffset, y: 18 + shoulderOffsetY };
       return [
         shoulder,
         { x: 2.4 + depthOffset + swing * 4.4, y: 25 + shoulderOffsetY },
@@ -443,7 +445,7 @@ class Player extends Entity {
 
     function restingArm(side, breathe) {
       return [
-        { x: 2.8 + side * 1.2, y: 18 + breathe },
+        { x: 2.8 - armAttachmentBackShift + side * 1.2, y: 18 + breathe },
         { x: 2.4 + side * 3.6, y: 27 + breathe * 0.4 },
         { x: 2 + side * 2.6, y: 36 }
       ];
@@ -493,19 +495,20 @@ class Player extends Entity {
       function crouchArm(side, phaseOffset) {
         const cycle = crouchWalking ? crouchWalkCycle : 0;
         const balancePulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) : 0;
+        const strideShift = crouchWalking ? -Math.cos((cycle + phaseOffset) * Math.PI * 2) : 0;
         const shoulder = {
-          x: mix(2.8 + side * 1.2, 2.6 + side * 0.85, lower),
+          x: mix(2.8 - armAttachmentBackShift + side * 1.2, 2.6 - armAttachmentBackShift + side * 0.85, lower),
           y: shoulderY
         };
         // Local +X is always the player's facing direction after mirroring.
         // Crouched arms reach toward that front side; the elbow stays behind the
         // hand so the bend faces backward instead of hooking forward.
         const elbow = {
-          x: mix(2.4 + side * 3.6, 8.7 + side * 0.45 + balancePulse * 0.3, lower),
-          y: mix(27, 32.4 + bodyY * 0.25 + balancePulse * 0.2, lower)
+          x: mix(2.4 + side * 3.6, 8.7 + side * 0.45 + strideShift * 1.05, lower),
+          y: mix(27, 32.4 + bodyY * 0.25 + balancePulse * 0.22, lower)
         };
         const hand = {
-          x: mix(2 + side * 2.6, 13.2 + side * 0.35 + balancePulse * 0.45, lower),
+          x: mix(2 + side * 2.6, 13.2 + side * 0.35 + strideShift * 1.25, lower),
           y: mix(36, 30.6 + bodyY * 0.2 - balancePulse * 0.25, lower)
         };
         return [shoulder, elbow, hand];
@@ -541,7 +544,7 @@ class Player extends Entity {
 
       const cycle = crouchWalkCycle;
       pose = {
-        head: { x: mix(0, 3.2, lower), y: mix(5.8, 15.8 + bodyY * 0.35, lower), r: 5.4 },
+        head: { x: mix(0, torsoCenter.x, lower), y: mix(5.8, 15.8 + bodyY * 0.35, lower), r: 5.4 },
         torso: { x: torsoCenter.x, y: torsoCenter.y, rx: torsoRadiusX, ry: 12, rot: torsoLean },
         farArm: crouchArm(1, 0.5),
         nearArm: crouchArm(-1, 0),
@@ -604,7 +607,7 @@ class Player extends Entity {
           { elbowX: -1, elbowY: 25, handX: -2, handY: 33 },
           { elbowX: -6, elbowY: 24, handX: -10, handY: 32 }
         ];
-        const shoulder = { x: 3.4 + shoulderLeanX + depthOffset, y: 18 + bodyY };
+        const shoulder = { x: 3.4 - armAttachmentBackShift + shoulderLeanX + depthOffset, y: 18 + bodyY };
 
         return interpolateKeyframes(frames.map((frame) => [
           shoulder,
@@ -627,8 +630,8 @@ class Player extends Entity {
       pose = {
         head: { x: tuck * 0.8, y: 6, r: 5.4 },
         torso: { x: tuck * 0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: tuck * 0.05 },
-        farArm: rising ? [{ x: 4, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }] : [{ x: 4, y: 18 }, { x: 10, y: 27 }, { x: 14, y: 26 }],
-        nearArm: rising ? [{ x: -4, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }] : [{ x: -4, y: 18 }, { x: -9, y: 29 }, { x: 1, y: 36 }],
+        farArm: rising ? [{ x: 4 - armAttachmentBackShift, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }] : [{ x: 4 - armAttachmentBackShift, y: 18 }, { x: 10, y: 27 }, { x: 14, y: 26 }],
+        nearArm: rising ? [{ x: -4 + armAttachmentBackShift, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }] : [{ x: -4 + armAttachmentBackShift, y: 18 }, { x: -9, y: 29 }, { x: 1, y: 36 }],
         farLeg: rising ? [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }] : [{ x: -1, y: 29 }, { x: -3, y: 40 }, { x: -2, y: modelFeetY }],
         nearLeg: rising ? [{ x: 3, y: 29 }, { x: 9, y: 39 }, { x: 8, y: 49 }] : [{ x: 3, y: 29 }, { x: 9, y: 40 }, { x: 13, y: modelFeetY }]
       };
