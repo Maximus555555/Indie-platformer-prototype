@@ -10,7 +10,7 @@
     playerWidth: 24,
     crouchHeight: 34,
     standHeight: 50,
-    playerVisualScale: 1.1,
+    playerVisualScale: 1.17,
     pulseSpeed: 620,
     pulseCooldown: 0.35,
     pulseDamage: 1,

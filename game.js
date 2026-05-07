@@ -24,7 +24,7 @@ const RUN_SPEED = config.runSpeed ?? 340;
 const PLAYER_WIDTH = config.playerWidth ?? 24;
 const CROUCH_HEIGHT = config.crouchHeight ?? 34;
 const STAND_HEIGHT = config.standHeight ?? 50;
-const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.1;
+const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
 const PULSE_SPEED = config.pulseSpeed ?? 620;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
@@ -293,7 +293,7 @@ class Player extends Entity {
     const speed = Math.abs(this.vx);
     const grounded = this.onSurface;
     const moving = speed > 2;
-    const sprinting = this.isRunning && grounded && !this.isCrouching;
+    const sprinting = moving && this.isRunning && grounded && !this.isCrouching;
     const walking = moving && grounded && !sprinting && !this.isCrouching;
     const airborne = !grounded;
     const crouching = this.isCrouching;
@@ -461,16 +461,69 @@ class Player extends Entity {
         nearLeg: [{ x: 4, y: 36 }, { x: 10, y: 44 }, { x: 3, y: modelFeetY }]
       };
     } else if (sprinting) {
-      const phase = this.animTime * 14;
-      const step = Math.sin(phase);
-      const lift = Math.max(0, Math.cos(phase));
+      const cycle = (this.animTime % 0.4) / 0.4;
+      const runBobFrames = [0, 1.6, 0.2, -1, 0, 1.6, 0.2, -1];
+      const scaledBob = cycle * runBobFrames.length;
+      const bobIndex = Math.floor(scaledBob) % runBobFrames.length;
+      const bodyY = mix(
+        runBobFrames[bobIndex],
+        runBobFrames[(bobIndex + 1) % runBobFrames.length],
+        scaledBob - Math.floor(scaledBob)
+      );
+      const lean = -0.11;
+
+      // A mirrored eight-pose run keeps contact/compression/passing/push-off
+      // readable while interpolation prevents snapping between key poses.
+      function runningLeg(legCycle, hipOffsetX) {
+        const hip = { x: hipOffsetX, y: 28 + bodyY * 0.25 };
+        const frames = [
+          { footX: 14, footY: modelFeetY, kneeY: 39.5, kneeForward: 5.2 },
+          { footX: 9, footY: modelFeetY, kneeY: 42.5, kneeForward: 7.2 },
+          { footX: 1, footY: modelFeetY - 3, kneeY: 38.5, kneeForward: 8.4 },
+          { footX: -10, footY: modelFeetY - 3.5, kneeY: 37, kneeForward: 6.8 },
+          { footX: -14, footY: modelFeetY, kneeY: 40, kneeForward: 5.8 },
+          { footX: -8, footY: modelFeetY - 1, kneeY: 40.5, kneeForward: 7.6 },
+          { footX: 0, footY: modelFeetY - 4, kneeY: 37, kneeForward: 8.8 },
+          { footX: 10, footY: modelFeetY - 2.5, kneeY: 37.5, kneeForward: 7 }
+        ];
+
+        return interpolateKeyframes(frames.map((frame) => {
+          const foot = { x: frame.footX, y: frame.footY };
+          const knee = {
+            x: mix(hip.x, foot.x, 0.46) + frame.kneeForward,
+            y: frame.kneeY + bodyY * 0.2
+          };
+          return [hip, knee, foot];
+        }), legCycle);
+      }
+
+      function runningArm(legCycle, depthOffset) {
+        const frames = [
+          { elbowX: -6.5, elbowY: 24, handX: -11, handY: 33 },
+          { elbowX: -2.5, elbowY: 24.5, handX: -4, handY: 33 },
+          { elbowX: 1.5, elbowY: 24, handX: 3, handY: 32 },
+          { elbowX: 7, elbowY: 23, handX: 12, handY: 29 },
+          { elbowX: 7.5, elbowY: 23, handX: 13, handY: 28 },
+          { elbowX: 3, elbowY: 24.5, handX: 5, handY: 32 },
+          { elbowX: -1, elbowY: 25, handX: -2, handY: 33 },
+          { elbowX: -6, elbowY: 24, handX: -10, handY: 32 }
+        ];
+        const shoulder = { x: 3.4 + depthOffset, y: 18 + bodyY };
+
+        return interpolateKeyframes(frames.map((frame) => [
+          shoulder,
+          { x: frame.elbowX + depthOffset, y: frame.elbowY + bodyY * 0.7 },
+          { x: frame.handX + depthOffset, y: frame.handY + bodyY * 0.55 }
+        ]), legCycle);
+      }
+
       pose = {
-        head: { x: 1.2, y: 6, r: 5.4 },
-        torso: { x: 0.7, y: 23, rx: 6.4, ry: 12, rot: -0.06 },
-        farArm: [{ x: 2.8, y: 18 }, { x: 2 - step * 6, y: 25 }, { x: 1.5 - step * 10, y: 34 }],
-        nearArm: [{ x: 3.6, y: 18 }, { x: 2.6 + step * 6, y: 25 }, { x: 2 + step * 10, y: 34 }],
-        farLeg: [{ x: -1, y: 28 }, { x: -step * 7, y: 39 - lift * 2 }, { x: -step * 12, y: modelFeetY - lift * 3 }],
-        nearLeg: [{ x: 1, y: 28 }, { x: step * 7, y: 39 - Math.max(0, -Math.cos(phase)) * 2 }, { x: step * 12, y: modelFeetY - Math.max(0, -Math.cos(phase)) * 3 }]
+        head: { x: 1.4, y: 5.8 + bodyY * 0.35, r: 5.4 },
+        torso: { x: 0.8, y: 23 + bodyY, rx: 6.4, ry: 12, rot: lean },
+        farArm: runningArm(cycle, -1.2),
+        nearArm: runningArm((cycle + 0.5) % 1, 0.6),
+        farLeg: runningLeg((cycle + 0.5) % 1, -1.2),
+        nearLeg: runningLeg(cycle, 1.2)
       };
     } else if (airborne) {
       const rising = this.vy * this.gravitySign < 0;
