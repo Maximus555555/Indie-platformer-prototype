@@ -149,6 +149,7 @@ class Player extends Entity {
     this.walkTime = 0;
     this.crouchWalkTime = 0;
     this.crouchBlend = 0;
+    this.fallPoseBlend = 0;
     this.landTimer = 0;
     this.attackTimer = 0;
   }
@@ -185,6 +186,10 @@ class Player extends Entity {
     const wasOnSurface = this.onSurface;
     this.applyGravity(dt);
     this.moveAndCollide(dt);
+    const fallingDownward = !this.onSurface && this.vy * this.gravitySign > 0;
+    this.fallPoseBlend = fallingDownward
+      ? clamp(this.fallPoseBlend + dt / 0.11, 0, 1)
+      : 0;
     if (!wasOnSurface && this.onSurface) this.landTimer = 0.16;
     if (this.landTimer > 0) this.landTimer -= dt;
     if (this.attackTimer > 0) this.attackTimer -= dt;
@@ -302,6 +307,7 @@ class Player extends Entity {
     this.lastGravityCastId = 0;
     this.isCrouching = false;
     this.h = STAND_HEIGHT;
+    this.fallPoseBlend = 0;
     this.onSurface = false;
   }
 
@@ -317,6 +323,7 @@ class Player extends Entity {
     const sprinting = moving && this.isRunning && grounded && !this.isCrouching;
     const walking = moving && grounded && !sprinting && !this.isCrouching;
     const airborne = !grounded;
+    const falling = airborne && this.vy * this.gravitySign > 0;
     const crouching = this.isCrouching && grounded;
     const visualScale = PLAYER_VISUAL_SCALE;
     const modelFeetY = 50;
@@ -633,15 +640,71 @@ class Player extends Entity {
         nearLeg: runningLeg(cycle, 1.2)
       };
     } else if (airborne) {
-      const rising = this.vy * this.gravitySign < 0;
-      const tuck = rising ? -1 : 1;
+      const jumpPose = {
+        head: { x: -0.8, y: 6, r: 5.4 },
+        torso: { x: -0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: -0.05 },
+        farArm: [{ x: 4 - armAttachmentBackShift, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }],
+        nearArm: [{ x: -4 + armAttachmentBackShift, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }],
+        farLeg: [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }],
+        nearLeg: [{ x: 3, y: 29 }, { x: 9, y: 39 }, { x: 8, y: 49 }]
+      };
+
+      // Falling is a mostly single, side-view balancing pose: upright torso,
+      // raised arms, and softly bent legs. A tiny settle keeps the transition
+      // from the jump pose smooth without creating a cycling animation.
+      const fallBlend = falling ? this.fallPoseBlend : 0;
+      const fallSettle = Math.sin(this.animTime * 2.2) * 0.55 * fallBlend;
+      const fallLean = -Math.PI / 40;
+      const fallPose = {
+        head: { x: -0.65 + Math.sin(fallLean) * 11, y: 5.9 + fallSettle * 0.25, r: 5.4 },
+        torso: { x: -0.65, y: 23 + fallSettle, rx: torsoRadiusX, ry: 12, rot: fallLean },
+        farArm: [
+          { x: 1.2 - armAttachmentBackShift, y: 18 + fallSettle },
+          { x: -5.8, y: 16.2 + fallSettle * 0.55 },
+          { x: -9.4, y: 22.6 + fallSettle * 0.35 }
+        ],
+        nearArm: [
+          { x: 3.8 - armAttachmentBackShift, y: 18 + fallSettle },
+          { x: 7.2, y: 23.8 + fallSettle * 0.45 },
+          { x: 8.8, y: 30.4 + fallSettle * 0.35 }
+        ],
+        farLeg: [
+          { x: -1.2, y: 29 + fallSettle * 0.4 },
+          { x: -1.5, y: 39.2 + fallSettle * 0.3 },
+          { x: -7.8, y: modelFeetY - 1.2 + fallSettle * 0.2 }
+        ],
+        nearLeg: [
+          { x: 2.2, y: 29 + fallSettle * 0.4 },
+          { x: 7.4, y: 39.1 + fallSettle * 0.3 },
+          { x: 6.8, y: modelFeetY - 2.2 + fallSettle * 0.2 }
+        ]
+      };
+
+      function blendPoint(from, to, amount) {
+        return { x: mix(from.x, to.x, amount), y: mix(from.y, to.y, amount) };
+      }
+
+      function blendLimb(from, to, amount) {
+        return from.map((point, index) => blendPoint(point, to[index], amount));
+      }
+
       pose = {
-        head: { x: tuck * 0.8, y: 6, r: 5.4 },
-        torso: { x: tuck * 0.6, y: 23, rx: torsoRadiusX, ry: 12, rot: tuck * 0.05 },
-        farArm: rising ? [{ x: 4 - armAttachmentBackShift, y: 18 }, { x: 10, y: 13 }, { x: 14, y: 19 }] : [{ x: 4 - armAttachmentBackShift, y: 18 }, { x: 10, y: 27 }, { x: 14, y: 26 }],
-        nearArm: rising ? [{ x: -4 + armAttachmentBackShift, y: 18 }, { x: -10, y: 25 }, { x: -5, y: 33 }] : [{ x: -4 + armAttachmentBackShift, y: 18 }, { x: -9, y: 29 }, { x: 1, y: 36 }],
-        farLeg: rising ? [{ x: -1, y: 29 }, { x: -8, y: 39 }, { x: -13, y: 48 }] : [{ x: -1, y: 29 }, { x: -3, y: 40 }, { x: -2, y: modelFeetY }],
-        nearLeg: rising ? [{ x: 3, y: 29 }, { x: 9, y: 39 }, { x: 8, y: 49 }] : [{ x: 3, y: 29 }, { x: 9, y: 40 }, { x: 13, y: modelFeetY }]
+        head: {
+          x: mix(jumpPose.head.x, fallPose.head.x, fallBlend),
+          y: mix(jumpPose.head.y, fallPose.head.y, fallBlend),
+          r: jumpPose.head.r
+        },
+        torso: {
+          x: mix(jumpPose.torso.x, fallPose.torso.x, fallBlend),
+          y: mix(jumpPose.torso.y, fallPose.torso.y, fallBlend),
+          rx: torsoRadiusX,
+          ry: 12,
+          rot: mix(jumpPose.torso.rot, fallPose.torso.rot, fallBlend)
+        },
+        farArm: blendLimb(jumpPose.farArm, fallPose.farArm, fallBlend),
+        nearArm: blendLimb(jumpPose.nearArm, fallPose.nearArm, fallBlend),
+        farLeg: blendLimb(jumpPose.farLeg, fallPose.farLeg, fallBlend),
+        nearLeg: blendLimb(jumpPose.nearLeg, fallPose.nearLeg, fallBlend)
       };
     } else {
       const breathe = Math.sin(this.animTime * 1.2) * 0.45;
