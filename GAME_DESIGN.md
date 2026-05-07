@@ -13,7 +13,6 @@ The current prototype target is a compact playable slice that demonstrates:
 - Basic movement and jumping.
 - A System Pulse attack.
 - A Walker enemy.
-- Spike hazards.
 - A Gravity Field ability.
 - One gravity puzzle room that teaches and tests the Gravity Field mechanic.
 
