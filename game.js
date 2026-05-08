@@ -320,8 +320,6 @@ class Player extends Entity {
       if (this.attackReleaseTimer <= 0) this.releasePulse();
     }
     if (this.attackTimer > 0) this.attackTimer -= dt;
-    // Keep the player inside horizontal room coordinates until the central
-    // boundary check converts edge contact into a safe respawn.
     this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
   }
 
@@ -627,7 +625,7 @@ class Player extends Entity {
     });
   }
 
-  fallOutOfWorld(exitRect = this.getRespawnSearchRect()) {
+  fallOutOfWorld() {
     if (this.isDying || this.fallRespawnGraceTimer > 0) return;
 
     this.hp -= 1;
@@ -637,33 +635,27 @@ class Player extends Entity {
     }
 
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
-    this.respawnAtNearestSafePlatform(exitRect);
+    this.respawnAtLastGroundedEdge();
   }
 
-  getRespawnSearchRect() {
-    return { x: this.x, y: this.y, w: this.w, h: this.h };
-  }
-
-  respawnAtNearestSafePlatform(exitRect = this.getRespawnSearchRect()) {
-    // Clear any active Gravity Field bookkeeping so a boundary recovery cannot
-    // inherit stale cast references, while preserving the player's current
-    // gravity direction for ceiling-side respawns.
-    clearGravityFieldForPlayerRespawn();
+  respawnAtLastGroundedEdge() {
+    // Preserve the existing fall-recovery rule that clears Gravity Field effects,
+    // but recover to the last solid platform edge instead of the checkpoint.
+    resetGravityField(true);
     this.h = STAND_HEIGHT;
-    const respawnPoint = findNearestSafePlatformRespawn(exitRect, this.gravitySign, this.w, STAND_HEIGHT);
+    const respawnPoint = this.getLastGroundedRespawnPoint();
     this.placeAt(respawnPoint.x, respawnPoint.y, { resetGravity: false, grounded: true });
     this.recordGroundedPlatform(respawnPoint.platform);
     this.fallRespawnGraceTimer = FALL_RESPAWN_GRACE;
   }
 
-  respawnAtLastGroundedEdge() {
-    this.respawnAtNearestSafePlatform(this.lastGroundedPosition
-      ? { x: this.lastGroundedPosition.x, y: this.lastGroundedPosition.y, w: this.w, h: STAND_HEIGHT }
-      : this.getRespawnSearchRect());
-  }
-
   getLastGroundedRespawnPoint() {
-    return findNearestSafePlatformRespawn(this.getRespawnSearchRect(), this.gravitySign, this.w, STAND_HEIGHT);
+    const platform = this.lastGroundedPlatform ?? findPlatformAtSurfacePoint(safeAnchor.x + this.w / 2, safeAnchor.y + this.h, 1) ?? platforms[1];
+    const edge = this.lastGroundedEdge ?? getClosestPlatformEdge(platform, this.lastGroundedPosition?.x + this.w / 2 || platform.x + platform.w / 2);
+    const gravitySign = this.gravitySign;
+    const y = gravitySign > 0 ? platform.y - STAND_HEIGHT : platform.y + platform.h;
+    const x = findSafePlatformEdgeX(platform, edge, this.w, STAND_HEIGHT, y);
+    return { x, y, platform };
   }
 
   respawnAtSafeAnchor() {
@@ -2103,67 +2095,26 @@ function findPlatformAtSurfacePoint(x, surfaceY, gravitySign = 1) {
   }) ?? null;
 }
 
-function isRectInsidePlayableBounds(rect) {
-  return rect.x >= 0
-    && rect.x + rect.w <= ROOM_WIDTH
-    && rect.y >= 0
-    && rect.y + rect.h <= canvas.height;
-}
-
-function findSafePlatformX(platform, desiredCenterX, playerWidth, playerHeight, playerY) {
+function findSafePlatformEdgeX(platform, edge, playerWidth, playerHeight, playerY) {
   const minX = platform.x + EDGE_RESPAWN_INSET;
   const maxX = platform.x + platform.w - playerWidth - EDGE_RESPAWN_INSET;
   const fallbackX = clamp(platform.x + platform.w / 2 - playerWidth / 2, platform.x, platform.x + platform.w - playerWidth);
+  const startX = edge === "right" ? maxX : minX;
+  const direction = edge === "right" ? -1 : 1;
 
   if (minX > maxX) return fallbackX;
 
-  const desiredX = clamp(desiredCenterX - playerWidth / 2, minX, maxX);
-  const enemyRects = getSolidEnemyRects();
-  const maxScan = Math.max(desiredX - minX, maxX - desiredX);
-  for (let step = 0; step <= maxScan; step += 6) {
-    for (const direction of step === 0 ? [0] : [-1, 1]) {
-      const candidateX = clamp(desiredX + direction * step, minX, maxX);
-      const candidate = { x: candidateX, y: playerY, w: playerWidth, h: playerHeight };
-      if (!enemyRects.some((enemyRect) => rectsOverlap(candidate, enemyRect))) return candidateX;
-    }
+  const scanDistance = maxX - minX;
+  for (let step = 0; step <= scanDistance; step += 6) {
+    const candidateX = startX + direction * step;
+    const candidate = { x: candidateX, y: playerY, w: playerWidth, h: playerHeight };
+    if (!getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect))) return candidateX;
   }
 
   const fallback = { x: fallbackX, y: playerY, w: playerWidth, h: playerHeight };
-  if (!enemyRects.some((enemyRect) => rectsOverlap(fallback, enemyRect))) return fallbackX;
+  if (!getSolidEnemyRects().some((enemyRect) => rectsOverlap(fallback, enemyRect))) return fallbackX;
 
-  return desiredX;
-}
-
-function findSafePlatformEdgeX(platform, edge, playerWidth, playerHeight, playerY) {
-  const edgeCenterX = edge === "right"
-    ? platform.x + platform.w - EDGE_RESPAWN_INSET
-    : platform.x + EDGE_RESPAWN_INSET;
-  return findSafePlatformX(platform, edgeCenterX, playerWidth, playerHeight, playerY);
-}
-
-function findNearestSafePlatformRespawn(exitRect, gravitySign, playerWidth, playerHeight) {
-  const exitCenter = { x: exitRect.x + exitRect.w / 2, y: exitRect.y + exitRect.h / 2 };
-  let best = null;
-
-  for (const platform of platforms) {
-    const surfaceY = gravitySign > 0 ? platform.y : platform.y + platform.h;
-    const y = gravitySign > 0 ? platform.y - playerHeight : platform.y + platform.h;
-    const desiredCenterX = clamp(exitCenter.x, platform.x + EDGE_RESPAWN_INSET, platform.x + platform.w - EDGE_RESPAWN_INSET);
-    const x = findSafePlatformX(platform, desiredCenterX, playerWidth, playerHeight, y);
-    const candidate = { x, y, w: playerWidth, h: playerHeight };
-    if (!isRectInsidePlayableBounds(candidate)) continue;
-
-    const candidateCenter = { x: x + playerWidth / 2, y: surfaceY };
-    const score = distance(exitCenter, candidateCenter);
-    if (!best || score < best.score) best = { x, y, platform, score };
-  }
-
-  if (best) return best;
-
-  const fallbackPlatform = findPlatformAtSurfacePoint(safeAnchor.x + playerWidth / 2, safeAnchor.y + playerHeight, 1) ?? platforms[1];
-  const fallbackY = fallbackPlatform.y - playerHeight;
-  const fallbackX = findSafePlatformX(fallbackPlatform, safeAnchor.x + playerWidth / 2, playerWidth, playerHeight, fallbackY);
-  return { x: fallbackX, y: fallbackY, platform: fallbackPlatform, score: 0 };
+  return startX;
 }
 
 function getSolidEnemyRects() {
@@ -2267,13 +2218,6 @@ function resetGravityField(resetAll = false) {
   gravityFieldActive = false;
 }
 
-function clearGravityFieldForPlayerRespawn() {
-  for (const enemy of enemies) enemy.resetGravity();
-  player.lastGravityCastId = 0;
-  activeGravityEntities.clear();
-  gravityFieldActive = false;
-}
-
 function toggleGravityField() {
   if (gravityFieldActive) {
     resetGravityField();
@@ -2312,13 +2256,7 @@ function update(dt) {
     }
   }
 
-  const playerBounds = player.getRespawnSearchRect();
-  const touchedRoomEdge = playerBounds.x <= 0
-    || playerBounds.x + playerBounds.w >= ROOM_WIDTH
-    || playerBounds.y + playerBounds.h >= canvas.height
-    || playerBounds.y <= 0;
-  const crossedFallEnvelope = playerBounds.y > bottomFallBoundary || playerBounds.y + playerBounds.h < 0;
-  if (!player.isDying && (touchedRoomEdge || crossedFallEnvelope)) player.fallOutOfWorld(playerBounds);
+  if (!player.isDying && (player.y > bottomFallBoundary || player.y + player.h < -120)) player.fallOutOfWorld();
 
   cameraX = clamp(player.x + player.w / 2 - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
   pressedThisFrame.clear();
@@ -2356,7 +2294,7 @@ function drawRoom() {
   }
 }
 
-function drawDiamond(x, y, size, currentHp) {
+function drawDiamond(x, y, size, filled) {
   const half = size / 2;
 
   ctx.beginPath();
@@ -2366,15 +2304,18 @@ function drawDiamond(x, y, size, currentHp) {
   ctx.lineTo(x, y + half);
   ctx.closePath();
 
-  if (currentHp) {
-    // Current HP stays dark blue; lost HP flips to steady white with no flash.
-    ctx.fillStyle = "rgba(13, 48, 89, 0.9)";
-    ctx.strokeStyle = "rgba(5, 37, 82, 0.98)";
-    ctx.lineWidth = 1.5;
+  if (filled) {
+    ctx.fillStyle = "rgba(246, 253, 255, 0.95)";
+    ctx.strokeStyle = "rgba(82, 154, 209, 0.8)";
+    ctx.shadowColor = "rgba(255, 255, 255, 0.55)";
+    ctx.shadowBlur = 6;
     ctx.fill();
+    ctx.shadowBlur = 0;
   } else {
-    ctx.fillStyle = "rgba(246, 253, 255, 0.96)";
-    ctx.strokeStyle = "rgba(82, 154, 209, 0.82)";
+    // Missing-health diamonds stay visible as a steady dark blue marker.
+    // They intentionally do not flash, pulse, brighten, or disappear on damage.
+    ctx.fillStyle = "rgba(13, 48, 89, 0.3)";
+    ctx.strokeStyle = "rgba(5, 37, 82, 0.95)";
     ctx.lineWidth = 1.5;
     ctx.fill();
   }
@@ -2425,8 +2366,8 @@ function drawHud() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   for (let i = 0; i < maxHp; i += 1) {
     const x = placement.x + i * (HP_DIAMOND_SIZE + HP_DIAMOND_SPACING);
-    const isCurrentHp = i < currentHp;
-    drawDiamond(x, placement.y, HP_DIAMOND_SIZE, isCurrentHp);
+    const isFilled = i < currentHp;
+    drawDiamond(x, placement.y, HP_DIAMOND_SIZE, isFilled);
   }
   ctx.restore();
 }
