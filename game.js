@@ -387,10 +387,15 @@ class Player extends Entity {
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
     const crouchBlend = grounded ? this.crouchBlend : 0;
-    const landProgress = this.landTimer > 0 ? clamp(this.landTimer / LANDING_ANIM_DURATION, 0, 1) : 0;
-    const landCompression = grounded ? Math.pow(landProgress, 0.55) : 0;
-    const poseSquash = crouchBlend > 0 ? 0 : landCompression * 0.04;
-    const scaleY = visualScale * (1 - poseSquash);
+    const landProgress = this.landTimer > 0
+      ? 1 - clamp(this.landTimer / LANDING_ANIM_DURATION, 0, 1)
+      : 1;
+    // Visual-only impact envelope: starts and ends at rest, peaks briefly in the
+    // middle of the landing window, and keeps the collision body surface-anchored.
+    const landCompression = grounded && this.landTimer > 0
+      ? Math.sin(landProgress * Math.PI)
+      : 0;
+    const scaleY = visualScale;
     const originY = this.gravitySign > 0
       ? surfaceY - modelFeetY * scaleY
       : surfaceY + modelFeetY * scaleY;
@@ -806,17 +811,20 @@ class Player extends Entity {
 
     if (landCompression > 0) {
       const compression = landCompression * (this.isCrouching ? 0.55 : 1);
+      const bodyDrop = compression * 3.2;
+      const subtleForwardLean = compression * 0.04;
       pose.torso = {
         ...pose.torso,
-        y: pose.torso.y + compression * 3.2,
-        rot: pose.torso.rot + compression * 0.025
+        y: pose.torso.y + bodyDrop,
+        rot: pose.torso.rot + subtleForwardLean
       };
-      pose.head = { ...pose.head, y: pose.head.y + compression * 3.1 };
+      pose.head = { ...pose.head, y: pose.head.y + bodyDrop * 0.96 };
 
       function compressLandingLeg(leg, side) {
         return leg.map((point, index) => {
-          if (index === 0) return { x: point.x + compression * 0.25, y: point.y + compression * 2.2 };
-          if (index === 1) return { x: point.x + compression * (2.1 + side * 0.25), y: point.y + compression * 2.9 };
+          if (index === 0) return { x: point.x + compression * 0.25, y: point.y + compression * 2.15 };
+          if (index === 1) return { x: point.x + compression * (2.2 + side * 0.2), y: point.y + compression * 2.85 };
+          // Keep every grounded foot visually locked to the current floor/ceiling surface.
           return { x: point.x, y: modelFeetY };
         });
       }
@@ -824,9 +832,9 @@ class Player extends Entity {
       function balanceLandingArm(arm, side) {
         if (!arm) return arm;
         return arm.map((point, index) => {
-          if (index === 0) return { x: point.x, y: point.y + compression * 1.8 };
-          if (index === 1) return { x: point.x + compression * 1.5, y: point.y + compression * 2.4 };
-          return { x: point.x + compression * (2.6 + side * 0.35), y: point.y + compression * 2.7 };
+          if (index === 0) return { x: point.x + compression * 0.12, y: point.y + compression * 1.65 };
+          if (index === 1) return { x: point.x + compression * 1.25, y: point.y + compression * 2.15 };
+          return { x: point.x + compression * (2.1 + side * 0.25), y: point.y + compression * 2.45 };
         });
       }
 
