@@ -38,8 +38,10 @@ const ATTACK_RELEASE_TIME = 0.075;
 const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
-const DAMAGE_RECOIL_DURATION = 0.12;
-const DAMAGE_RECOIL_SPEED = 175;
+const DAMAGE_RECOIL_DURATION = 0.15;
+const DAMAGE_RECOIL_SPEED = 230;
+const DAMAGE_RECOIL_CONTROL_SCALE = 0.35;
+const DAMAGE_RECOIL_BUMP_SPEED = 72;
 const DEATH_FLASH_DURATION = 0.1;
 const DEATH_DESTABILIZE_DURATION = 0.16;
 const DEATH_FRAGMENT_DURATION = 0.28;
@@ -214,10 +216,14 @@ class Player extends Entity {
 
     // Held crouch has priority over sprinting and uses a slower, careful speed.
     this.isRunning = runHeld && input !== 0 && !this.isCrouching && !wantsGroundCrouch;
-    this.vx = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
+    const inputSpeed = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
+    this.vx = inputSpeed;
     if (this.recoilTimer > 0) {
       const recoilProgress = clamp(this.recoilTimer / DAMAGE_RECOIL_DURATION, 0, 1);
-      this.vx += this.recoilDirection * DAMAGE_RECOIL_SPEED * recoilProgress;
+      const controlScale = DAMAGE_RECOIL_CONTROL_SCALE + (1 - DAMAGE_RECOIL_CONTROL_SCALE) * (1 - recoilProgress);
+      // Keep input responsive, but let the first impact frames read clearly even
+      // when the player is holding toward the source of damage.
+      this.vx = inputSpeed * controlScale + this.recoilDirection * DAMAGE_RECOIL_SPEED * recoilProgress;
       this.recoilTimer -= dt;
       if (this.recoilTimer <= 0) this.recoilDirection = 0;
     }
@@ -446,6 +452,10 @@ class Player extends Entity {
 
     this.recoilDirection = direction;
     this.recoilTimer = DAMAGE_RECOIL_DURATION;
+    this.vx = direction * DAMAGE_RECOIL_SPEED;
+    // A tiny bump away from the current floor/ceiling makes the hit readable
+    // without launching the player or changing left/right behavior under gravity flips.
+    if (Math.abs(this.vy) < DAMAGE_RECOIL_BUMP_SPEED) this.vy = -this.gravitySign * DAMAGE_RECOIL_BUMP_SPEED;
     // Damage flinch briefly interrupts the firing pose without changing attack rules.
     this.attackTimer = 0;
     this.attackPulseQueued = false;
@@ -1175,36 +1185,46 @@ class Player extends Entity {
 
     if (this.recoilTimer > 0) {
       const flinch = clamp(this.recoilTimer / DAMAGE_RECOIL_DURATION, 0, 1);
+      const snap = Math.sin(flinch * Math.PI * 0.5);
       const localRecoil = this.recoilDirection * facing;
-      const lean = localRecoil * 0.13 * flinch;
-      const brace = grounded ? flinch : flinch * 0.65;
+      const lean = localRecoil * 0.24 * snap;
+      const brace = grounded ? snap : snap * 0.65;
+      const chest = { x: pose.torso.x + localRecoil * 1.6, y: pose.torso.y + 3.5 };
 
       pose.torso = {
         ...pose.torso,
-        x: pose.torso.x + localRecoil * 1.8 * flinch,
+        x: pose.torso.x + localRecoil * 3.2 * snap,
+        y: pose.torso.y + 0.5 * snap,
         rot: pose.torso.rot + lean
       };
       pose.head = {
         ...pose.head,
-        x: pose.head.x + localRecoil * 2.5 * flinch,
-        y: pose.head.y + 0.7 * flinch
+        x: pose.head.x + localRecoil * 4.0 * snap,
+        y: pose.head.y + 1.0 * snap
       };
 
       function flinchArm(arm, side) {
         if (!arm) return arm;
         return arm.map((point, index) => {
-          if (index === 0) return { x: point.x + localRecoil * 1.1 * flinch, y: point.y + 0.7 * flinch };
-          if (index === 1) return { x: point.x - localRecoil * 0.7 * flinch, y: point.y + 0.5 * flinch };
-          return { x: point.x - localRecoil * (1.8 + side * 0.2) * flinch, y: point.y - 0.6 * flinch };
+          if (index === 0) return { x: point.x + localRecoil * 1.7 * snap, y: point.y + 0.8 * snap };
+          const pull = index === 1 ? 0.36 : 0.52;
+          const inward = {
+            x: mix(point.x, chest.x + side * 1.1, pull * snap),
+            y: mix(point.y, chest.y + index * 2.1, pull * snap)
+          };
+          return {
+            x: inward.x + localRecoil * (index === 1 ? 0.4 : 0.9) * snap,
+            y: inward.y + (index === 1 ? 0.25 : -0.35) * snap
+          };
         });
       }
 
       function flinchLeg(leg, side) {
         return leg.map((point, index) => {
-          if (index === 0) return { x: point.x + localRecoil * 0.55 * brace, y: point.y + 0.4 * brace };
-          if (index === 1) return { x: point.x - localRecoil * side * 0.9 * brace, y: point.y + 1.0 * brace };
-          if (grounded) return { x: point.x, y: modelFeetY };
-          return { x: point.x - localRecoil * 0.7 * brace, y: point.y + 0.5 * brace };
+          if (index === 0) return { x: point.x + localRecoil * 0.85 * brace, y: point.y + 0.5 * brace };
+          if (index === 1) return { x: point.x - localRecoil * side * 1.45 * brace, y: point.y + 1.5 * brace };
+          if (grounded) return { x: point.x - localRecoil * side * 0.45 * brace, y: modelFeetY };
+          return { x: point.x - localRecoil * 0.9 * brace, y: point.y + 0.6 * brace };
         });
       }
 
@@ -1297,11 +1317,6 @@ class Player extends Entity {
       if (attackChargePoint.release) {
         ctx.beginPath();
         ctx.arc(attackChargePoint.x + 3.2, attackChargePoint.y, 4.6 + attackChargePoint.strength * 2.1, -0.72, 0.72);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(attackChargePoint.x + 1.7, attackChargePoint.y - 2.3);
-        ctx.lineTo(attackChargePoint.x + 7.2, attackChargePoint.y);
-        ctx.lineTo(attackChargePoint.x + 1.7, attackChargePoint.y + 2.3);
         ctx.stroke();
       }
       ctx.restore();
