@@ -36,6 +36,16 @@ const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
 const DRONE_WINDUP = config.droneWindup ?? 0.34;
 const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 360;
 const DRONE_PROJECTILE_SIZE = config.droneProjectileSize ?? 10;
+const JUMPER_WIDTH = config.jumperWidth ?? 34;
+const JUMPER_HEIGHT = config.jumperHeight ?? 40;
+const JUMPER_DETECTION_X = config.jumperDetectionX ?? 250;
+const JUMPER_DETECTION_Y = config.jumperDetectionY ?? 125;
+const JUMPER_CHARGE_DURATION = 0.34;
+const JUMPER_CROUCH_HOLD_DURATION = 0.09;
+const JUMPER_RECOVERY_DURATION = 0.24;
+const JUMPER_RECOVERY_COOLDOWN = 0.36;
+const JUMPER_LEAP_SPEED_X = 165;
+const JUMPER_LEAP_SPEED_Y = 435;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -2635,6 +2645,510 @@ class Drone extends Entity {
   }
 }
 
+
+class Jumper extends Entity {
+  constructor(x, y) {
+    super(x, y, JUMPER_WIDTH, JUMPER_HEIGHT);
+    this.hp = 2;
+    this.direction = -1;
+    this.jumperState = "idle";
+    this.stateTimer = 0;
+    this.hoverTimer = Math.random() * Math.PI * 2;
+    this.poseBlend = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
+  }
+
+  update(dt) {
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    this.hoverTimer += dt;
+    this.updateGravityFlipVisual(dt);
+    this.updateHitReaction(dt);
+
+    if (this.isTouchingVerticalWorldEdge()) {
+      this.beginDeath();
+      return;
+    }
+
+    if (this.jumperState === "idle" || this.jumperState === "charging" || this.jumperState === "crouchHold" || this.jumperState === "recovering") {
+      this.updateSurfaceState(dt);
+    } else {
+      this.updateLeaping(dt);
+    }
+  }
+
+  updateSurfaceState(dt) {
+    const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (!platform) {
+      this.beginFalling();
+      return;
+    }
+
+    this.onSurface = true;
+    this.vx = 0;
+    this.vy = 0;
+    this.attachToHoverSurface(platform);
+
+    const playerNearby = this.isPlayerInDetectionRange();
+    if (playerNearby) this.facePlayer();
+
+    if (this.jumperState === "idle") {
+      this.poseBlend = Math.max(0, this.poseBlend - dt / JUMPER_RECOVERY_DURATION);
+      if (playerNearby && this.canChooseSafeLeap()) {
+        this.jumperState = "charging";
+        this.stateTimer = 0;
+      }
+      return;
+    }
+
+    if (this.jumperState === "charging") {
+      if (!playerNearby || !this.canChooseSafeLeap()) {
+        this.jumperState = "recovering";
+        this.stateTimer = 0;
+        return;
+      }
+      this.stateTimer += dt;
+      this.poseBlend = clamp(this.stateTimer / JUMPER_CHARGE_DURATION, 0, 1);
+      if (this.stateTimer >= JUMPER_CHARGE_DURATION) {
+        this.jumperState = "crouchHold";
+        this.stateTimer = 0;
+        this.poseBlend = 1;
+      }
+      return;
+    }
+
+    if (this.jumperState === "crouchHold") {
+      if (!playerNearby || !this.canChooseSafeLeap()) {
+        this.jumperState = "recovering";
+        this.stateTimer = 0;
+        return;
+      }
+      this.stateTimer += dt;
+      this.poseBlend = 1;
+      if (this.stateTimer >= JUMPER_CROUCH_HOLD_DURATION) this.launchAtPlayer();
+      return;
+    }
+
+    if (this.jumperState === "recovering") {
+      this.stateTimer += dt;
+      this.poseBlend = 1 - clamp(this.stateTimer / JUMPER_RECOVERY_DURATION, 0, 1);
+      if (this.stateTimer >= JUMPER_RECOVERY_DURATION + JUMPER_RECOVERY_COOLDOWN) {
+        this.jumperState = "idle";
+        this.stateTimer = 0;
+        this.poseBlend = 0;
+      }
+    }
+  }
+
+  updateLeaping(dt) {
+    this.applyGravity(dt);
+    this.moveAndCollide(dt);
+    this.poseBlend = clamp(this.poseBlend - dt / 0.18, 0.18, 0.55);
+    if (this.onSurface) {
+      const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+      if (platform) {
+        this.jumperState = "recovering";
+        this.stateTimer = 0;
+        this.poseBlend = 1;
+        this.attachToHoverSurface(platform);
+      }
+    }
+  }
+
+  beginFalling() {
+    this.jumperState = "leaping";
+    this.onSurface = false;
+  }
+
+  launchAtPlayer() {
+    const jumperCenter = centerOf(this);
+    const targetCenter = centerOf(player);
+    const dx = targetCenter.x - jumperCenter.x;
+    const direction = Math.sign(dx) || this.direction || 1;
+    const limitedDistance = clamp(Math.abs(dx), 80, JUMPER_DETECTION_X);
+
+    this.direction = direction;
+    this.vx = direction * clamp(limitedDistance * 1.15, 130, JUMPER_LEAP_SPEED_X);
+    this.vy = -this.gravitySign * JUMPER_LEAP_SPEED_Y;
+    this.onSurface = false;
+    this.jumperState = "leaping";
+    this.stateTimer = 0;
+    this.poseBlend = 0.42;
+  }
+
+  isPlayerInDetectionRange() {
+    if (player.isDying) return false;
+    const playerCenter = centerOf(player);
+    const jumperCenter = centerOf(this);
+    const dx = Math.abs(playerCenter.x - jumperCenter.x);
+    const dy = Math.abs(playerCenter.y - jumperCenter.y);
+    return dx <= JUMPER_DETECTION_X && dy <= JUMPER_DETECTION_Y;
+  }
+
+  facePlayer() {
+    const dx = centerOf(player).x - centerOf(this).x;
+    if (Math.abs(dx) > 4) this.direction = dx > 0 ? 1 : -1;
+  }
+
+  canChooseSafeLeap() {
+    // Future spike hazard hook: platform data can mark unsafe landing surfaces
+    // with hasSpikes/spikes later without changing the Jumper state machine.
+    const startPlatform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (!this.isLandingSurfaceSafe(startPlatform)) return false;
+    const targetPlatform = this.getPredictedLandingPlatform();
+    return !targetPlatform || this.isLandingSurfaceSafe(targetPlatform);
+  }
+
+  getPredictedLandingPlatform() {
+    const targetX = centerOf(player).x;
+    let bestPlatform = null;
+    let bestDistance = Infinity;
+
+    for (const platform of platforms) {
+      if (targetX < platform.x || targetX > platform.x + platform.w) continue;
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const bodyEdgeY = this.gravitySign > 0 ? this.y + this.h : this.y;
+      const distanceToSurface = (surfaceY - bodyEdgeY) * this.gravitySign;
+      if (distanceToSurface < -8 || distanceToSurface > 260) continue;
+      if (distanceToSurface < bestDistance) {
+        bestPlatform = platform;
+        bestDistance = distanceToSurface;
+      }
+    }
+
+    return bestPlatform;
+  }
+
+  isLandingSurfaceSafe(platform) {
+    return Boolean(platform) && !platform.hasSpikes && !platform.spikes;
+  }
+
+  getHoverGap() {
+    return 9;
+  }
+
+  getSurfacePlatformAt(probeX = this.x + this.w / 2, maxDistance = this.getHoverGap() + 8) {
+    const body = this.getCollisionRect();
+    const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
+    let bestPlatform = null;
+    let bestDistance = Infinity;
+
+    for (const platform of platforms) {
+      if (probeX < platform.x || probeX > platform.x + platform.w) continue;
+
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const distanceToSurface = (surfaceY - surfaceEdgeY) * this.gravitySign;
+      if (distanceToSurface < -0.5 || distanceToSurface > maxDistance) continue;
+
+      if (distanceToSurface < bestDistance) {
+        bestPlatform = platform;
+        bestDistance = distanceToSurface;
+      }
+    }
+
+    return bestPlatform;
+  }
+
+  getDirectSurfacePlatformAt(probeX = this.x + this.w / 2) {
+    return this.getSurfacePlatformAt(probeX, this.getHoverGap() + 8);
+  }
+
+  attachToHoverSurface(platform) {
+    const hoverGap = this.getHoverGap();
+    this.y = this.gravitySign > 0
+      ? platform.y - this.h - hoverGap
+      : platform.y + platform.h + hoverGap;
+  }
+
+  getCollisionRect() {
+    return { x: this.x + 4, y: this.y + 4, w: this.w - 8, h: this.h - 8 };
+  }
+
+  getDamageRect() {
+    return this.getCollisionRect();
+  }
+
+  updateHitReaction(dt) {
+    if (this.hitTimer <= 0) {
+      this.hitJoltX = 0;
+      this.hitJoltY = 0;
+      return;
+    }
+
+    this.hitTimer = Math.max(0, this.hitTimer - dt);
+    const progress = this.hitTimer / 0.12;
+    this.hitJoltX *= Math.max(0, 1 - dt * 16);
+    this.hitJoltY = -this.gravitySign * 2.4 * progress;
+  }
+
+  hit(amount) {
+    if (this.isDying || this.hp <= 0) return;
+    this.hp -= amount;
+    this.hitTimer = 0.12;
+    this.hitJoltX = (player.facing || 1) * 2.4;
+    this.hitJoltY = -this.gravitySign * 2.4;
+    if (this.jumperState === "charging" || this.jumperState === "crouchHold") {
+      this.jumperState = "recovering";
+      this.stateTimer = 0;
+    }
+    if (this.jumperState === "leaping") this.vy -= this.gravitySign * 36;
+    if (this.hp <= 0) this.beginDeath();
+  }
+
+  flipGravity(castId) {
+    if (this.lastGravityCastId === castId) return;
+    const previousGravitySign = this.gravitySign;
+    super.flipGravity(castId);
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+    this.jumperState = "leaping";
+    this.stateTimer = 0;
+    this.onSurface = false;
+  }
+
+  resetGravity() {
+    const previousGravitySign = this.gravitySign;
+    super.resetGravity();
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+    this.jumperState = "leaping";
+    this.stateTimer = 0;
+    this.onSurface = false;
+  }
+
+  isTouchingVerticalWorldEdge() {
+    const body = this.getCollisionRect();
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120;
+  }
+
+  beginDeath() {
+    if (this.isDying) return;
+    this.hp = 0;
+    this.isDying = true;
+    this.deathTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.jumperState = "destroyed";
+    this.deathFragments = this.createDeathFragments();
+    activeGravityEntities.delete(this);
+  }
+
+  updateDeath(dt) {
+    this.deathTimer += dt;
+    if (this.deathTimer >= ENEMY_DEATH_TOTAL_DURATION) {
+      this.isDying = false;
+      this.deathFragments = [];
+    }
+  }
+
+  createDeathFragments() {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const anchors = [
+      { x: 0, y: -14, size: 4.7, shape: "diamond" },
+      { x: 0, y: 0, size: 5.2, shape: "diamond" },
+      { x: 0, y: 14, size: 4.4, shape: "diamond" },
+      { x: -16, y: 7, size: 4.1, shape: "plate" },
+      { x: 16, y: 7, size: 4.1, shape: "plate" },
+      { x: -12, y: -8, size: 3.2, shape: "plate" },
+      { x: 12, y: -8, size: 3.2, shape: "plate" }
+    ];
+
+    return anchors.map((anchor, index) => {
+      const worldX = cx + anchor.x;
+      const worldY = cy + anchor.y * this.gravitySign;
+      const angle = Math.atan2(worldY - cy, worldX - cx) + (index % 3 - 1) * 0.22;
+      const speed = 22 + (index % 4) * 6;
+      return {
+        x: worldX,
+        y: worldY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: anchor.size,
+        rot: Math.PI / 4 + index * 0.46,
+        spin: (index % 2 === 0 ? 1 : -1) * (1.6 + index * 0.06),
+        shape: anchor.shape
+      };
+    });
+  }
+
+  drawDiamondShape(cx, cy, rx, ry) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - ry);
+    ctx.lineTo(cx + rx, cy);
+    ctx.lineTo(cx, cy + ry);
+    ctx.lineTo(cx - rx, cy);
+    ctx.closePath();
+  }
+
+  drawPlate(points) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  getPoseShape() {
+    const blend = this.poseBlend * this.poseBlend * (3 - 2 * this.poseBlend);
+    const mix = (standing, crouched) => standing + (crouched - standing) * blend;
+    const mirror = this.direction < 0 ? -1 : 1;
+    const airborne = this.jumperState === "leaping";
+    const stretch = airborne ? 1.06 : 1;
+    const squash = airborne ? 0.95 : 1;
+    const sideDrift = Math.sin(this.hoverTimer * 2.7) * 0.45 * (1 - blend);
+
+    const core = {
+      x: 0,
+      y: mix(-1, 4),
+      rx: mix(10.5, 13.5) * squash,
+      ry: mix(18, 13) * stretch,
+      innerRx: mix(5.5, 6.8) * squash,
+      innerRy: mix(9.5, 7) * stretch
+    };
+    const leftPlate = [
+      { x: mix(-23, -21) + sideDrift, y: mix(20, 12) },
+      { x: mix(-14, -9) + sideDrift, y: mix(18, 12) },
+      { x: mix(-7, -15) + sideDrift, y: mix(-20, -12) },
+      { x: mix(-12, -21) + sideDrift, y: mix(-24, -15) }
+    ];
+    const rightPlate = leftPlate.map((point) => ({ x: -point.x, y: point.y }));
+
+    if (airborne) {
+      const lean = mirror * 3.4;
+      core.x += mirror * 1.2;
+      for (const point of leftPlate) point.x -= lean;
+      for (const point of rightPlate) point.x -= lean;
+    }
+
+    return { core, leftPlate, rightPlate };
+  }
+
+  drawBody(deathFlash = false) {
+    const pose = this.getPoseShape();
+    const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.12 : 0;
+    ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+
+    ctx.strokeStyle = deathFlash || hitFlash > 0.55 ? "rgba(232, 222, 255, 0.96)" : "rgba(31, 24, 76, 0.94)";
+    ctx.fillStyle = deathFlash ? "rgba(255, 255, 255, 0.9)" : "rgba(111, 84, 224, 0.22)";
+    ctx.lineWidth = 2.1;
+    this.drawPlate(pose.leftPlate);
+    this.drawPlate(pose.rightPlate);
+
+    ctx.strokeStyle = deathFlash || hitFlash > 0.55 ? "rgba(255, 255, 255, 0.98)" : "rgba(54, 39, 128, 0.96)";
+    ctx.fillStyle = deathFlash ? "rgba(244, 239, 255, 0.95)" : "rgba(116, 89, 238, 0.74)";
+    ctx.lineWidth = 2.35;
+    this.drawDiamondShape(pose.core.x, pose.core.y, pose.core.rx, pose.core.ry);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(190, 177, 255, 0.82)";
+    ctx.fillStyle = `rgba(170, 149, 255, ${0.13 + hitFlash * 0.2})`;
+    ctx.lineWidth = 1.05;
+    this.drawDiamondShape(pose.core.x, pose.core.y, pose.core.innerRx, pose.core.innerRy);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = deathFlash ? "rgba(255, 255, 255, 0.9)" : "rgba(210, 198, 255, 0.38)";
+    this.drawDiamondShape(pose.core.x, pose.core.y, 3.1, 4.2);
+    ctx.fill();
+  }
+
+  drawDeath() {
+    const flashEnd = ENEMY_DEATH_FLASH_DURATION;
+    const destabilizeEnd = flashEnd + ENEMY_DEATH_DESTABILIZE_DURATION;
+    const fragmentEnd = destabilizeEnd + ENEMY_DEATH_FRAGMENT_DURATION;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(150, 121, 255, 0.58)";
+    ctx.shadowBlur = 10;
+
+    if (this.deathTimer < destabilizeEnd) {
+      const flashAlpha = this.deathTimer < flashEnd ? 0.95 : 0.68;
+      const jitter = this.deathTimer < flashEnd ? 0 : Math.sin(this.deathTimer * 98) * 0.75;
+      ctx.translate(cx + jitter, cy - jitter * 0.25);
+      ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+      ctx.globalAlpha = flashAlpha;
+      this.drawBody(true);
+    } else {
+      const fragmentProgress = clamp((this.deathTimer - destabilizeEnd) / (fragmentEnd - destabilizeEnd), 0, 1);
+      const fadeProgress = this.deathTimer > fragmentEnd
+        ? clamp((this.deathTimer - fragmentEnd) / ENEMY_DEATH_FADE_DURATION, 0, 1)
+        : 0;
+      ctx.globalAlpha = 1 - fadeProgress;
+
+      for (const fragment of this.deathFragments) {
+        const travel = Math.sin(fragmentProgress * Math.PI * 0.5);
+        const x = fragment.x + fragment.vx * travel * 0.34;
+        const y = fragment.y + fragment.vy * travel * 0.34;
+        const size = fragment.size * (1 - fadeProgress * 0.3);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
+        ctx.fillStyle = fragment.shape === "diamond" ? "rgba(178, 154, 255, 0.86)" : "rgba(104, 81, 221, 0.78)";
+        ctx.strokeStyle = "rgba(232, 222, 255, 0.78)";
+        ctx.lineWidth = 0.75;
+        if (fragment.shape === "diamond") this.drawDiamondShape(0, 0, size, size * 1.2);
+        else {
+          ctx.beginPath();
+          ctx.moveTo(-size, size * 0.65);
+          ctx.lineTo(size * 0.7, size * 0.45);
+          ctx.lineTo(size, -size * 0.65);
+          ctx.lineTo(-size * 0.35, -size * 0.45);
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  draw() {
+    if (this.isDying) {
+      this.drawDeath();
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const hoverBob = (this.jumperState === "idle" || this.jumperState === "recovering")
+      ? Math.sin(this.hoverTimer * 2.15) * 1.35 * (1 - this.poseBlend) * (this.gravitySign > 0 ? -1 : 1)
+      : 0;
+    const chargeGlow = this.jumperState === "charging" || this.jumperState === "crouchHold" ? this.poseBlend : 0;
+
+    ctx.save();
+    ctx.translate(cx + this.hitJoltX, cy + hoverBob + this.hitJoltY);
+    ctx.scale(this.direction, this.gravitySign > 0 ? 1 : -1);
+    const gravityFlipVisual = this.getGravityFlipVisualTransform();
+    if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
+      ctx.rotate(gravityFlipVisual.rotation);
+      ctx.scale(gravityFlipVisual.scaleX, 1);
+    }
+    ctx.shadowColor = "rgba(138, 111, 255, 0.38)";
+    ctx.shadowBlur = 4 + chargeGlow * 7 + (this.hitTimer > 0 ? 5 : 0);
+    this.drawBody(false);
+    ctx.restore();
+
+    const visualTopY = cy + hoverBob + this.hitJoltY - 25;
+    drawGravityMarker(this, visualTopY);
+  }
+}
+
 class DroneProjectile {
   constructor(x, y, dx, dy, orientationAngle = Math.atan2(dy, dx)) {
     this.x = x;
@@ -2902,7 +3416,7 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
 }
 
 const player = new Player();
-const enemies = [new Enemy(660, 435), new Drone(1085, 210)];
+const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Jumper(1818, 421)];
 
 function drawGravityMarker(entity, visualTopY = entity.y) {
   if (entity.gravitySign === 1) return;
