@@ -1015,15 +1015,16 @@ class Player extends Entity {
         const balancePulse = crouchWalking ? Math.sin((cycle + phaseOffset) * Math.PI * 2) : 0;
         const handShift = crouchWalking ? -Math.cos((cycle + phaseOffset) * Math.PI * 2) : 0;
         const elbowShift = crouchWalking ? handShift * 0.28 : 0;
+        const crouchArmCenterX = torsoCenter.x - 0.45;
         const shoulder = {
-          x: mix(2.8 - armAttachmentBackShift + side * 1.2, 2.15 - armAttachmentBackShift + side * 0.65, lower),
+          x: mix(2.8 - armAttachmentBackShift + side * 1.2, crouchArmCenterX + side * 0.5, lower),
           y: shoulderY
         };
         // Local +X is always the player's facing direction after mirroring.
-        // Keep crouched elbows compact around the middle/back of the torso while
-        // the forearms can still reach forward for balance.
+        // Keep crouched upper arms tucked closer to the torso center while the
+        // forearms can still reach forward for balance.
         const elbow = {
-          x: mix(2.4 + side * 3.6, -0.6 + side * 0.42 + elbowShift, lower),
+          x: mix(2.4 + side * 3.6, crouchArmCenterX + side * 0.35 + elbowShift, lower),
           y: mix(27, 31.5 + bodyY * 0.25 + balancePulse * 0.18, lower)
         };
         const hand = {
