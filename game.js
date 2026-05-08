@@ -1360,11 +1360,13 @@ class Enemy extends Entity {
     this.walkerState = "recovering";
     this.landingRecoveryTimer = 0.1;
     this.groundedPlatform = null;
+    this.idleTimer = 0;
   }
 
   update(dt) {
     if (this.hp <= 0) return;
 
+    this.idleTimer += dt;
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
     if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
@@ -1573,17 +1575,110 @@ class Enemy extends Entity {
 
   draw() {
     if (this.hp <= 0) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    // Visual-only bob: the physics body remains anchored to the patrol surface
+    // so collision, System Pulse hits, and edge detection stay unchanged.
+    const hoverBob = Math.sin(this.idleTimer * 2.35) * 3 * (this.gravitySign > 0 ? -1 : 1);
+    const plateSway = Math.sin(this.idleTimer * 1.7) * 0.025;
+
+    function drawPolygon(points) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
     ctx.save();
-    ctx.fillStyle = this.gravitySign < 0 ? "#ffb86b" : "#ff6f91";
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.translate(cx, cy + hoverBob);
+    ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = "rgba(200, 244, 255, 0.9)";
     ctx.lineWidth = 2;
-    ctx.shadowColor = "rgba(255, 111, 145, 0.35)";
-    ctx.shadowBlur = 12;
-    ctx.fillRect(this.x, this.y, this.w, this.h);
-    ctx.strokeRect(this.x + 1, this.y + 1, this.w - 2, this.h - 2);
-    ctx.fillStyle = "#07101c";
-    ctx.fillRect(this.x + 8, this.y + 11, 7, 7);
-    ctx.fillRect(this.x + 23, this.y + 11, 7, 7);
+
+    ctx.shadowColor = "rgba(88, 197, 255, 0.2)";
+    ctx.shadowBlur = 8;
+
+    // A faint anchor shadow sells the floating silhouette without changing the
+    // Walker's physical hover gap or adding non-geometric details.
+    ctx.save();
+    ctx.translate(0, this.gravitySign > 0 ? 23 : -23);
+    ctx.scale(1, 0.18);
+    ctx.fillStyle = "rgba(58, 127, 176, 0.26)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 17, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    const leftPlate = [
+      { x: -24, y: 20 },
+      { x: -17, y: 19 },
+      { x: -6, y: -21 },
+      { x: -10, y: -18 }
+    ];
+    const rightPlate = leftPlate.map((point) => ({ x: -point.x, y: point.y }));
+
+    ctx.fillStyle = "#3fa7d9";
+    ctx.save();
+    ctx.rotate(-plateSway);
+    drawPolygon(leftPlate);
+    ctx.restore();
+
+    ctx.save();
+    ctx.rotate(plateSway);
+    drawPolygon(rightPlate);
+    ctx.restore();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(190, 238, 255, 0.55)";
+    ctx.lineWidth = 1.25;
+    ctx.fillStyle = "rgba(135, 224, 247, 0.38)";
+    drawPolygon([
+      { x: -20, y: 15 },
+      { x: -17, y: 14 },
+      { x: -10, y: -12 },
+      { x: -12, y: -13 }
+    ]);
+    drawPolygon([
+      { x: 20, y: 15 },
+      { x: 17, y: 14 },
+      { x: 10, y: -12 },
+      { x: 12, y: -13 }
+    ]);
+
+    ctx.shadowColor = "rgba(82, 205, 255, 0.24)";
+    ctx.shadowBlur = 7;
+    ctx.strokeStyle = "#208fd1";
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = "#42b7e8";
+    drawPolygon([
+      { x: 0, y: -17 },
+      { x: 12, y: 0 },
+      { x: 0, y: 20 },
+      { x: -12, y: 0 }
+    ]);
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(206, 250, 255, 0.52)";
+    ctx.lineWidth = 1.2;
+    ctx.fillStyle = "rgba(115, 226, 242, 0.44)";
+    drawPolygon([
+      { x: 0, y: -12 },
+      { x: 7, y: 0 },
+      { x: 0, y: 11 },
+      { x: -7, y: 0 }
+    ]);
+
+    ctx.strokeStyle = "rgba(236, 255, 255, 0.88)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, -12);
+    ctx.lineTo(0, 12);
+    ctx.stroke();
+
     ctx.restore();
     drawGravityMarker(this);
   }
