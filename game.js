@@ -49,6 +49,9 @@ const DEATH_FADE_DURATION = 0.2;
 const DEATH_TOTAL_DURATION = DEATH_FLASH_DURATION + DEATH_DESTABILIZE_DURATION + DEATH_FRAGMENT_DURATION + DEATH_FADE_DURATION;
 const FALL_LIMIT = config.fallLimit ?? 640;
 const ROOM_WIDTH = config.roomWidth ?? 1280;
+const HUD_MARGIN = 20;
+const HP_DIAMOND_SIZE = 14;
+const HP_DIAMOND_SPACING = 8;
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -174,7 +177,8 @@ class Entity {
 class Player extends Entity {
   constructor() {
     super(checkpoint.x, checkpoint.y, PLAYER_WIDTH, STAND_HEIGHT);
-    this.hp = 3;
+    this.maxHp = 3;
+    this.hp = this.maxHp;
     this.facing = 1;
     this.pulseTimer = 0;
     this.damageTimer = 0;
@@ -544,7 +548,7 @@ class Player extends Entity {
 
   fullRespawn() {
     resetGravityField(true);
-    this.hp = 3;
+    this.hp = this.maxHp;
     this.damageTimer = 0;
     this.placeAt(checkpoint.x, checkpoint.y);
   }
@@ -1825,16 +1829,77 @@ function drawRoom() {
   }
 }
 
+function drawDiamond(x, y, size, filled) {
+  const half = size / 2;
+
+  ctx.beginPath();
+  ctx.moveTo(x + half, y);
+  ctx.lineTo(x + size, y + half);
+  ctx.lineTo(x + half, y + size);
+  ctx.lineTo(x, y + half);
+  ctx.closePath();
+
+  if (filled) {
+    ctx.fillStyle = "rgba(246, 253, 255, 0.95)";
+    ctx.strokeStyle = "rgba(82, 154, 209, 0.8)";
+    ctx.shadowColor = "rgba(255, 255, 255, 0.55)";
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  } else {
+    ctx.fillStyle = "rgba(246, 253, 255, 0.12)";
+    ctx.strokeStyle = "rgba(36, 87, 125, 0.36)";
+    ctx.fill();
+  }
+
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function getHudPlacement(width, height) {
+  const placement = {
+    x: canvas.width - HUD_MARGIN - width,
+    y: HUD_MARGIN,
+    w: width,
+    h: height
+  };
+
+  // Keep the screen-space HP counter visually below any visible ceiling/level
+  // geometry so flipped-gravity play never hides the diamonds in a platform.
+  let moved = true;
+  while (moved) {
+    moved = false;
+    for (const platform of platforms) {
+      const screenPlatform = {
+        x: platform.x - cameraX,
+        y: platform.y,
+        w: platform.w,
+        h: platform.h
+      };
+
+      if (!rectsOverlap(placement, screenPlatform)) continue;
+      placement.y = screenPlatform.y + screenPlatform.h + HP_DIAMOND_SPACING;
+      moved = true;
+    }
+  }
+
+  return placement;
+}
+
 function drawHud() {
+  const maxHp = Math.max(0, player.maxHp ?? 3);
+  const currentHp = clamp(player.hp, 0, maxHp);
+  if (maxHp <= 0) return;
+
+  const rowWidth = maxHp * HP_DIAMOND_SIZE + (maxHp - 1) * HP_DIAMOND_SPACING;
+  const placement = getHudPlacement(rowWidth, HP_DIAMOND_SIZE);
+
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#24577d";
-  ctx.font = "16px system-ui, sans-serif";
-  ctx.fillText(`HP: ${player.hp}/3`, 20, 30);
-  ctx.fillText("A/D move  Shift run  W jump  S crouch  Space/click System Pulse", 20, 55);
-  ctx.fillText("Hold Q preview range  E toggle Gravity Field", 20, 80);
-  ctx.fillStyle = gravityFieldActive ? "#138a57" : "rgba(36, 87, 125, 0.72)";
-  ctx.fillText(`Gravity Field: ${gravityFieldActive ? "ACTIVE" : "ready"}  Cast ID ${gravityCastId}`, 20, 105);
+  for (let i = 0; i < maxHp; i += 1) {
+    const x = placement.x + i * (HP_DIAMOND_SIZE + HP_DIAMOND_SPACING);
+    drawDiamond(x, placement.y, HP_DIAMOND_SIZE, i < currentHp);
+  }
   ctx.restore();
 }
 
