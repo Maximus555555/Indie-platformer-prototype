@@ -296,8 +296,8 @@ class Player extends Entity {
     const originY = this.gravitySign > 0
       ? surfaceY - modelFeetY * PLAYER_VISUAL_SCALE
       : surfaceY + modelFeetY * PLAYER_VISUAL_SCALE;
-    const handLocalX = 17;
-    const handLocalY = this.isCrouching ? 30 : 22.5;
+    const handLocalX = this.isCrouching ? 20.5 : 18.7;
+    const handLocalY = this.isCrouching ? 32.8 : 22.8;
     const handX = this.x + this.w / 2 + this.attackFacing * PLAYER_VISUAL_SCALE * handLocalX;
     const handY = originY + verticalFlip * PLAYER_VISUAL_SCALE * handLocalY;
     return {
@@ -367,7 +367,7 @@ class Player extends Entity {
     const fill = "rgba(255, 255, 255, 0.96)";
     const inner = "rgba(226, 245, 255, 0.82)";
     const glow = "rgba(82, 166, 240, 0.34)";
-    const facing = this.facing;
+    const facing = this.attackTimer > 0 ? this.attackFacing : this.facing;
     const speed = Math.abs(this.vx);
     const grounded = this.onSurface;
     const moving = speed > 2;
@@ -481,6 +481,19 @@ class Player extends Entity {
       const index = Math.min(Math.floor(scaled), lastIndex - 1);
       const amount = scaled - index;
       return blendLimb(frames[index], frames[index + 1], amount);
+    }
+
+    function interpolateTimedTimeline(frames, progress) {
+      const clampedProgress = clamp(progress, 0, 1);
+      for (let i = 0; i < frames.length - 1; i += 1) {
+        const current = frames[i];
+        const next = frames[i + 1];
+        if (clampedProgress <= next.time) {
+          const span = Math.max(next.time - current.time, 0.001);
+          return blendLimb(current.limb, next.limb, (clampedProgress - current.time) / span);
+        }
+      }
+      return frames[frames.length - 1].limb;
     }
 
     // Eight keyed contact/down/passing/up stages are interpolated into a calm
@@ -850,38 +863,62 @@ class Player extends Entity {
       attackProgress = 1 - clamp(this.attackTimer / ATTACK_ANIM_DURATION, 0, 1);
       const baseFarArm = pose.farArm ?? restingArm(1, 0);
       const baseNearArm = pose.nearArm ?? restingArm(-1, 0);
-      const chestX = pose.torso.x + Math.cos(pose.torso.rot) * 8.2;
-      const chestY = pose.torso.y - 2.4 + Math.sin(pose.torso.rot) * 2.5;
-      const releaseLean = attackProgress > 0.46 && attackProgress < 0.76
-        ? Math.sin((attackProgress - 0.46) / 0.3 * Math.PI) * 0.055
+      const crouchTightness = this.isCrouching ? 1 : 0;
+      const chestX = pose.torso.x + Math.cos(pose.torso.rot) * mix(8.2, 7.1, crouchTightness);
+      const chestY = pose.torso.y - mix(2.4, 0.9, crouchTightness) + Math.sin(pose.torso.rot) * 2.5;
+      const releaseLean = attackProgress > 0.44 && attackProgress < 0.68
+        ? Math.sin((attackProgress - 0.44) / 0.24 * Math.PI) * 0.06
         : 0;
       pose.torso = { ...pose.torso, rot: pose.torso.rot + releaseLean };
-      pose.head = { ...pose.head, x: pose.head.x + releaseLean * 8, y: pose.head.y + releaseLean * 1.2 };
+      pose.head = { ...pose.head, x: pose.head.x + releaseLean * 7, y: pose.head.y + releaseLean * 1.1 };
 
       function attackArm(baseArm, side) {
         const shoulder = baseArm[0];
-        const prepHand = { x: chestX + 1.4 + side * 2.1, y: chestY + 5.2 + side * 0.6 };
-        const meetHand = { x: chestX + 3.3 + side * 0.18, y: chestY + 1.8 + side * 0.18 };
-        const releaseHand = { x: chestX + 10.3 + side * 0.45, y: chestY + 2.2 + side * 0.2 };
-        const recoveryHand = blendPoint(releaseHand, baseArm[2], 0.72);
-        const frames = [
-          [shoulder, { x: mix(shoulder.x, prepHand.x, 0.5), y: mix(shoulder.y, prepHand.y, 0.72) }, prepHand],
-          [shoulder, { x: chestX + 0.7 + side * 1.8, y: chestY + 4.6 }, meetHand],
-          [shoulder, { x: chestX + 4.7 + side * 1.2, y: chestY + 4.2 }, releaseHand],
-          [shoulder, { x: mix(baseArm[1].x, releaseHand.x, 0.38), y: mix(baseArm[1].y, releaseHand.y, 0.48) }, recoveryHand],
-          baseArm
-        ];
-        return interpolateTimeline(frames, attackProgress);
+        const prepHand = {
+          x: chestX + mix(1.1, 0.45, crouchTightness) + side * mix(2.15, 1.35, crouchTightness),
+          y: chestY + mix(5.1, 3.1, crouchTightness) + side * 0.45
+        };
+        const meetHand = {
+          x: chestX + mix(3.35, 2.55, crouchTightness) + side * 0.16,
+          y: chestY + mix(1.75, 1.35, crouchTightness) + side * 0.14
+        };
+        const releaseHand = {
+          x: chestX + mix(10.45, 8.25, crouchTightness) + side * 0.38,
+          y: chestY + mix(2.15, 1.75, crouchTightness) + side * 0.18
+        };
+        const recoverHand = blendPoint(baseArm[2], releaseHand, 0.38);
+        const prepElbow = { x: mix(shoulder.x, prepHand.x, 0.54), y: mix(shoulder.y, prepHand.y, 0.72) };
+        const meetElbow = {
+          x: chestX + mix(0.8, 0.35, crouchTightness) + side * mix(1.85, 1.1, crouchTightness),
+          y: chestY + mix(4.45, 3.0, crouchTightness)
+        };
+        const releaseElbow = {
+          x: chestX + mix(4.85, 3.65, crouchTightness) + side * 0.9,
+          y: chestY + mix(4.05, 2.85, crouchTightness)
+        };
+        const recoverElbow = blendPoint(baseArm[1], releaseElbow, 0.42);
+        // Four clear firing poses: prepare, hands meet/focus, release, recover.
+        return interpolateTimedTimeline([
+          { time: 0, limb: [shoulder, prepElbow, prepHand] },
+          { time: 0.34, limb: [shoulder, meetElbow, meetHand] },
+          { time: 0.58, limb: [shoulder, releaseElbow, releaseHand] },
+          { time: 0.84, limb: [shoulder, recoverElbow, recoverHand] },
+          { time: 1, limb: baseArm }
+        ], attackProgress);
       }
 
       pose.farArm = attackArm(baseFarArm, -1);
       pose.nearArm = attackArm(baseNearArm, 1);
       const farHand = pose.farArm[2];
       const nearHand = pose.nearArm[2];
+      const focusStrength = attackProgress < 0.6
+        ? Math.sin(clamp(attackProgress / 0.6, 0, 1) * Math.PI)
+        : Math.max(0, 1 - (attackProgress - 0.6) / 0.24);
       attackChargePoint = {
         x: mix(farHand.x, nearHand.x, 0.5),
         y: mix(farHand.y, nearHand.y, 0.5),
-        strength: attackProgress < 0.78 ? Math.sin(clamp(attackProgress / 0.78, 0, 1) * Math.PI) : 0
+        strength: focusStrength,
+        release: attackProgress > 0.42 && attackProgress < 0.68
       };
     }
 
@@ -900,9 +937,14 @@ class Player extends Entity {
       ctx.arc(attackChargePoint.x, attackChargePoint.y, 1.7 + attackChargePoint.strength * 1.8, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      if (attackProgress > 0.45 && attackProgress < 0.68) {
+      if (attackChargePoint.release) {
         ctx.beginPath();
-        ctx.arc(attackChargePoint.x + 2.8, attackChargePoint.y, 4.4 + attackChargePoint.strength * 2.3, -0.72, 0.72);
+        ctx.arc(attackChargePoint.x + 3.2, attackChargePoint.y, 4.6 + attackChargePoint.strength * 2.1, -0.72, 0.72);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(attackChargePoint.x + 1.7, attackChargePoint.y - 2.3);
+        ctx.lineTo(attackChargePoint.x + 7.2, attackChargePoint.y);
+        ctx.lineTo(attackChargePoint.x + 1.7, attackChargePoint.y + 2.3);
         ctx.stroke();
       }
       ctx.restore();
