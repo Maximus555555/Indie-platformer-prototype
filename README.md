@@ -8,15 +8,29 @@ All current visuals are original, code-generated placeholder graphics drawn with
 
 Open `index.html` in any modern browser.
 
-You can also serve the folder with a tiny local web server if desired:
+In Codespaces or any terminal-based environment, start the built-in static server from the repository root:
 
 ```bash
-python3 -m http.server 8000
+npm start
+```
+
+Then open the forwarded port. By default the game is served at `http://localhost:8000`; if Codespaces provides a `PORT` value, the start script uses that instead. The server binds to `0.0.0.0` so Codespaces can forward it.
+
+You can also serve the folder directly with Python if desired:
+
+```bash
+python3 -m http.server 8000 --bind 0.0.0.0
 ```
 
 Then visit `http://localhost:8000`.
 
 If a workspace/browser preview still shows an older player or old spikes, hard refresh the page. The page also version-tags its local CSS and JavaScript URLs so preview caches fetch the current files.
+
+Run the lightweight validation before sharing changes:
+
+```bash
+npm run check
+```
 
 ## Controls
 
@@ -50,6 +64,7 @@ This prototype is ready for GitHub Pages because it uses only static files:
 
 - `index.html`
 - `style.css`
+- `game-config.js`
 - `game.js`
 
 Later, enable GitHub Pages for the repository branch and point it at the repository root. The same `index.html` file should load in the hosted page.

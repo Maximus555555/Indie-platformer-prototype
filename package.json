@@ -1,0 +1,11 @@
+{
+  "name": "indie-platformer-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-playable HTML5 canvas platformer prototype with code-generated visuals.",
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "check": "node --check game-config.js && node --check game.js && node --check scripts/serve.js && node --check scripts/smoke-test.js && node scripts/smoke-test.js",
+    "test": "npm run check"
+  }
+}
