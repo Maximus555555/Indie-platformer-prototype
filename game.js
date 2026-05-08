@@ -36,6 +36,17 @@ const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
 const DRONE_WINDUP = config.droneWindup ?? 0.34;
 const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 360;
 const DRONE_PROJECTILE_SIZE = config.droneProjectileSize ?? 10;
+const JUMPER_WIDTH = config.jumperWidth ?? 36;
+const JUMPER_HEIGHT = config.jumperHeight ?? 38;
+const JUMPER_DETECTION_X = config.jumperDetectionX ?? 260;
+const JUMPER_DETECTION_Y = config.jumperDetectionY ?? 130;
+const JUMPER_CHARGE_DURATION = config.jumperChargeDuration ?? 0.34;
+const JUMPER_CROUCH_HOLD = config.jumperCrouchHold ?? 0.1;
+const JUMPER_RECOVERY_DURATION = config.jumperRecoveryDuration ?? 0.24;
+const JUMPER_RECOVERY_DELAY = config.jumperRecoveryDelay ?? 0.34;
+const JUMPER_LEAP_MIN_SPEED = config.jumperLeapMinSpeed ?? 130;
+const JUMPER_LEAP_MAX_SPEED = config.jumperLeapMaxSpeed ?? 180;
+const JUMPER_LEAP_IMPULSE = config.jumperLeapImpulse ?? 430;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -2635,6 +2646,573 @@ class Drone extends Entity {
   }
 }
 
+
+class Jumper extends Entity {
+  constructor(x, y) {
+    super(x, y, JUMPER_WIDTH, JUMPER_HEIGHT);
+    this.hp = 2;
+    this.facing = -1;
+    this.jumperState = "idle";
+    this.stateTimer = 0;
+    this.recoveryDelayTimer = 0.12;
+    this.hoverTimer = 0;
+    this.poseBlend = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
+    this.groundedPlatform = null;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
+  }
+
+  update(dt) {
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    this.hoverTimer += dt;
+    this.updateGravityFlipVisual(dt);
+    this.updateHitReaction(dt);
+
+    if (this.isOutsideWorld()) {
+      this.beginDeath();
+      return;
+    }
+
+    if (this.jumperState === "jumping" || this.jumperState === "airborne") {
+      this.updateAirborne(dt);
+      return;
+    }
+
+    const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (!platform) {
+      this.enterAirborneState();
+      return;
+    }
+
+    this.groundedPlatform = platform;
+    this.onSurface = true;
+    this.attachToSurface(platform);
+    this.facePlayerIfNearby();
+
+    if (this.jumperState === "idle") this.updateIdle(dt);
+    else if (this.jumperState === "charging") this.updateCharging(dt);
+    else if (this.jumperState === "crouch-hold") this.updateCrouchHold(dt);
+    else if (this.jumperState === "recovering") this.updateRecovery(dt);
+  }
+
+  updateHitReaction(dt) {
+    if (this.hitTimer <= 0) {
+      this.hitJoltX = 0;
+      this.hitJoltY = 0;
+      return;
+    }
+
+    this.hitTimer = Math.max(0, this.hitTimer - dt);
+    const progress = this.hitTimer / 0.14;
+    this.hitJoltX = -this.facing * 2.4 * progress;
+    this.hitJoltY = -this.gravitySign * 1.8 * progress;
+  }
+
+  updateIdle(dt) {
+    this.poseBlend = Math.max(0, this.poseBlend - dt / JUMPER_RECOVERY_DURATION);
+    this.vx = 0;
+    this.vy = 0;
+    if (this.recoveryDelayTimer > 0) {
+      this.recoveryDelayTimer = Math.max(0, this.recoveryDelayTimer - dt);
+      return;
+    }
+    if (this.canStartAttack()) {
+      this.jumperState = "charging";
+      this.stateTimer = 0;
+      this.poseBlend = 0;
+    }
+  }
+
+  updateCharging(dt) {
+    this.vx = 0;
+    this.vy = 0;
+    this.stateTimer += dt;
+    const progress = clamp(this.stateTimer / JUMPER_CHARGE_DURATION, 0, 1);
+    this.poseBlend = progress * progress * (3 - 2 * progress);
+    if (progress >= 1) {
+      this.jumperState = "crouch-hold";
+      this.stateTimer = 0;
+      this.poseBlend = 1;
+    }
+  }
+
+  updateCrouchHold(dt) {
+    this.vx = 0;
+    this.vy = 0;
+    this.poseBlend = 1;
+    this.stateTimer += dt;
+    if (this.stateTimer >= JUMPER_CROUCH_HOLD) this.launchAtPlayer();
+  }
+
+  updateRecovery(dt) {
+    this.vx = 0;
+    this.vy = 0;
+    this.stateTimer += dt;
+    const progress = clamp(this.stateTimer / JUMPER_RECOVERY_DURATION, 0, 1);
+    this.poseBlend = 1 - progress * progress * (3 - 2 * progress);
+    if (progress >= 1) {
+      this.jumperState = "idle";
+      this.stateTimer = 0;
+      this.poseBlend = 0;
+      this.recoveryDelayTimer = JUMPER_RECOVERY_DELAY;
+    }
+  }
+
+  updateAirborne(dt) {
+    this.groundedPlatform = null;
+    this.onSurface = false;
+    this.poseBlend = this.jumperState === "jumping" ? Math.max(0.25, this.poseBlend - dt * 1.8) : this.poseBlend;
+
+    this.applyGravity(dt);
+    this.moveAndCollide(dt);
+
+    if (!this.onSurface) return;
+
+    const landingPlatform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (landingPlatform) this.beginLandingRecovery(landingPlatform);
+    else this.enterAirborneState();
+  }
+
+  facePlayerIfNearby() {
+    const dx = centerOf(player).x - (this.x + this.w / 2);
+    if (Math.abs(dx) <= JUMPER_DETECTION_X * 1.25 && Math.abs(centerOf(player).y - (this.y + this.h / 2)) <= JUMPER_DETECTION_Y * 1.35) {
+      this.facing = dx < 0 ? -1 : 1;
+    }
+  }
+
+  canStartAttack() {
+    if (player.isDying || !this.onSurface) return false;
+    const jumperCenter = centerOf(this);
+    const playerCenter = centerOf(player);
+    const dx = playerCenter.x - jumperCenter.x;
+    const dy = (playerCenter.y - jumperCenter.y) * this.gravitySign;
+    if (Math.abs(dx) > JUMPER_DETECTION_X || Math.abs(dy) > JUMPER_DETECTION_Y) return false;
+
+    // Spike hazards are not active yet, but the AI already routes its launch
+    // choice through a landing-safety predicate so future spike-covered surfaces
+    // can be rejected without rewriting the attack state machine.
+    return Boolean(this.findSafeLandingSurface(playerCenter.x));
+  }
+
+  findSafeLandingSurface(targetX) {
+    const body = this.getCollisionRect();
+    const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
+    let bestPlatform = null;
+    let bestScore = Infinity;
+
+    for (const platform of platforms) {
+      if (!this.isSafeLandingSurface(platform)) continue;
+      const minX = platform.x + this.w * 0.45;
+      const maxX = platform.x + platform.w - this.w * 0.45;
+      if (targetX < minX || targetX > maxX) continue;
+
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const surfaceDelta = (surfaceY - surfaceEdgeY) * this.gravitySign;
+      if (surfaceDelta < -24 || surfaceDelta > 185) continue;
+
+      const score = Math.abs(surfaceDelta) + Math.abs(targetX - (this.x + this.w / 2)) * 0.15;
+      if (score < bestScore) {
+        bestPlatform = platform;
+        bestScore = score;
+      }
+    }
+
+    return bestPlatform;
+  }
+
+  isSafeLandingSurface(platform) {
+    return !platform.hasSpikes && !platform.spikes && platform.safeForJumpers !== false;
+  }
+
+  launchAtPlayer() {
+    const target = centerOf(player);
+    const origin = centerOf(this);
+    const dx = target.x - origin.x;
+    const direction = dx < 0 ? -1 : 1;
+    const speed = clamp(Math.abs(dx) / 0.9, JUMPER_LEAP_MIN_SPEED, JUMPER_LEAP_MAX_SPEED);
+
+    this.facing = direction;
+    this.vx = direction * speed;
+    this.vy = -this.gravitySign * JUMPER_LEAP_IMPULSE;
+    this.onSurface = false;
+    this.groundedPlatform = null;
+    this.jumperState = "jumping";
+    this.stateTimer = 0;
+    this.poseBlend = 0.35;
+  }
+
+  beginLandingRecovery(platform) {
+    this.groundedPlatform = platform;
+    this.onSurface = true;
+    this.attachToSurface(platform);
+    this.vx = 0;
+    this.vy = 0;
+    this.jumperState = "recovering";
+    this.stateTimer = 0;
+    this.poseBlend = 1;
+  }
+
+  enterAirborneState() {
+    this.jumperState = "airborne";
+    this.groundedPlatform = null;
+    this.onSurface = false;
+  }
+
+  attachToSurface(platform) {
+    const hoverGap = this.getHoverGap();
+    this.y = this.gravitySign > 0
+      ? platform.y - this.h - hoverGap
+      : platform.y + platform.h + hoverGap;
+    this.vy = 0;
+  }
+
+  getHoverGap() {
+    return 7;
+  }
+
+  getGroundContactRange() {
+    return this.getHoverGap() + 4;
+  }
+
+  getSurfacePlatformAt(probeX = this.x + this.w / 2, maxDistance = this.getGroundContactRange()) {
+    const body = this.getCollisionRect();
+    const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
+    let bestPlatform = null;
+    let bestDistance = Infinity;
+
+    for (const platform of platforms) {
+      if (probeX < platform.x || probeX > platform.x + platform.w) continue;
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const distanceToSurface = (surfaceY - surfaceEdgeY) * this.gravitySign;
+      if (distanceToSurface < -0.5 || distanceToSurface > maxDistance) continue;
+      if (distanceToSurface < bestDistance) {
+        bestPlatform = platform;
+        bestDistance = distanceToSurface;
+      }
+    }
+
+    return bestPlatform;
+  }
+
+  getDirectSurfacePlatformAt(probeX = this.x + this.w / 2) {
+    return this.getSurfacePlatformAt(probeX, this.getGroundContactRange());
+  }
+
+  isOutsideWorld() {
+    const body = this.getCollisionRect();
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120 || body.x + body.w < -20 || body.x > ROOM_WIDTH + 20;
+  }
+
+  getCollisionRect() {
+    return { x: this.x + 4, y: this.y + 4, w: this.w - 8, h: this.h - 8 };
+  }
+
+  getDamageRect() {
+    return this.getCollisionRect();
+  }
+
+  hit(amount) {
+    if (this.isDying || this.hp <= 0) return;
+    this.hp -= amount;
+    this.hitTimer = 0.14;
+    this.vx += this.x + this.w / 2 < player.x + player.w / 2 ? -26 : 26;
+
+    if (this.hp <= 0) {
+      this.beginDeath();
+      return;
+    }
+
+    if (this.jumperState === "charging" || this.jumperState === "crouch-hold") {
+      this.jumperState = "recovering";
+      this.stateTimer = 0;
+      this.poseBlend = Math.max(this.poseBlend, 0.55);
+      this.recoveryDelayTimer = 0.18;
+    }
+  }
+
+  flipGravity(castId) {
+    if (this.lastGravityCastId === castId) return;
+    const previousGravitySign = this.gravitySign;
+    super.flipGravity(castId);
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+    this.enterAirborneState();
+  }
+
+  resetGravity() {
+    const previousGravitySign = this.gravitySign;
+    super.resetGravity();
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+    this.enterAirborneState();
+    const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (platform) this.beginLandingRecovery(platform);
+  }
+
+  beginDeath() {
+    if (this.isDying) return;
+    this.hp = 0;
+    this.isDying = true;
+    this.deathTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.jumperState = "destroyed";
+    this.deathFragments = this.createDeathFragments();
+    activeGravityEntities.delete(this);
+  }
+
+  updateDeath(dt) {
+    this.deathTimer += dt;
+    if (this.deathTimer >= ENEMY_DEATH_TOTAL_DURATION) {
+      this.isDying = false;
+      this.deathFragments = [];
+    }
+  }
+
+  createDeathFragments() {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const anchors = [
+      { x: 0, y: -15, size: 5.2, shape: 0 },
+      { x: 0, y: 5, size: 5.8, shape: 0 },
+      { x: -18, y: 10, size: 5.5, shape: 1 },
+      { x: 18, y: 10, size: 5.5, shape: 1 },
+      { x: -12, y: 21, size: 4.2, shape: 1 },
+      { x: 12, y: 21, size: 4.2, shape: 1 },
+      { x: -6, y: -4, size: 3.3, shape: 2 },
+      { x: 6, y: -4, size: 3.3, shape: 2 }
+    ];
+
+    return anchors.map((anchor, index) => {
+      const worldX = cx + anchor.x;
+      const worldY = cy + anchor.y * this.gravitySign;
+      const angle = Math.atan2(worldY - cy, worldX - cx) + (index % 3 - 1) * 0.2;
+      const speed = 22 + (index % 4) * 5;
+      return {
+        x: worldX,
+        y: worldY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: anchor.size,
+        rot: (index * 0.71) % Math.PI,
+        spin: (index % 2 === 0 ? 1 : -1) * (1.35 + index * 0.08),
+        shape: anchor.shape
+      };
+    });
+  }
+
+  drawDeath() {
+    const flashEnd = ENEMY_DEATH_FLASH_DURATION;
+    const destabilizeEnd = flashEnd + ENEMY_DEATH_DESTABILIZE_DURATION;
+    const fragmentEnd = destabilizeEnd + ENEMY_DEATH_FRAGMENT_DURATION;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    ctx.save();
+    if (this.deathTimer < destabilizeEnd) {
+      const jitter = this.deathTimer < flashEnd ? 0 : Math.sin(this.deathTimer * 92) * 0.9;
+      ctx.translate(cx + jitter, cy - jitter * 0.35);
+      ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+      ctx.globalAlpha = this.deathTimer < flashEnd ? 0.94 : 0.72;
+      this.drawJumperBody(1, true, 0, 0);
+    } else {
+      const fragmentProgress = clamp((this.deathTimer - destabilizeEnd) / (fragmentEnd - destabilizeEnd), 0, 1);
+      const fadeProgress = this.deathTimer > fragmentEnd
+        ? clamp((this.deathTimer - fragmentEnd) / ENEMY_DEATH_FADE_DURATION, 0, 1)
+        : 0;
+      ctx.globalAlpha = 1 - fadeProgress;
+      for (const fragment of this.deathFragments) {
+        const travel = Math.sin(fragmentProgress * Math.PI * 0.5);
+        const size = fragment.size * (1 - fadeProgress * 0.34);
+        ctx.save();
+        ctx.translate(fragment.x + fragment.vx * travel * 0.34, fragment.y + fragment.vy * travel * 0.34);
+        ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
+        ctx.fillStyle = fragment.shape === 0 ? "rgba(172, 214, 255, 0.88)" : "rgba(122, 106, 255, 0.8)";
+        ctx.strokeStyle = "rgba(236, 244, 255, 0.78)";
+        ctx.lineWidth = 0.8;
+        if (fragment.shape === 0) this.traceDiamond(0, 0, size * 0.75, size * 1.1);
+        else this.tracePlateShard(size, fragment.shape === 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  getPose(blend) {
+    const crouch = {
+      coreY: -8,
+      coreRx: 11.5,
+      coreRy: 22,
+      plateTopY: 3,
+      plateInnerX: 8.5,
+      plateOuterX: 21,
+      plateInnerLowX: 5.5,
+      plateInnerLowY: 13,
+      plateTipX: 25,
+      plateTipY: 25,
+      plateFootX: 23,
+      plateFootY: 18,
+      plateTilt: 0.02
+    };
+    const stand = {
+      coreY: -12,
+      coreRx: 11,
+      coreRy: 24,
+      plateTopY: -1,
+      plateInnerX: 10.5,
+      plateOuterX: 23,
+      plateInnerLowX: 7.5,
+      plateInnerLowY: 11,
+      plateTipX: 26.5,
+      plateTipY: 27,
+      plateFootX: 25.5,
+      plateFootY: 18,
+      plateTilt: -0.04
+    };
+    const pose = {};
+    for (const key of Object.keys(crouch)) pose[key] = stand[key] + (crouch[key] - stand[key]) * blend;
+    return pose;
+  }
+
+  traceDiamond(x, y, rx, ry) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - ry);
+    ctx.lineTo(x + rx, y);
+    ctx.lineTo(x, y + ry);
+    ctx.lineTo(x - rx, y);
+    ctx.closePath();
+  }
+
+  tracePolygon(points) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let index = 1; index < points.length; index += 1) ctx.lineTo(points[index].x, points[index].y);
+    ctx.closePath();
+  }
+
+  tracePlateShard(size, slim) {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.72, -size * 0.28);
+    ctx.lineTo(size * (slim ? 0.35 : 0.72), -size * 0.45);
+    ctx.lineTo(size * 0.28, size * 0.75);
+    ctx.lineTo(-size * 0.52, size * 0.46);
+    ctx.closePath();
+  }
+
+  drawSidePlate(side, pose, stretch) {
+    const points = [
+      { x: side * pose.plateOuterX, y: pose.plateTopY },
+      { x: side * pose.plateInnerX, y: pose.plateTopY + 0.4 },
+      { x: side * pose.plateInnerLowX, y: pose.plateInnerLowY },
+      { x: side * pose.plateTipX, y: pose.plateTipY + stretch * 3.2 },
+      { x: side * pose.plateFootX, y: pose.plateFootY }
+    ];
+
+    ctx.save();
+    ctx.rotate(side * pose.plateTilt + side * stretch * 0.06);
+    this.tracePolygon(points);
+    const gradient = ctx.createLinearGradient(side * 9, pose.plateTopY, side * 27, pose.plateTipY);
+    gradient.addColorStop(0, "rgba(150, 229, 255, 0.96)");
+    gradient.addColorStop(0.45, "rgba(89, 129, 226, 0.94)");
+    gradient.addColorStop(1, "rgba(70, 56, 190, 0.96)");
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = "rgba(31, 29, 111, 0.92)";
+    ctx.lineWidth = 1.7;
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.48;
+    ctx.strokeStyle = "rgba(230, 251, 255, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(side * pose.plateOuterX, pose.plateTopY + 1);
+    ctx.lineTo(side * (pose.plateOuterX - 5), pose.plateTopY + 7);
+    ctx.lineTo(side * (pose.plateFootX - 2), pose.plateFootY - 1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawJumperBody(blend, deathFlash = false, stretch = 0, sideLag = 0) {
+    const pose = this.getPose(blend);
+    ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+    ctx.shadowBlur = 0;
+
+    ctx.save();
+    ctx.translate(0, -stretch * 1.7);
+    ctx.scale(1 - stretch * 0.04, 1 + stretch * 0.08);
+
+    this.drawSidePlate(-1, pose, stretch + sideLag);
+    this.drawSidePlate(1, pose, stretch + sideLag);
+
+    const coreGradient = ctx.createLinearGradient(0, pose.coreY - pose.coreRy, 0, pose.coreY + pose.coreRy);
+    coreGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(117, 220, 255, 0.98)");
+    coreGradient.addColorStop(0.48, deathFlash ? "rgba(214, 236, 255, 0.96)" : "rgba(82, 132, 230, 0.97)");
+    coreGradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(71, 55, 195, 0.96)");
+    this.traceDiamond(0, pose.coreY, pose.coreRx, pose.coreRy + stretch * 1.2);
+    ctx.fillStyle = coreGradient;
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(31, 29, 111, 0.96)";
+    ctx.lineWidth = 1.9;
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalAlpha = deathFlash ? 0.42 : 0.28;
+    this.traceDiamond(0, pose.coreY + 0.5, pose.coreRx * 0.38, pose.coreRy * 0.55);
+    ctx.fillStyle = "rgba(229, 247, 255, 0.9)";
+    ctx.fill();
+
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = "rgba(234, 251, 255, 0.78)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, pose.coreY - pose.coreRy + 1);
+    ctx.lineTo(0, pose.coreY + pose.coreRy - 1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  draw() {
+    if (this.isDying) {
+      this.drawDeath();
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const hoverBob = this.jumperState === "idle"
+      ? Math.sin(this.hoverTimer * 2.8) * 1.2 * (this.gravitySign > 0 ? -1 : 1)
+      : 0;
+    const airborne = this.jumperState === "jumping" || this.jumperState === "airborne";
+    const stretch = airborne ? clamp(Math.abs(this.vy) / JUMPER_LEAP_IMPULSE, 0, 1) * 0.18 : 0;
+    const sideLag = airborne ? 0.12 : 0;
+    const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.14 : 0;
+
+    ctx.save();
+    ctx.translate(cx + this.hitJoltX, cy + hoverBob + this.hitJoltY);
+    ctx.scale(this.facing, this.gravitySign > 0 ? 1 : -1);
+    const gravityFlipVisual = this.getGravityFlipVisualTransform();
+    if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
+      ctx.rotate(gravityFlipVisual.rotation);
+      ctx.scale(gravityFlipVisual.scaleX, 1);
+    }
+    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, stretch, sideLag);
+    ctx.restore();
+
+    const visualTopY = cy + hoverBob + this.hitJoltY - 36;
+    drawGravityMarker(this, visualTopY);
+  }
+}
+
 class DroneProjectile {
   constructor(x, y, dx, dy, orientationAngle = Math.atan2(dy, dx)) {
     this.x = x;
@@ -2902,7 +3480,7 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
 }
 
 const player = new Player();
-const enemies = [new Enemy(660, 435), new Drone(1085, 210)];
+const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Jumper(2010, 265)];
 
 function drawGravityMarker(entity, visualTopY = entity.y) {
   if (entity.gravitySign === 1) return;
