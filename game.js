@@ -48,6 +48,11 @@ const DEATH_DESTABILIZE_DURATION = 0.16;
 const DEATH_FRAGMENT_DURATION = 0.28;
 const DEATH_FADE_DURATION = 0.2;
 const DEATH_TOTAL_DURATION = DEATH_FLASH_DURATION + DEATH_DESTABILIZE_DURATION + DEATH_FRAGMENT_DURATION + DEATH_FADE_DURATION;
+const ENEMY_DEATH_FLASH_DURATION = 0.055;
+const ENEMY_DEATH_DESTABILIZE_DURATION = 0.08;
+const ENEMY_DEATH_FRAGMENT_DURATION = 0.16;
+const ENEMY_DEATH_FADE_DURATION = 0.1;
+const ENEMY_DEATH_TOTAL_DURATION = ENEMY_DEATH_FLASH_DURATION + ENEMY_DEATH_DESTABILIZE_DURATION + ENEMY_DEATH_FRAGMENT_DURATION + ENEMY_DEATH_FADE_DURATION;
 const FALL_LIMIT = config.fallLimit ?? 640;
 const ROOM_WIDTH = config.roomWidth ?? 1280;
 const HUD_MARGIN = 20;
@@ -1448,9 +1453,16 @@ class Enemy extends Entity {
     this.landingRecoveryTimer = 0.1;
     this.groundedPlatform = null;
     this.idleTimer = 0;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
   }
 
   update(dt) {
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
     if (this.hp <= 0) return;
 
     this.idleTimer += dt;
@@ -1664,11 +1676,165 @@ class Enemy extends Entity {
   }
 
   hit(amount) {
+    if (this.isDying || this.hp <= 0) return;
     this.hp -= amount;
-    if (this.hp <= 0) activeGravityEntities.delete(this);
+    if (this.hp <= 0) this.beginDeath();
+  }
+
+  beginDeath() {
+    if (this.isDying) return;
+    this.hp = 0;
+    this.isDying = true;
+    this.deathTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.walkerState = "destroyed";
+    this.deathFragments = this.createDeathFragments();
+    activeGravityEntities.delete(this);
+  }
+
+  updateDeath(dt) {
+    this.deathTimer += dt;
+    if (this.deathTimer >= ENEMY_DEATH_TOTAL_DURATION) {
+      this.isDying = false;
+      this.deathFragments = [];
+    }
+  }
+
+  createDeathFragments() {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const anchors = [
+      { x: -16, y: 13, size: 4.2, shape: 0 },
+      { x: 16, y: 13, size: 4.2, shape: 0 },
+      { x: -7, y: -14, size: 3.3, shape: 1 },
+      { x: 7, y: -14, size: 3.3, shape: 1 },
+      { x: 0, y: -6, size: 3.9, shape: 1 },
+      { x: 0, y: 7, size: 4.5, shape: 1 },
+      { x: -6, y: 0, size: 2.7, shape: 2 },
+      { x: 6, y: 0, size: 2.7, shape: 2 }
+    ];
+
+    return anchors.map((anchor, index) => {
+      const worldX = cx + anchor.x;
+      const worldY = cy + anchor.y * this.gravitySign;
+      const angle = Math.atan2(worldY - cy, worldX - cx) + (index % 3 - 1) * 0.18;
+      const speed = 18 + (index % 4) * 5;
+      return {
+        x: worldX,
+        y: worldY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: anchor.size,
+        rot: (index * 0.62) % Math.PI,
+        spin: (index % 2 === 0 ? 1 : -1) * (1.2 + index * 0.06),
+        shape: anchor.shape
+      };
+    });
+  }
+
+  drawDeath() {
+    const flashEnd = ENEMY_DEATH_FLASH_DURATION;
+    const destabilizeEnd = flashEnd + ENEMY_DEATH_DESTABILIZE_DURATION;
+    const fragmentEnd = destabilizeEnd + ENEMY_DEATH_FRAGMENT_DURATION;
+    const progress = clamp(this.deathTimer / ENEMY_DEATH_TOTAL_DURATION, 0, 1);
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(174, 244, 255, 0.5)";
+    ctx.shadowBlur = 8;
+
+    if (this.deathTimer < destabilizeEnd) {
+      const flashAlpha = this.deathTimer < flashEnd ? 0.92 : 0.72;
+      const jitter = this.deathTimer < flashEnd
+        ? 0
+        : Math.sin(this.deathTimer * 86) * 0.85;
+      const glitch = this.deathTimer < flashEnd
+        ? 0
+        : Math.sin(this.deathTimer * 119) * 0.45;
+
+      ctx.translate(cx + jitter, cy + glitch);
+      ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+      ctx.lineJoin = "miter";
+      ctx.lineCap = "butt";
+      ctx.globalAlpha = flashAlpha;
+      ctx.strokeStyle = "rgba(175, 237, 255, 0.88)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 1.15;
+
+      const shards = [
+        [{ x: -20, y: 17 }, { x: -12, y: 16 }, { x: -5, y: -16 }, { x: -8, y: -18 }],
+        [{ x: 20, y: 17 }, { x: 12, y: 16 }, { x: 5, y: -16 }, { x: 8, y: -18 }],
+        [{ x: 0, y: -14 }, { x: 8, y: 0 }, { x: 0, y: 16 }, { x: -8, y: 0 }]
+      ];
+
+      for (const shard of shards) {
+        ctx.beginPath();
+        ctx.moveTo(shard[0].x + glitch * 0.35, shard[0].y);
+        for (let i = 1; i < shard.length; i += 1) ctx.lineTo(shard[i].x - glitch * 0.25, shard[i].y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 0.24 + progress * 0.18;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
+      ctx.lineWidth = 0.75;
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(-11, i * 7 + glitch);
+        ctx.lineTo(11, i * 7 - glitch);
+        ctx.stroke();
+      }
+    } else {
+      const fragmentProgress = clamp((this.deathTimer - destabilizeEnd) / (fragmentEnd - destabilizeEnd), 0, 1);
+      const fadeProgress = this.deathTimer > fragmentEnd
+        ? clamp((this.deathTimer - fragmentEnd) / ENEMY_DEATH_FADE_DURATION, 0, 1)
+        : 0;
+      ctx.globalAlpha = 1 - fadeProgress;
+
+      for (const fragment of this.deathFragments) {
+        const travel = Math.sin(fragmentProgress * Math.PI * 0.5);
+        const x = fragment.x + fragment.vx * travel * 0.32;
+        const y = fragment.y + fragment.vy * travel * 0.32;
+        const size = fragment.size * (1 - fadeProgress * 0.34);
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
+        ctx.fillStyle = fragment.shape === 0 ? "rgba(255, 255, 255, 0.88)" : "rgba(174, 244, 255, 0.82)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+        ctx.lineWidth = 0.7;
+        if (fragment.shape === 0) {
+          ctx.fillRect(-size * 0.5, -size * 0.3, size, size * 0.6);
+          ctx.strokeRect(-size * 0.5, -size * 0.3, size, size * 0.6);
+        } else if (fragment.shape === 1) {
+          ctx.beginPath();
+          ctx.moveTo(0, -size * 0.72);
+          ctx.lineTo(size * 0.68, size * 0.5);
+          ctx.lineTo(-size * 0.58, size * 0.38);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(-size, 0);
+          ctx.lineTo(size, 0);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
   }
 
   draw() {
+    if (this.isDying) {
+      this.drawDeath();
+      return;
+    }
     if (this.hp <= 0) return;
 
     const cx = this.x + this.w / 2;
