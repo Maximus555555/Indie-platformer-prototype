@@ -2280,10 +2280,19 @@ function drawGrid() {
 }
 
 function drawPlatformPanelLines(platform) {
-  const inset = Math.min(8, Math.max(4, platform.h * 0.25));
-  const seamSpacing = 64;
-  const firstSeam = platform.x + seamSpacing;
-  const lastSeam = platform.x + platform.w - inset;
+  const targetSectionWidth = 56;
+  const minimumSectionWidth = 40;
+  const maxSectionCount = Math.floor(platform.w / minimumSectionWidth);
+
+  if (maxSectionCount < 2) return;
+
+  const sectionCount = Math.max(
+    2,
+    Math.min(Math.round(platform.w / targetSectionWidth), maxSectionCount)
+  );
+
+  const dividerPadding = clamp(Math.round(platform.h * 0.16), 2, 4);
+  const sectionWidth = platform.w / sectionCount;
 
   ctx.save();
   ctx.beginPath();
@@ -2299,29 +2308,12 @@ function drawPlatformPanelLines(platform) {
   ctx.lineWidth = 1;
   ctx.lineCap = "butt";
 
-  for (let x = firstSeam; x < lastSeam; x += seamSpacing) {
-    const crispX = Math.round(x) + 0.5;
+  for (let section = 1; section < sectionCount; section += 1) {
+    const crispX = Math.round(platform.x + sectionWidth * section) + 0.5;
     ctx.beginPath();
-    ctx.moveTo(crispX, platform.y + inset);
-    ctx.lineTo(crispX, platform.y + platform.h - inset);
+    ctx.moveTo(crispX, platform.y + dividerPadding);
+    ctx.lineTo(crispX, platform.y + platform.h - dividerPadding);
     ctx.stroke();
-  }
-
-  // Wider blocks get one short, quiet inset line per panel to read as clean
-  // test-environment geometry without turning platforms into a dense grid.
-  if (platform.h >= 36) {
-    const centerY = Math.round(platform.y + platform.h * 0.52) + 0.5;
-    const panelWidth = Math.min(34, seamSpacing * 0.52);
-    for (
-      let x = platform.x + inset + 14;
-      x < platform.x + platform.w - inset - 10;
-      x += seamSpacing
-    ) {
-      ctx.beginPath();
-      ctx.moveTo(x, centerY);
-      ctx.lineTo(Math.min(x + panelWidth, platform.x + platform.w - inset), centerY);
-      ctx.stroke();
-    }
   }
 
   ctx.restore();
