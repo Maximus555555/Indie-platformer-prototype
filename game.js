@@ -42,6 +42,8 @@ const DRONE_ORBIT_RADIUS_Y = 25;
 const DRONE_ORBIT_SPEED = 2.1;
 const DRONE_OUTER_DIAMOND_RX = 7;
 const DRONE_OUTER_DIAMOND_RY = 10;
+const DRONE_CORE_DIAMOND_RX = 12.5;
+const DRONE_CORE_DIAMOND_RY = 20;
 const DRONE_AIM_TURN_SPEED = 14;
 const DRONE_OUTER_DIAMOND_FILL = "rgb(255, 153, 25)";
 const DRONE_OUTER_DIAMOND_STROKE = "rgb(46, 26, 14)";
@@ -2342,7 +2344,14 @@ class Drone extends Entity {
   }
 
   getDamageRect() {
-    return this.getCollisionRect();
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    return {
+      x: cx - DRONE_CORE_DIAMOND_RX,
+      y: cy - DRONE_CORE_DIAMOND_RY,
+      w: DRONE_CORE_DIAMOND_RX * 2,
+      h: DRONE_CORE_DIAMOND_RY * 2
+    };
   }
 
   hit(amount) {
@@ -2570,7 +2579,7 @@ class Drone extends Entity {
     ctx.fillStyle = coreFill;
     ctx.strokeStyle = "rgba(26, 19, 14, 0.96)";
     ctx.lineWidth = 2.6;
-    this.drawDiamondShape(0, 0, 12.5, 20);
+    this.drawDiamondShape(0, 0, DRONE_CORE_DIAMOND_RX, DRONE_CORE_DIAMOND_RY);
     ctx.fill();
     ctx.stroke();
 
@@ -2612,8 +2621,8 @@ class Drone extends Entity {
     ctx.shadowBlur = 4 + charge * 7 + hitFlash * 5;
     this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
     ctx.restore();
-    const droneVisualTopY = cy + hoverBob + this.hitJoltY - (DRONE_ORBIT_RADIUS_Y + DRONE_OUTER_DIAMOND_RY);
-    drawGravityMarker(this, droneVisualTopY);
+    const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
+    drawGravityMarker(this, droneBodyTopY);
   }
 }
 
