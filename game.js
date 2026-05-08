@@ -78,7 +78,7 @@ const ENEMY_DEATH_TOTAL_DURATION = ENEMY_DEATH_FLASH_DURATION + ENEMY_DEATH_DEST
 const FALL_BOUNDARY_OFFSET = config.fallBoundaryOffset ?? 48;
 const FALL_RESPAWN_GRACE = config.fallRespawnGrace ?? 0.22;
 const EDGE_RESPAWN_INSET = config.edgeRespawnInset ?? 18;
-const ROOM_WIDTH = config.roomWidth ?? 1280;
+const ROOM_WIDTH = config.roomWidth ?? 2200;
 const HUD_MARGIN = 20;
 const HP_DIAMOND_SIZE = 14;
 const HP_DIAMOND_SPACING = 8;
@@ -103,10 +103,19 @@ const platforms = [
   { x: 0, y: 470, w: 300, h: 70 },
   { x: 410, y: 470, w: 360, h: 70 },
   { x: 860, y: 470, w: 420, h: 70 },
+  // Right-side arena extension: spaced floor spans create a future patrol zone
+  // and a gravity-focused zone without crowding the open air between them.
+  { x: 1360, y: 470, w: 300, h: 70 },
+  { x: 1780, y: 470, w: 420, h: 70 },
   { x: 220, y: 365, w: 150, h: 20 },
   { x: 535, y: 300, w: 190, h: 20 },
   { x: 805, y: 385, w: 155, h: 20 },
-  { x: 1010, y: 260, w: 155, h: 20 }
+  { x: 1010, y: 260, w: 155, h: 20 },
+  { x: 1325, y: 360, w: 190, h: 20 },
+  { x: 1500, y: 245, w: 210, h: 20 },
+  { x: 1720, y: 390, w: 180, h: 20 },
+  { x: 1900, y: 310, w: 240, h: 20 },
+  { x: 1985, y: 150, w: 150, h: 20 }
 ];
 
 const bottomFallBoundary = config.fallBoundary
@@ -2987,6 +2996,19 @@ function drawRoom() {
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(platform.x, platform.y, platform.w, platform.h);
+    ctx.clip();
+    ctx.strokeStyle = "rgba(45, 126, 204, 0.22)";
+    for (let panelX = platform.x + 40; panelX < platform.x + platform.w; panelX += 40) {
+      ctx.beginPath();
+      ctx.moveTo(panelX + 0.5, platform.y + 2);
+      ctx.lineTo(panelX + 0.5, platform.y + platform.h - 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 

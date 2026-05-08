@@ -32,7 +32,7 @@
     fallBoundaryOffset: 48,
     fallRespawnGrace: 0.22,
     edgeRespawnInset: 18,
-    roomWidth: 1280,
+    roomWidth: 2200,
     checkpoint: { x: 86, y: 362 },
     safeAnchor: { x: 92, y: 362 }
   });
