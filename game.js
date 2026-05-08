@@ -26,12 +26,10 @@ const PLAYER_WIDTH = config.playerWidth ?? 24;
 const CROUCH_HEIGHT = config.crouchHeight ?? 34;
 const STAND_HEIGHT = config.standHeight ?? 50;
 const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
-const PULSE_SPEED = config.pulseSpeed ?? 860;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
-const PULSE_LENGTH = config.pulseLength ?? 52;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
-const PULSE_LIFETIME = config.pulseLifetime ?? 0.45;
+const PULSE_LIFETIME = config.pulseLifetime ?? 0.13;
 const LANDING_ANIM_DURATION = 0.12;
 const LANDING_MIN_AIR_TIME = 0.07;
 const LANDING_MIN_IMPACT_SPEED = 120;
@@ -287,8 +285,8 @@ class Player extends Entity {
 
   releasePulse() {
     if (!this.attackPulseQueued) return;
-    const spawn = this.getPulseSpawnPoint();
-    pulses.push(new SystemPulse(spawn.x, spawn.y, this.attackFacing));
+    const origin = this.getPulseSpawnPoint();
+    pulses.push(SystemPulse.fire(origin.x, origin.y, this.attackFacing));
     this.attackPulseQueued = false;
   }
 
@@ -304,8 +302,10 @@ class Player extends Entity {
     const handX = this.x + this.w / 2 + this.attackFacing * PLAYER_VISUAL_SCALE * handLocalX;
     const handY = originY + verticalFlip * PLAYER_VISUAL_SCALE * handLocalY;
     return {
-      x: this.attackFacing > 0 ? handX + 2 : handX - 2 - PULSE_LENGTH,
-      y: handY - PULSE_THICKNESS / 2
+      // Start at the gathered hand position so the instant bolt is anchored to
+      // the firing animation instead of the player's torso or a detached bullet.
+      x: handX + this.attackFacing * 2,
+      y: handY
     };
   }
 
@@ -1020,83 +1020,134 @@ class Enemy extends Entity {
 }
 
 class SystemPulse {
-  constructor(x, y, direction) {
-    this.x = x;
+  constructor(startX, y, endX, direction) {
+    this.startX = startX;
     this.y = y;
-    this.w = PULSE_LENGTH;
-    this.h = PULSE_THICKNESS;
+    this.endX = endX;
     this.direction = direction;
-    this.vx = PULSE_SPEED * direction;
     this.age = 0;
     this.active = true;
   }
 
+  static fire(startX, y, direction) {
+    const endX = findPulseEndpoint(startX, y, direction);
+    const hitEnemy = findFirstEnemyOnPulse(startX, y, endX, direction);
+    if (hitEnemy) hitEnemy.hit(PULSE_DAMAGE);
+    return new SystemPulse(startX, y, endX, direction);
+  }
+
   update(dt) {
     this.age += dt;
-    this.x += this.vx * dt;
-    if (this.age >= PULSE_LIFETIME || this.x + this.w < 0 || this.x > ROOM_WIDTH) this.active = false;
-
-    for (const platform of platforms) {
-      if (rectsOverlap(this, platform)) this.active = false;
-    }
-
-    for (const enemy of enemies) {
-      if (enemy.hp > 0 && rectsOverlap(this, enemy)) {
-        enemy.hit(PULSE_DAMAGE);
-        this.active = false;
-      }
-    }
+    if (this.age >= PULSE_LIFETIME) this.active = false;
   }
 
   draw() {
-    const lifeAlpha = 1 - clamp(this.age / PULSE_LIFETIME, 0, 1);
-    const alpha = Math.min(1, lifeAlpha * 1.35);
-    const movingRight = this.direction > 0;
-    const tailX = movingRight ? this.x : this.x + this.w;
-    const tipX = movingRight ? this.x + this.w : this.x;
-    const cy = this.y + this.h / 2;
+    const progress = clamp(this.age / PULSE_LIFETIME, 0, 1);
+    const visibleStartX = this.startX + (this.endX - this.startX) * progress;
+    const visibleLength = Math.abs(this.endX - visibleStartX);
+    if (visibleLength <= 1) return;
+
+    const alpha = clamp((1 - progress) * 1.4, 0, 1);
+    const tipX = this.endX;
+    const tailX = visibleStartX;
+    const direction = this.direction;
+    const halfThickness = PULSE_THICKNESS / 2;
+    const tailInset = Math.min(16, visibleLength * 0.32);
+    const tipInset = Math.min(10, visibleLength * 0.22);
 
     ctx.save();
     ctx.globalAlpha = alpha;
+    ctx.lineJoin = "miter";
 
-    // Soft blue edge keeps the System Pulse energetic without turning it into a beam.
+    // Minimal blue glow around a single continuous white core keeps the pulse
+    // crisp and digital, without making it read as fire, smoke, or magic.
     ctx.shadowColor = "rgba(126, 222, 255, 0.55)";
-    ctx.shadowBlur = 10;
-    ctx.strokeStyle = "rgba(126, 222, 255, 0.38)";
-    ctx.lineWidth = this.h + 3;
-    ctx.lineCap = "round";
+    ctx.shadowBlur = 9;
+    ctx.strokeStyle = "rgba(126, 222, 255, 0.42)";
+    ctx.lineWidth = PULSE_THICKNESS + 4;
+    ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(tailX, cy);
-    ctx.lineTo(tipX, cy);
+    ctx.moveTo(tailX, this.y);
+    ctx.lineTo(tipX, this.y);
     ctx.stroke();
 
-    const core = ctx.createLinearGradient(tailX, cy, tipX, cy);
+    const core = ctx.createLinearGradient(tailX, this.y, tipX, this.y);
     core.addColorStop(0, "rgba(255, 255, 255, 0)");
-    core.addColorStop(0.28, "rgba(190, 238, 255, 0.5)");
-    core.addColorStop(0.72, "rgba(255, 255, 255, 0.96)");
+    core.addColorStop(0.18, "rgba(190, 238, 255, 0.72)");
+    core.addColorStop(0.7, "rgba(255, 255, 255, 0.97)");
     core.addColorStop(1, "rgba(255, 255, 255, 1)");
 
-    ctx.shadowColor = "rgba(174, 244, 255, 0.45)";
-    ctx.shadowBlur = 6;
-    ctx.strokeStyle = core;
-    ctx.lineWidth = this.h;
+    ctx.shadowColor = "rgba(174, 244, 255, 0.42)";
+    ctx.shadowBlur = 5;
+    ctx.fillStyle = core;
     ctx.beginPath();
-    ctx.moveTo(tailX, cy);
-    ctx.lineTo(tipX, cy);
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
-    ctx.beginPath();
-    ctx.moveTo(tipX, cy);
-    ctx.lineTo(tipX - this.direction * 7, cy - this.h * 0.72);
-    ctx.lineTo(tipX - this.direction * 5, cy);
-    ctx.lineTo(tipX - this.direction * 7, cy + this.h * 0.72);
+    ctx.moveTo(tailX, this.y);
+    ctx.lineTo(tailX + direction * tailInset, this.y - halfThickness);
+    ctx.lineTo(tipX - direction * tipInset, this.y - halfThickness * 0.72);
+    ctx.lineTo(tipX, this.y);
+    ctx.lineTo(tipX - direction * tipInset, this.y + halfThickness * 0.72);
+    ctx.lineTo(tailX + direction * tailInset, this.y + halfThickness);
     ctx.closePath();
     ctx.fill();
 
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.lineWidth = 1.15;
+    ctx.beginPath();
+    ctx.moveTo(tailX + direction * tailInset * 0.4, this.y);
+    ctx.lineTo(tipX, this.y);
+    ctx.stroke();
+
     ctx.restore();
   }
+}
+
+function findPulseEndpoint(startX, y, direction) {
+  const screenEdge = direction > 0 ? cameraX + canvas.width : cameraX;
+  let endX = clamp(screenEdge, 0, ROOM_WIDTH);
+  let bestDistance = Math.abs(endX - startX);
+
+  function consider(hitX) {
+    const distanceToHit = (hitX - startX) * direction;
+    if (distanceToHit >= 0 && distanceToHit < bestDistance) {
+      endX = hitX;
+      bestDistance = distanceToHit;
+    }
+  }
+
+  for (const platform of platforms) {
+    if (!pulseLineOverlapsY(y, platform)) continue;
+    consider(direction > 0 ? platform.x : platform.x + platform.w);
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, enemy)) continue;
+    consider(direction > 0 ? enemy.x : enemy.x + enemy.w);
+  }
+
+  return endX;
+}
+
+function pulseLineOverlapsY(y, rect) {
+  const halfThickness = PULSE_THICKNESS / 2;
+  return y + halfThickness >= rect.y && y - halfThickness <= rect.y + rect.h;
+}
+
+function findFirstEnemyOnPulse(startX, y, endX, direction) {
+  let firstEnemy = null;
+  let bestDistance = Math.abs(endX - startX) + 0.001;
+
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, enemy)) continue;
+    const hitX = direction > 0 ? enemy.x : enemy.x + enemy.w;
+    const distanceToHit = (hitX - startX) * direction;
+    if (distanceToHit >= 0 && distanceToHit <= bestDistance) {
+      firstEnemy = enemy;
+      bestDistance = distanceToHit;
+    }
+  }
+
+  return firstEnemy;
 }
 
 const player = new Player();
