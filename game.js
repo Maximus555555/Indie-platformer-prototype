@@ -2128,7 +2128,10 @@ function findPulseEndpoint(startX, y, direction) {
   let endX = clamp(screenEdge, 0, ROOM_WIDTH);
   let bestDistance = Math.abs(endX - startX);
 
-  function consider(hitX) {
+  function consider(rect) {
+    const hitX = getPulseHitX(startX, direction, rect);
+    if (hitX === null) return;
+
     const distanceToHit = (hitX - startX) * direction;
     if (distanceToHit >= 0 && distanceToHit < bestDistance) {
       endX = hitX;
@@ -2138,16 +2141,33 @@ function findPulseEndpoint(startX, y, direction) {
 
   for (const platform of platforms) {
     if (!pulseLineOverlapsY(y, platform)) continue;
-    consider(direction > 0 ? platform.x : platform.x + platform.w);
+    consider(platform);
   }
 
   for (const enemy of enemies) {
     const damageRect = enemy.getDamageRect();
     if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
-    consider(direction > 0 ? damageRect.x : damageRect.x + damageRect.w);
+    consider(damageRect);
   }
 
   return endX;
+}
+
+function getPulseHitX(startX, direction, rect) {
+  const nearEdge = direction > 0 ? rect.x : rect.x + rect.w;
+  const farEdge = direction > 0 ? rect.x + rect.w : rect.x;
+  const distanceToNearEdge = (nearEdge - startX) * direction;
+
+  if (distanceToNearEdge >= 0) return nearEdge;
+
+  // The pulse is spawned from the character's animated hand. When the player is
+  // pressed close to a platform, that visual hand can begin inside the platform
+  // even though the collision body is stopped outside it. Treat that as an
+  // immediate wall hit so the pulse cannot originate beyond the blocker.
+  const distanceToFarEdge = (farEdge - startX) * direction;
+  if (distanceToFarEdge > 0) return startX;
+
+  return null;
 }
 
 function pulseLineOverlapsY(y, rect) {
