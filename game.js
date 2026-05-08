@@ -26,9 +26,12 @@ const PLAYER_WIDTH = config.playerWidth ?? 24;
 const CROUCH_HEIGHT = config.crouchHeight ?? 34;
 const STAND_HEIGHT = config.standHeight ?? 50;
 const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
-const PULSE_SPEED = config.pulseSpeed ?? 620;
+const PULSE_SPEED = config.pulseSpeed ?? 860;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
+const PULSE_LENGTH = config.pulseLength ?? 52;
+const PULSE_THICKNESS = config.pulseThickness ?? 5;
+const PULSE_LIFETIME = config.pulseLifetime ?? 0.45;
 const LANDING_ANIM_DURATION = 0.12;
 const LANDING_MIN_AIR_TIME = 0.07;
 const LANDING_MIN_IMPACT_SPEED = 120;
@@ -301,8 +304,8 @@ class Player extends Entity {
     const handX = this.x + this.w / 2 + this.attackFacing * PLAYER_VISUAL_SCALE * handLocalX;
     const handY = originY + verticalFlip * PLAYER_VISUAL_SCALE * handLocalY;
     return {
-      x: this.attackFacing > 0 ? handX + 2 : handX - 18,
-      y: handY - 4
+      x: this.attackFacing > 0 ? handX + 2 : handX - 2 - PULSE_LENGTH,
+      y: handY - PULSE_THICKNESS / 2
     };
   }
 
@@ -1020,15 +1023,18 @@ class SystemPulse {
   constructor(x, y, direction) {
     this.x = x;
     this.y = y;
-    this.w = 16;
-    this.h = 8;
+    this.w = PULSE_LENGTH;
+    this.h = PULSE_THICKNESS;
+    this.direction = direction;
     this.vx = PULSE_SPEED * direction;
+    this.age = 0;
     this.active = true;
   }
 
   update(dt) {
+    this.age += dt;
     this.x += this.vx * dt;
-    if (this.x < 0 || this.x > ROOM_WIDTH) this.active = false;
+    if (this.age >= PULSE_LIFETIME || this.x + this.w < 0 || this.x > ROOM_WIDTH) this.active = false;
 
     for (const platform of platforms) {
       if (rectsOverlap(this, platform)) this.active = false;
@@ -1043,25 +1049,52 @@ class SystemPulse {
   }
 
   draw() {
-    ctx.save();
-    const movingRight = this.vx > 0;
-    const cx = this.x + this.w / 2;
+    const lifeAlpha = 1 - clamp(this.age / PULSE_LIFETIME, 0, 1);
+    const alpha = Math.min(1, lifeAlpha * 1.35);
+    const movingRight = this.direction > 0;
+    const tailX = movingRight ? this.x : this.x + this.w;
+    const tipX = movingRight ? this.x + this.w : this.x;
     const cy = this.y + this.h / 2;
-    ctx.shadowColor = "rgba(100, 216, 255, 0.85)";
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = "rgba(174, 244, 255, 0.92)";
-    ctx.strokeStyle = "rgba(78, 162, 242, 0.85)";
-    ctx.lineWidth = 1.2;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Soft blue edge keeps the System Pulse energetic without turning it into a beam.
+    ctx.shadowColor = "rgba(126, 222, 255, 0.55)";
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "rgba(126, 222, 255, 0.38)";
+    ctx.lineWidth = this.h + 3;
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.roundRect(this.x, this.y, this.w, this.h, 4);
+    ctx.moveTo(tailX, cy);
+    ctx.lineTo(tipX, cy);
+    ctx.stroke();
+
+    const core = ctx.createLinearGradient(tailX, cy, tipX, cy);
+    core.addColorStop(0, "rgba(255, 255, 255, 0)");
+    core.addColorStop(0.28, "rgba(190, 238, 255, 0.5)");
+    core.addColorStop(0.72, "rgba(255, 255, 255, 0.96)");
+    core.addColorStop(1, "rgba(255, 255, 255, 1)");
+
+    ctx.shadowColor = "rgba(174, 244, 255, 0.45)";
+    ctx.shadowBlur = 6;
+    ctx.strokeStyle = core;
+    ctx.lineWidth = this.h;
+    ctx.beginPath();
+    ctx.moveTo(tailX, cy);
+    ctx.lineTo(tipX, cy);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
+    ctx.beginPath();
+    ctx.moveTo(tipX, cy);
+    ctx.lineTo(tipX - this.direction * 7, cy - this.h * 0.72);
+    ctx.lineTo(tipX - this.direction * 5, cy);
+    ctx.lineTo(tipX - this.direction * 7, cy + this.h * 0.72);
+    ctx.closePath();
     ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
-    ctx.beginPath();
-    ctx.arc(movingRight ? this.x + 2 : this.x + this.w - 2, cy, 7, -0.75, 0.75);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-    ctx.fillRect(cx - 4, cy - 1, 8, 2);
+
     ctx.restore();
   }
 }
