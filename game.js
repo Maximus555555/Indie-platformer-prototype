@@ -2279,6 +2279,54 @@ function drawGrid() {
   }
 }
 
+function drawPlatformPanelLines(platform) {
+  const inset = Math.min(8, Math.max(4, platform.h * 0.25));
+  const seamSpacing = 64;
+  const firstSeam = platform.x + seamSpacing;
+  const lastSeam = platform.x + platform.w - inset;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(
+    platform.x + 1,
+    platform.y + 1,
+    Math.max(0, platform.w - 2),
+    Math.max(0, platform.h - 2)
+  );
+  ctx.clip();
+
+  ctx.strokeStyle = "rgba(58, 130, 193, 0.24)";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "butt";
+
+  for (let x = firstSeam; x < lastSeam; x += seamSpacing) {
+    const crispX = Math.round(x) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(crispX, platform.y + inset);
+    ctx.lineTo(crispX, platform.y + platform.h - inset);
+    ctx.stroke();
+  }
+
+  // Wider blocks get one short, quiet inset line per panel to read as clean
+  // test-environment geometry without turning platforms into a dense grid.
+  if (platform.h >= 36) {
+    const centerY = Math.round(platform.y + platform.h * 0.52) + 0.5;
+    const panelWidth = Math.min(34, seamSpacing * 0.52);
+    for (
+      let x = platform.x + inset + 14;
+      x < platform.x + platform.w - inset - 10;
+      x += seamSpacing
+    ) {
+      ctx.beginPath();
+      ctx.moveTo(x, centerY);
+      ctx.lineTo(Math.min(x + panelWidth, platform.x + platform.w - inset), centerY);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
 function drawRoom() {
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
   sky.addColorStop(0, "#dff5ff");
@@ -2290,6 +2338,7 @@ function drawRoom() {
   ctx.strokeStyle = "rgba(45, 126, 204, 0.48)";
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+    drawPlatformPanelLines(platform);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
   }
 }
