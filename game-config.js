@@ -20,7 +20,7 @@
     droneDetectionRange: 440,
     droneFireCooldown: 1.85,
     droneWindup: 0.34,
-    droneProjectileSpeed: 230,
+    droneProjectileSpeed: 360,
     droneProjectileSize: 10,
     pulseCooldown: 0.35,
     pulseDamage: 1,

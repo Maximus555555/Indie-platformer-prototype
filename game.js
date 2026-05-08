@@ -34,15 +34,16 @@ const DRONE_HEIGHT = config.droneHeight ?? 28;
 const DRONE_DETECTION_RANGE = config.droneDetectionRange ?? 440;
 const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
 const DRONE_WINDUP = config.droneWindup ?? 0.34;
-const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 230;
+const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 360;
 const DRONE_PROJECTILE_SIZE = config.droneProjectileSize ?? 10;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 34;
 const DRONE_ORBIT_RADIUS_Y = 6.5;
-const DRONE_ORBIT_SPEED = 1.45;
+const DRONE_ORBIT_SPEED = 2.1;
 const DRONE_OUTER_DIAMOND_RX = 7;
 const DRONE_OUTER_DIAMOND_RY = 10;
-const DRONE_RESPAWN_BACK_THRESHOLD = -0.92;
+const DRONE_FRONT_FIRE_TOLERANCE = Math.PI / 12;
+const DRONE_RESPAWN_DELAY = 0.65;
 const DRONE_AIM_TURN_SPEED = 14;
 const DRONE_OUTER_DIAMOND_FILL = "rgb(255, 153, 25)";
 const DRONE_OUTER_DIAMOND_STROKE = "rgb(46, 26, 14)";
@@ -2036,8 +2037,14 @@ class Drone extends Entity {
     this.deathTimer = 0;
     this.deathFragments = [];
     this.droneState = "hovering";
-    this.orbitSlots = Array.from({ length: DRONE_ORBIT_SLOT_COUNT }, () => ({ state: "orbiting", aimAngle: 0 }));
+    this.orbitSlots = Array.from({ length: DRONE_ORBIT_SLOT_COUNT }, (_, index) => ({
+      state: "orbiting",
+      aimAngle: 0,
+      respawnTimer: 0,
+      phaseOffset: index * Math.PI
+    }));
     this.armedOrbitSlot = null;
+    this.waitingForFrontShot = false;
   }
 
   update(dt) {
@@ -2083,41 +2090,83 @@ class Drone extends Entity {
   }
 
   updateShooting(dt) {
-    this.updateOrbitSlotRespawns();
+    this.updateOrbitSlotRespawns(dt);
     this.updateOrbitSlotAiming(dt);
 
     const playerCenter = centerOf(player);
     const droneCenter = centerOf(this);
     const playerInRange = distance(playerCenter, droneCenter) <= DRONE_DETECTION_RANGE && !player.isDying;
 
+    if (!playerInRange) {
+      this.waitingForFrontShot = false;
+      this.armedOrbitSlot = null;
+    }
+
     if (this.windupTimer > 0) {
       this.windupTimer = Math.max(0, this.windupTimer - dt);
-      if (this.windupTimer <= 0) {
-        this.fireAtPlayer();
-        this.fireCooldown = DRONE_FIRE_COOLDOWN;
-      }
       return;
     }
 
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (playerInRange && this.fireCooldown <= 0) {
-      this.armedOrbitSlot = this.findAvailableOrbitSlot();
-      if (this.armedOrbitSlot !== null) this.windupTimer = DRONE_WINDUP;
+    if (!playerInRange || this.fireCooldown > 0) return;
+
+    if (!this.waitingForFrontShot) {
+      this.waitingForFrontShot = true;
+      this.windupTimer = DRONE_WINDUP;
+      return;
+    }
+
+    // Once wound up, wait for an actual orbiting diamond to rotate into the
+    // player-facing front position instead of spawning a separate projectile.
+    this.armedOrbitSlot = this.findFrontOrbitSlot();
+    if (this.fireAtPlayer()) {
+      this.fireCooldown = DRONE_FIRE_COOLDOWN;
+      this.waitingForFrontShot = false;
+      this.armedOrbitSlot = null;
     }
   }
 
   getOrbitAngle(slotIndex) {
-    return this.hoverTimer * DRONE_ORBIT_SPEED + slotIndex * Math.PI;
+    const slot = this.orbitSlots[slotIndex];
+    const phaseOffset = slot?.phaseOffset ?? slotIndex * Math.PI;
+    return this.hoverTimer * DRONE_ORBIT_SPEED + phaseOffset;
+  }
+
+  getOrbitParamAngleForDirection(directionAngle) {
+    return Math.atan2(
+      Math.sin(directionAngle) / DRONE_ORBIT_RADIUS_Y,
+      Math.cos(directionAngle) / DRONE_ORBIT_RADIUS_X
+    );
+  }
+
+  alignOrbitSlotToRear(slotIndex) {
+    const slot = this.orbitSlots[slotIndex];
+    if (!slot) return;
+
+    const rearDirection = this.getSlotAimAngle() + Math.PI;
+    // Regenerated diamonds are invisible while missing, then re-enter from the
+    // player-opposed rear side so they do not pop into the front layer.
+    const rearOrbitAngle = this.getOrbitParamAngleForDirection(rearDirection);
+    slot.phaseOffset = rearOrbitAngle - this.hoverTimer * DRONE_ORBIT_SPEED;
   }
 
   getOrbitSlotPosition(slotIndex) {
     const angle = this.getOrbitAngle(slotIndex);
+    const x = Math.cos(angle) * DRONE_ORBIT_RADIUS_X;
+    const y = Math.sin(angle) * DRONE_ORBIT_RADIUS_Y;
+    const positionAngle = Math.atan2(y, x);
+    const frontAngle = this.getSlotAimAngle();
+    // Front is the orbit direction facing the player, so right/left/angled
+    // targets all use the same angular comparison in Drone-local space.
+    const frontDelta = Math.abs(shortestAngleDelta(positionAngle, frontAngle));
+
     return {
       angle,
-      x: Math.cos(angle) * DRONE_ORBIT_RADIUS_X,
-      y: Math.sin(angle) * DRONE_ORBIT_RADIUS_Y,
-      isFront: Math.sin(angle) >= 0,
-      isBackRespawnPoint: Math.sin(angle) <= DRONE_RESPAWN_BACK_THRESHOLD
+      x,
+      y,
+      positionAngle,
+      isFront: frontDelta <= Math.PI / 2,
+      isFrontFirePosition: frontDelta <= DRONE_FRONT_FIRE_TOLERANCE
     };
   }
 
@@ -2147,23 +2196,37 @@ class Drone extends Entity {
     }
   }
 
-  findAvailableOrbitSlot() {
-    for (let index = 0; index < this.orbitSlots.length; index += 1) {
-      if (this.orbitSlots[index].state === "orbiting") return index;
-    }
-    return null;
-  }
+  findFrontOrbitSlot() {
+    let frontSlotIndex = null;
+    let smallestFrontDelta = Infinity;
 
-  updateOrbitSlotRespawns() {
     for (let index = 0; index < this.orbitSlots.length; index += 1) {
-      const slot = this.orbitSlots[index];
-      if (slot.state !== "waitingRespawn") continue;
+      if (this.orbitSlots[index].state !== "orbiting") continue;
 
       const position = this.getOrbitSlotPosition(index);
-      if (position.isBackRespawnPoint) {
-        slot.state = "orbiting";
-        slot.aimAngle = this.getSlotAimAngle();
+      if (!position.isFrontFirePosition) continue;
+
+      const frontDelta = Math.abs(shortestAngleDelta(position.positionAngle, this.getSlotAimAngle()));
+      if (frontDelta < smallestFrontDelta) {
+        frontSlotIndex = index;
+        smallestFrontDelta = frontDelta;
       }
+    }
+
+    return frontSlotIndex;
+  }
+
+  updateOrbitSlotRespawns(dt) {
+    for (let index = 0; index < this.orbitSlots.length; index += 1) {
+      const slot = this.orbitSlots[index];
+      if (slot.state !== "fired" && slot.state !== "waitingRespawn") continue;
+
+      slot.respawnTimer = Math.max(0, slot.respawnTimer - dt);
+      if (slot.respawnTimer > 0) continue;
+
+      this.alignOrbitSlotToRear(index);
+      slot.state = "orbiting";
+      slot.aimAngle = this.getSlotAimAngle();
     }
   }
 
@@ -2174,13 +2237,14 @@ class Drone extends Entity {
   }
 
   fireAtPlayer() {
-    if (player.isDying) return;
-    const slotIndex = this.armedOrbitSlot ?? this.findAvailableOrbitSlot();
-    this.armedOrbitSlot = null;
-    if (slotIndex === null || this.orbitSlots[slotIndex].state !== "orbiting") return;
+    if (player.isDying) return false;
+    const slotIndex = this.armedOrbitSlot ?? this.findFrontOrbitSlot();
+    if (slotIndex === null || this.orbitSlots[slotIndex].state !== "orbiting") return false;
 
     const droneCenter = centerOf(this);
     const slotPosition = this.getOrbitSlotPosition(slotIndex);
+    if (!slotPosition.isFrontFirePosition) return false;
+
     const from = {
       x: droneCenter.x + slotPosition.x,
       y: droneCenter.y + slotPosition.y * this.gravitySign
@@ -2190,6 +2254,7 @@ class Drone extends Entity {
 
     this.orbitSlots[slotIndex].aimAngle = aimAngle;
     this.orbitSlots[slotIndex].state = "fired";
+    this.orbitSlots[slotIndex].respawnTimer = DRONE_RESPAWN_DELAY;
     droneProjectiles.push(new DroneProjectile(
       from.x,
       from.y,
@@ -2198,6 +2263,7 @@ class Drone extends Entity {
       this,
       slotIndex
     ));
+    return true;
   }
 
   isTouchingVerticalWorldEdge() {
