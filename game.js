@@ -82,6 +82,8 @@ const ROOM_WIDTH = config.roomWidth ?? 1280;
 const HUD_MARGIN = 20;
 const HP_DIAMOND_SIZE = 14;
 const HP_DIAMOND_SPACING = 8;
+const GRAVITY_MARKER_HEIGHT = 9;
+const GRAVITY_MARKER_GAP = 8;
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -2019,7 +2021,8 @@ class Enemy extends Entity {
     drawPolygon(centerGlow);
 
     ctx.restore();
-    drawGravityMarker(this);
+    const walkerVisualTopY = cy + hoverBob - 24 * WALKER_VISUAL_SCALE;
+    drawGravityMarker(this, walkerVisualTopY);
   }
 }
 
@@ -2609,7 +2612,8 @@ class Drone extends Entity {
     ctx.shadowBlur = 4 + charge * 7 + hitFlash * 5;
     this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
     ctx.restore();
-    drawGravityMarker(this);
+    const droneVisualTopY = cy + hoverBob + this.hitJoltY - (DRONE_ORBIT_RADIUS_Y + DRONE_OUTER_DIAMOND_RY);
+    drawGravityMarker(this, droneVisualTopY);
   }
 }
 
@@ -2882,10 +2886,12 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
 const player = new Player();
 const enemies = [new Enemy(660, 435), new Drone(1085, 210)];
 
-function drawGravityMarker(entity) {
+function drawGravityMarker(entity, visualTopY = entity.y) {
   if (entity.gravitySign === 1) return;
   const cx = entity.x + entity.w / 2;
-  const y = entity.y - 14;
+  // Anchor the arrow above the rendered art, not just the physics body, so it
+  // remains readable without touching enemies even when that places it in a ceiling.
+  const y = visualTopY - GRAVITY_MARKER_GAP - GRAVITY_MARKER_HEIGHT;
   ctx.save();
   ctx.fillStyle = "#87ffc6";
   ctx.beginPath();
