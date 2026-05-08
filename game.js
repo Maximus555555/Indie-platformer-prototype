@@ -1337,24 +1337,132 @@ class Enemy extends Entity {
     this.hp = 2;
     this.speed = 86;
     this.direction = -1;
-    this.patrolMin = x - 120;
-    this.patrolMax = x + 120;
+    this.reverseCooldown = 0;
   }
 
   update(dt) {
     if (this.hp <= 0) return;
+
+    this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
+    this.snapToHoverSurface();
+
+    const shouldReverse = this.reverseCooldown <= 0
+      && (this.hasWallAhead() || !this.hasGroundAhead());
+    if (shouldReverse) this.reverseDirection();
+
     this.vx = this.speed * this.direction;
-    this.applyGravity(dt);
-    this.moveAndCollide(dt);
-    if (this.x < this.patrolMin || this.x + this.w > this.patrolMax || this.vx === 0) {
-      this.direction *= -1;
-    }
+    this.x += this.vx * dt;
+
+    const hitWall = this.resolvePlatformWallContacts();
+    if (hitWall && this.reverseCooldown <= 0) this.reverseDirection();
+
+    this.snapToHoverSurface();
   }
 
   getCollisionRect() {
     // Keep the solid body close to the visible core so the enemy blocks the
-    // player without invisible oversized edges.
-    return { x: this.x + 2, y: this.y + 1, w: this.w - 4, h: this.h - 2 };
+    // player without invisible oversized edges or hover-animation range.
+    return { x: this.x + 2, y: this.y + 3, w: this.w - 4, h: this.h - 6 };
+  }
+
+  getHoverGap() {
+    return 4;
+  }
+
+  getProbeRange() {
+    // A short ray reaches the platform under the hover gap without letting a
+    // distant lower floor count as safe ground.
+    return this.getHoverGap() + 14;
+  }
+
+  getGroundProbeX() {
+    const body = this.getCollisionRect();
+    const leadingEdge = this.direction > 0 ? body.x + body.w : body.x;
+    return leadingEdge + this.direction * 5;
+  }
+
+  getSurfacePlatformAt(probeX = this.x + this.w / 2) {
+    const body = this.getCollisionRect();
+    const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
+    const maxDistance = this.getProbeRange();
+    let bestPlatform = null;
+    let bestDistance = Infinity;
+
+    for (const platform of platforms) {
+      if (probeX < platform.x || probeX > platform.x + platform.w) continue;
+
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const distanceToSurface = (surfaceY - surfaceEdgeY) * this.gravitySign;
+      if (distanceToSurface < -0.5 || distanceToSurface > maxDistance) continue;
+
+      if (distanceToSurface < bestDistance) {
+        bestPlatform = platform;
+        bestDistance = distanceToSurface;
+      }
+    }
+
+    return bestPlatform;
+  }
+
+  hasGroundAhead() {
+    return Boolean(this.getSurfacePlatformAt(this.getGroundProbeX()));
+  }
+
+  hasWallAhead() {
+    const body = this.getCollisionRect();
+    const wallProbe = {
+      x: this.direction > 0 ? body.x + body.w : body.x - 3,
+      y: body.y + 4,
+      w: 3,
+      h: Math.max(4, body.h - 8)
+    };
+
+    return platforms.some((platform) => rectsOverlap(wallProbe, platform));
+  }
+
+  reverseDirection() {
+    this.direction *= -1;
+    this.vx = 0;
+    this.reverseCooldown = 0.1;
+  }
+
+  resolvePlatformWallContacts() {
+    let hitWall = false;
+    const oldX = this.x;
+
+    for (const platform of platforms) {
+      if (!rectsOverlap(this.getCollisionRect(), platform)) continue;
+
+      const body = this.getCollisionRect();
+      if (this.vx > 0) this.x = platform.x - body.w - 2;
+      else if (this.vx < 0) this.x = platform.x + platform.w - 2;
+      else continue;
+
+      hitWall = true;
+      this.vx = 0;
+    }
+
+    if (hitWall) this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
+    return hitWall && this.x !== oldX;
+  }
+
+  snapToHoverSurface() {
+    const platform = this.getSurfacePlatformAt(this.x + this.w / 2);
+
+    if (platform) {
+      const hoverGap = this.getHoverGap();
+      this.y = this.gravitySign > 0
+        ? platform.y - this.h - hoverGap
+        : platform.y + platform.h + hoverGap;
+      this.vy = 0;
+      this.onSurface = true;
+      return;
+    }
+
+    // If a flipped or displaced walker briefly loses support, let static level
+    // geometry catch it and then restore the hover gap on the next update.
+    this.applyGravity(1 / 60);
+    this.moveAndCollide(1 / 60);
   }
 
   getDamageRect() {
