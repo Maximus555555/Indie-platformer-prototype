@@ -37,6 +37,7 @@ const ATTACK_ANIM_DURATION = 0.19;
 const ATTACK_RELEASE_TIME = 0.075;
 const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
+const GRAVITY_FLIP_VISUAL_DURATION = 0.18;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
 const DAMAGE_RECOIL_DURATION = 0.15;
 const DAMAGE_RECOIL_SPEED = 230;
@@ -200,9 +201,13 @@ class Player extends Entity {
     this.isDying = false;
     this.deathTimer = 0;
     this.deathFragments = [];
+    this.gravityFlipVisualTimer = 0;
+    this.gravityFlipVisualFromSign = this.gravitySign;
+    this.gravityFlipVisualToSign = this.gravitySign;
   }
 
   update(dt) {
+    this.updateGravityFlipVisual(dt);
     if (this.isDying) {
       this.updateDeath(dt);
       return;
@@ -378,7 +383,9 @@ class Player extends Entity {
   flipGravity(castId) {
     if (this.lastGravityCastId === castId) return;
     const contacts = platforms.filter((platform) => this.isTouchingVerticalSurface(platform));
+    const previousGravitySign = this.gravitySign;
     super.flipGravity(castId);
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
     this.onSurface = false;
 
     // Gravity flips should release the player from the current contact side, not
@@ -388,6 +395,37 @@ class Player extends Entity {
       if (Math.abs(this.y + this.h - platform.y) <= 1.5) this.y = platform.y - this.h - 0.1;
       else if (Math.abs(this.y - (platform.y + platform.h)) <= 1.5) this.y = platform.y + platform.h + 0.1;
     }
+  }
+
+  resetGravity() {
+    const previousGravitySign = this.gravitySign;
+    super.resetGravity();
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+  }
+
+  startGravityFlipVisual(fromSign, toSign) {
+    if (fromSign === toSign) return;
+    this.gravityFlipVisualFromSign = fromSign;
+    this.gravityFlipVisualToSign = toSign;
+    this.gravityFlipVisualTimer = GRAVITY_FLIP_VISUAL_DURATION;
+  }
+
+  updateGravityFlipVisual(dt) {
+    if (this.gravityFlipVisualTimer <= 0) return;
+    this.gravityFlipVisualTimer = Math.max(0, this.gravityFlipVisualTimer - dt);
+  }
+
+  getGravityFlipVisualTransform() {
+    if (this.gravityFlipVisualTimer <= 0) return { rotation: 0, scaleX: 1 };
+    const progress = 1 - clamp(this.gravityFlipVisualTimer / GRAVITY_FLIP_VISUAL_DURATION, 0, 1);
+    const eased = progress * progress * (3 - 2 * progress);
+    const direction = this.gravityFlipVisualToSign < this.gravityFlipVisualFromSign ? 1 : -1;
+    return {
+      rotation: direction * Math.PI * (1 - eased),
+      // Starts inverted to counter the newly applied gravity orientation, then
+      // narrows through the middle like a fast body turn before ending at rest.
+      scaleX: -1 + eased * 2
+    };
   }
 
   isTouchingVerticalSurface(platform) {
@@ -560,6 +598,9 @@ class Player extends Entity {
     this.vy = 0;
     this.gravitySign = 1;
     this.lastGravityCastId = 0;
+    this.gravityFlipVisualTimer = 0;
+    this.gravityFlipVisualFromSign = this.gravitySign;
+    this.gravityFlipVisualToSign = this.gravitySign;
     this.isCrouching = false;
     this.h = STAND_HEIGHT;
     this.fallPoseBlend = 0;
@@ -623,8 +664,8 @@ class Player extends Entity {
       const limbs = [
         [{ x: -2, y: 30 }, { x: -5.5 + glitch, y: 40 }, { x: -7, y: 50 }],
         [{ x: 2, y: 30 }, { x: 5.5 - glitch, y: 40 }, { x: 7, y: 50 }],
-        [{ x: -4, y: 19 }, { x: -9 - glitch, y: 25 }, { x: -12, y: 32 }],
-        [{ x: 4, y: 19 }, { x: 9 + glitch, y: 25 }, { x: 12, y: 32 }]
+        [{ x: -4.25, y: 19 }, { x: -9 - glitch, y: 25 }, { x: -12, y: 32 }],
+        [{ x: 3.65, y: 19 }, { x: 9 + glitch, y: 25 }, { x: 12, y: 32 }]
       ];
       for (const limb of limbs) {
         ctx.beginPath();
@@ -711,9 +752,9 @@ class Player extends Entity {
     const modelFeetY = 50;
     const characterOutlineWidth = 1.25;
     const torsoRadiusX = 5.4;
-    // Pull shoulder anchors slightly closer to the torso center so every arm
-    // reads as connected to the upper-middle side instead of floating forward.
-    const armAttachmentBackShift = 1.05;
+    // Pull shoulder anchors a little farther back on the upper torso while
+    // leaving elbows/hands in their existing swing paths for natural motion.
+    const armAttachmentBackShift = 1.35;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -735,6 +776,17 @@ class Player extends Entity {
     if (this.damageTimer > 0 && Math.floor(this.damageTimer * 18) % 2 === 0) ctx.globalAlpha = 0.62;
     ctx.translate(baseX, originY);
     ctx.scale(facing * visualScale, verticalFlip * scaleY);
+    const gravityFlipVisual = this.getGravityFlipVisualTransform();
+    if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
+      // Rotate only the rendered character around its body center; the collision
+      // rectangle and gravity response have already changed immediately. The
+      // horizontal compensation prevents a left/right facing reversal at either
+      // end of the vertical flip.
+      ctx.translate(0, modelFeetY * 0.5);
+      ctx.rotate(gravityFlipVisual.rotation);
+      ctx.scale(gravityFlipVisual.scaleX, 1);
+      ctx.translate(0, -modelFeetY * 0.5);
+    }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.shadowColor = glow;
