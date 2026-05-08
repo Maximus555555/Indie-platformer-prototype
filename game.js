@@ -1499,6 +1499,8 @@ class Enemy extends Entity {
     this.landingRecoveryTimer = 0.1;
     this.groundedPlatform = null;
     this.idleTimer = 0;
+    this.hitFlashTimer = 0;
+    this.reversePulseTimer = 0;
     this.isDying = false;
     this.deathTimer = 0;
     this.deathFragments = [];
@@ -1512,6 +1514,8 @@ class Enemy extends Entity {
     if (this.hp <= 0) return;
 
     this.idleTimer += dt;
+    this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
+    this.reversePulseTimer = Math.max(0, this.reversePulseTimer - dt);
     this.updateGravityFlipVisual(dt);
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
@@ -1651,6 +1655,7 @@ class Enemy extends Entity {
     this.direction *= -1;
     this.vx = 0;
     this.reverseCooldown = 0.1;
+    this.reversePulseTimer = 0.22;
   }
 
   resolvePlatformWallContacts() {
@@ -1724,6 +1729,7 @@ class Enemy extends Entity {
   hit(amount) {
     if (this.isDying || this.hp <= 0) return;
     this.hp -= amount;
+    this.hitFlashTimer = 0.18;
     if (this.hp <= 0) this.beginDeath();
   }
 
@@ -1936,6 +1942,54 @@ class Enemy extends Entity {
       ctx.stroke();
     }
 
+    function drawWalkerAmbientEffects() {
+      const patrolMotion = Math.abs(this.vx) / this.speed;
+      const scan = (this.idleTimer * (0.52 + patrolMotion * 0.24)) % 1;
+      const pulseAlpha = Math.sin(scan * Math.PI);
+      const reverseProgress = this.reversePulseTimer > 0
+        ? 1 - this.reversePulseTimer / 0.22
+        : 1;
+      const reverseAlpha = this.reversePulseTimer > 0 ? 1 - reverseProgress : 0;
+
+      // Drawn behind the plates to sell the Walker as a hovering machine while
+      // keeping the collision body unchanged.
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.shadowColor = "rgba(118, 226, 255, 0.42)";
+      ctx.shadowBlur = 8;
+
+      ctx.strokeStyle = `rgba(83, 201, 244, ${0.16 + pulseAlpha * 0.14})`;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.ellipse(0, 30.5, 18 + pulseAlpha * 4, 3.4 + pulseAlpha * 0.9, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(174, 244, 255, ${0.2 + pulseAlpha * 0.16})`;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(0, 30.5, 8 + pulseAlpha * 2.4, 1.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      if (this.reversePulseTimer > 0) {
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 * reverseAlpha})`;
+        ctx.lineWidth = 0.9;
+        ctx.beginPath();
+        ctx.ellipse(0, 30.5, 18 + reverseProgress * 13, 3 + reverseProgress * 2.4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < 4; i += 1) {
+        const motePhase = (this.idleTimer * (0.85 + patrolMotion * 0.55) + i * 0.25) % 1;
+        const side = i % 2 === 0 ? -1 : 1;
+        const y = 19 + motePhase * 8;
+        const x = side * (12 + i * 1.8) - this.direction * patrolMotion * motePhase * 9;
+        ctx.fillStyle = `rgba(151, 244, 255, ${(1 - motePhase) * (0.2 + patrolMotion * 0.18)})`;
+        ctx.fillRect(x - 0.7, y - 0.7, 1.4, 1.4);
+      }
+
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(cx, cy + hoverBob);
     ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
@@ -1950,6 +2004,8 @@ class Enemy extends Entity {
     ctx.strokeStyle = "#49c7f4";
     ctx.fillStyle = "rgba(77, 199, 244, 0.12)";
     ctx.lineWidth = 1.8;
+
+    drawWalkerAmbientEffects.call(this);
 
     const leftPlate = [
       { x: -25, y: 21 },
@@ -2008,6 +2064,38 @@ class Enemy extends Entity {
     ctx.strokeStyle = "rgba(160, 246, 255, 0.82)";
     ctx.lineWidth = 0.8;
     drawPolygon(centerGlow);
+
+    const scannerSweep = (this.idleTimer * 1.35) % 1;
+    const scannerX = -6 + scannerSweep * 12;
+    ctx.save();
+    tracePolygon(core);
+    ctx.clip();
+    ctx.shadowColor = "rgba(255, 255, 255, 0.7)";
+    ctx.shadowBlur = 6;
+    ctx.strokeStyle = `rgba(220, 251, 255, ${0.28 + Math.sin(scannerSweep * Math.PI) * 0.34})`;
+    ctx.lineWidth = 0.75;
+    strokeLine({ x: scannerX, y: -10 }, { x: scannerX * 0.35, y: 12 });
+    ctx.restore();
+
+    if (this.hitFlashTimer > 0) {
+      const flash = clamp(this.hitFlashTimer / 0.18, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = flash * 0.58;
+      ctx.shadowColor = "rgba(255, 255, 255, 0.95)";
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+      ctx.lineWidth = 1.2;
+      strokePolygon(leftPlate);
+      strokePolygon(rightPlate);
+      strokePolygon(core);
+      for (let i = 0; i < 3; i += 1) {
+        const angle = this.idleTimer * 9 + i * Math.PI * 0.68;
+        const sparkX = Math.cos(angle) * (10 + i * 4);
+        const sparkY = Math.sin(angle) * (8 + i * 3);
+        strokeLine({ x: sparkX - 2.2, y: sparkY }, { x: sparkX + 2.2, y: sparkY });
+      }
+      ctx.restore();
+    }
 
     ctx.restore();
     drawGravityMarker(this);

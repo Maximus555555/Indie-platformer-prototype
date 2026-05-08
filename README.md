@@ -37,7 +37,7 @@ If a workspace/browser preview still shows an older player or old spikes, hard r
 - Falling below the bottom platform area causes 1 damage and respawns at the safe edge of the last solid platform the player touched.
 - Reaching 0 HP resets the player to the checkpoint with 3 HP.
 - **System Pulse** fires a glowing geometric pulse horizontally, deals 1 damage, and has a cooldown.
-- Simple enemy placeholder with 2 HP, contact damage, patrol movement, and collision boxes.
+- Simple enemy placeholder with 2 HP, contact damage, patrol movement, collision boxes, and geometric hover/scanner effects.
 - **Gravity Field** preview appears as a circular range outline while Q is held.
 - Pressing E tags valid entities inside the range for the current cast ID and flips their gravity.
 - Pressing E again deactivates the ability and resets affected entities to normal gravity.
