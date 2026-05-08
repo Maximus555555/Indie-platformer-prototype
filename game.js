@@ -44,8 +44,8 @@ const DRONE_OUTER_DIAMOND_RX = 7;
 const DRONE_OUTER_DIAMOND_RY = 10;
 const DRONE_RESPAWN_BACK_THRESHOLD = -0.92;
 const DRONE_AIM_TURN_SPEED = 14;
-const DRONE_OUTER_DIAMOND_FILL = "rgba(255, 153, 25, 0.95)";
-const DRONE_OUTER_DIAMOND_STROKE = "rgba(46, 26, 14, 0.94)";
+const DRONE_OUTER_DIAMOND_FILL = "rgb(255, 153, 25)";
+const DRONE_OUTER_DIAMOND_STROKE = "rgb(46, 26, 14)";
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
@@ -2121,13 +2121,11 @@ class Drone extends Entity {
     };
   }
 
-  getSlotAimAngle(slotIndex, position = this.getOrbitSlotPosition(slotIndex)) {
+  getSlotAimAngle() {
     const droneCenter = centerOf(this);
-    const diamondWorldX = droneCenter.x + position.x;
-    const diamondWorldY = droneCenter.y + position.y * this.gravitySign;
     const playerCenter = centerOf(player);
-    const localDx = playerCenter.x - diamondWorldX;
-    const localDy = (playerCenter.y - diamondWorldY) * this.gravitySign;
+    const localDx = playerCenter.x - droneCenter.x;
+    const localDy = (playerCenter.y - droneCenter.y) * this.gravitySign;
     return Math.atan2(localDy, localDx);
   }
 
@@ -2138,7 +2136,7 @@ class Drone extends Entity {
       const slot = this.orbitSlots[index];
       if (slot.state === "fired") continue;
 
-      const targetAngle = this.getSlotAimAngle(index);
+      const targetAngle = this.getSlotAimAngle();
       if (!Number.isFinite(slot.aimAngle)) {
         slot.aimAngle = targetAngle;
         continue;
@@ -2164,7 +2162,7 @@ class Drone extends Entity {
       const position = this.getOrbitSlotPosition(index);
       if (position.isBackRespawnPoint) {
         slot.state = "orbiting";
-        slot.aimAngle = this.getSlotAimAngle(index, position);
+        slot.aimAngle = this.getSlotAimAngle();
       }
     }
   }
@@ -2187,16 +2185,16 @@ class Drone extends Entity {
       x: droneCenter.x + slotPosition.x,
       y: droneCenter.y + slotPosition.y * this.gravitySign
     };
-    const to = centerOf(player);
-    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const aimAngle = this.getSlotAimAngle();
+    const worldAimAngle = this.gravitySign > 0 ? aimAngle : -aimAngle;
 
-    this.orbitSlots[slotIndex].aimAngle = Math.atan2((to.y - from.y) * this.gravitySign, to.x - from.x);
+    this.orbitSlots[slotIndex].aimAngle = aimAngle;
     this.orbitSlots[slotIndex].state = "fired";
     droneProjectiles.push(new DroneProjectile(
       from.x,
       from.y,
-      Math.cos(angle),
-      Math.sin(angle),
+      Math.cos(worldAimAngle),
+      Math.sin(worldAimAngle),
       this,
       slotIndex
     ));
@@ -2404,25 +2402,15 @@ class Drone extends Entity {
   }
 
   drawOrbitDiamond(position, charge, isArmed, aimAngle) {
-    const depthScale = position.isFront ? 1.05 : 0.9;
-    const alpha = position.isFront ? 0.94 : 0.58;
     ctx.save();
-    ctx.globalAlpha *= alpha;
     ctx.translate(position.x, position.y);
     ctx.rotate(aimAngle + Math.PI / 2);
-    ctx.scale(depthScale, depthScale);
     ctx.fillStyle = DRONE_OUTER_DIAMOND_FILL;
     ctx.strokeStyle = DRONE_OUTER_DIAMOND_STROKE;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = isArmed ? 2.2 + charge * 0.35 : 2;
     this.drawDiamondShape(0, 0, DRONE_OUTER_DIAMOND_RX, DRONE_OUTER_DIAMOND_RY);
     ctx.fill();
     ctx.stroke();
-
-    if (isArmed) {
-      ctx.fillStyle = `rgba(255, 228, 92, ${0.28 + charge * 0.32})`;
-      this.drawDiamondShape(0, 0, 2.5 + charge, 3.6 + charge);
-      ctx.fill();
-    }
     ctx.restore();
   }
 
@@ -2578,14 +2566,6 @@ class DroneProjectile {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "rgba(255, 230, 97, 0.7)";
-    ctx.beginPath();
-    ctx.moveTo(0, -DRONE_OUTER_DIAMOND_RY * 0.42);
-    ctx.lineTo(DRONE_OUTER_DIAMOND_RX * 0.42, 0);
-    ctx.lineTo(0, DRONE_OUTER_DIAMOND_RY * 0.42);
-    ctx.lineTo(-DRONE_OUTER_DIAMOND_RX * 0.42, 0);
-    ctx.closePath();
-    ctx.fill();
     ctx.restore();
   }
 }
