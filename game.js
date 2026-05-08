@@ -917,9 +917,9 @@ class Player extends Entity {
       const swing = -Math.cos(legCycle * Math.PI * 2);
       const shoulder = { x: 2.8 - armAttachmentBackShift + depthOffset, y: shoulderBaseY + shoulderOffsetY };
       const hand = { x: shoulder.x + 1.8 + swing * 6.4, y: 32.6 + shoulderOffsetY };
-      // Keep the elbow flexing forward in player-local space. The canvas-facing
-      // scale mirrors this bend for left-facing movement instead of inverting it.
-      const elbow = { x: mix(shoulder.x, hand.x, 0.46) + 1.7, y: 24.7 + shoulderOffsetY };
+      // Bend walking elbows back in player-local space so the arm hinge points
+      // away from the stride direction during the walk cycle.
+      const elbow = { x: mix(shoulder.x, hand.x, 0.46) - 1.7, y: 24.7 + shoulderOffsetY };
       return [shoulder, elbow, hand];
     }
 
