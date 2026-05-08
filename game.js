@@ -123,7 +123,10 @@ class Entity {
     this.vy = 0;
     this.gravitySign = 1;
     this.onSurface = false;
-    this.lastGravityCastId = 0; // Later enemy adaptation can key off one response per cast ID.
+    this.lastGravityCastId = 0;
+    this.gravityFlipVisualTimer = 0;
+    this.gravityFlipVisualFromSign = this.gravitySign;
+    this.gravityFlipVisualToSign = this.gravitySign;
   }
 
   applyGravity(dt) {
@@ -172,6 +175,31 @@ class Entity {
       this.gravitySign = 1;
       this.vy = Math.abs(this.vy) * GRAVITY_FLIP_DAMPING;
     }
+  }
+
+  startGravityFlipVisual(fromSign, toSign) {
+    if (fromSign === toSign) return;
+    this.gravityFlipVisualFromSign = fromSign;
+    this.gravityFlipVisualToSign = toSign;
+    this.gravityFlipVisualTimer = GRAVITY_FLIP_VISUAL_DURATION;
+  }
+
+  updateGravityFlipVisual(dt) {
+    if (this.gravityFlipVisualTimer <= 0) return;
+    this.gravityFlipVisualTimer = Math.max(0, this.gravityFlipVisualTimer - dt);
+  }
+
+  getGravityFlipVisualTransform() {
+    if (this.gravityFlipVisualTimer <= 0) return { rotation: 0, scaleX: 1 };
+    const progress = 1 - clamp(this.gravityFlipVisualTimer / GRAVITY_FLIP_VISUAL_DURATION, 0, 1);
+    const eased = progress * progress * (3 - 2 * progress);
+    const direction = this.gravityFlipVisualToSign < this.gravityFlipVisualFromSign ? 1 : -1;
+    return {
+      rotation: direction * Math.PI * (1 - eased),
+      // Starts inverted to counter the already-applied gravity orientation, then
+      // settles without changing horizontal patrol or facing direction.
+      scaleX: -1 + eased * 2
+    };
   }
 }
 
@@ -1425,6 +1453,7 @@ class Enemy extends Entity {
     if (this.hp <= 0) return;
 
     this.idleTimer += dt;
+    this.updateGravityFlipVisual(dt);
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
     if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
@@ -1612,12 +1641,16 @@ class Enemy extends Entity {
 
   flipGravity(castId) {
     if (this.lastGravityCastId === castId) return;
+    const previousGravitySign = this.gravitySign;
     super.flipGravity(castId);
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
     this.enterAirborneState("gravity-flipped");
   }
 
   resetGravity() {
+    const previousGravitySign = this.gravitySign;
     super.resetGravity();
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
     this.enterAirborneState();
     this.reverseCooldown = 0;
 
@@ -1631,6 +1664,7 @@ class Enemy extends Entity {
 
   hit(amount) {
     this.hp -= amount;
+    if (this.hp <= 0) activeGravityEntities.delete(this);
   }
 
   draw() {
@@ -1682,8 +1716,21 @@ class Enemy extends Entity {
       ctx.restore();
     }
 
+    function strokeLine(from, to) {
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+
     ctx.save();
     ctx.translate(cx, cy + hoverBob);
+    ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+    const gravityFlipVisual = this.getGravityFlipVisualTransform();
+    if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
+      ctx.rotate(gravityFlipVisual.rotation);
+      ctx.scale(gravityFlipVisual.scaleX, 1);
+    }
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
@@ -1704,6 +1751,18 @@ class Enemy extends Entity {
       { x: 0, y: 20 },
       { x: -10, y: 0 }
     ];
+    const innerCore = [
+      { x: 0, y: -10 },
+      { x: 6, y: 0 },
+      { x: 0, y: 11 },
+      { x: -6, y: 0 }
+    ];
+    const centerGlow = [
+      { x: 0, y: -5 },
+      { x: 3, y: 0 },
+      { x: 0, y: 5 },
+      { x: -3, y: 0 }
+    ];
 
     drawPolygon(leftPlate);
     drawPolygon(rightPlate);
@@ -1712,11 +1771,30 @@ class Enemy extends Entity {
     strokePolygon(leftPlate);
     strokePolygon(rightPlate);
 
+    ctx.strokeStyle = "rgba(119, 230, 255, 0.58)";
+    ctx.lineWidth = 1.05;
+    strokeLine({ x: -20.5, y: 16 }, { x: -12.4, y: -16 });
+    strokeLine({ x: 20.5, y: 16 }, { x: 12.4, y: -16 });
+    ctx.strokeStyle = "rgba(106, 216, 252, 0.34)";
+    ctx.lineWidth = 0.9;
+    strokeLine({ x: -17.5, y: 10 }, { x: -13.8, y: -5 });
+    strokeLine({ x: 17.5, y: 10 }, { x: 13.8, y: -5 });
+
     ctx.strokeStyle = "#2fb6ec";
     ctx.fillStyle = "rgba(67, 188, 234, 0.18)";
+    ctx.lineWidth = 1.8;
     drawPolygon(core);
     fillInnerGlow(core, 0.48, 0.24);
     strokePolygon(core);
+
+    ctx.strokeStyle = "rgba(139, 237, 255, 0.7)";
+    ctx.fillStyle = "rgba(118, 226, 255, 0.08)";
+    ctx.lineWidth = 1;
+    drawPolygon(innerCore);
+    ctx.fillStyle = "rgba(151, 244, 255, 0.3)";
+    ctx.strokeStyle = "rgba(160, 246, 255, 0.82)";
+    ctx.lineWidth = 0.8;
+    drawPolygon(centerGlow);
 
     ctx.restore();
     drawGravityMarker(this);
