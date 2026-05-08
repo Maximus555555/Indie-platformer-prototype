@@ -1338,13 +1338,41 @@ class Enemy extends Entity {
     this.speed = 86;
     this.direction = -1;
     this.reverseCooldown = 0;
+    this.walkerState = "recovering";
+    this.landingRecoveryTimer = 0.1;
+    this.groundedPlatform = null;
   }
 
   update(dt) {
     if (this.hp <= 0) return;
 
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
-    this.snapToHoverSurface();
+
+    if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
+      this.updateGroundedPatrol(dt);
+      return;
+    }
+
+    this.updateAirbornePhysics(dt);
+  }
+
+  updateGroundedPatrol(dt) {
+    const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (!platform) {
+      this.enterAirborneState();
+      return;
+    }
+
+    this.groundedPlatform = platform;
+    this.onSurface = true;
+    this.attachToPatrolSurface(platform);
+
+    if (this.walkerState === "recovering") {
+      this.vx = 0;
+      this.landingRecoveryTimer = Math.max(0, this.landingRecoveryTimer - dt);
+      if (this.landingRecoveryTimer <= 0) this.walkerState = "patrolling";
+      return;
+    }
 
     const shouldReverse = this.reverseCooldown <= 0
       && (this.hasWallAhead() || !this.hasGroundAhead());
@@ -1356,7 +1384,28 @@ class Enemy extends Entity {
     const hitWall = this.resolvePlatformWallContacts();
     if (hitWall && this.reverseCooldown <= 0) this.reverseDirection();
 
-    this.snapToHoverSurface();
+    const currentPlatform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (currentPlatform) {
+      this.groundedPlatform = currentPlatform;
+      this.attachToPatrolSurface(currentPlatform);
+    } else {
+      this.enterAirborneState();
+    }
+  }
+
+  updateAirbornePhysics(dt) {
+    // While falling or gravity-flipped, Walker edge checks are fully suspended;
+    // only velocity and collision physics can produce a new patrol surface.
+    this.groundedPlatform = null;
+    this.onSurface = false;
+    this.applyGravity(dt);
+    this.moveAndCollide(dt);
+
+    if (!this.onSurface) return;
+
+    const landingPlatform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (landingPlatform) this.beginLandingRecovery(landingPlatform);
+    else this.enterAirborneState();
   }
 
   getCollisionRect() {
@@ -1369,10 +1418,16 @@ class Enemy extends Entity {
     return 4;
   }
 
-  getProbeRange() {
-    // A short ray reaches the platform under the hover gap without letting a
-    // distant lower floor count as safe ground.
-    return this.getHoverGap() + 14;
+  getGroundContactRange() {
+    // The Walker hovers a few pixels from its patrol surface, so direct support
+    // means only that tiny hover gap plus collision-rect inset is present.
+    return this.getHoverGap() + 4;
+  }
+
+  getEdgeProbeRange() {
+    // Edge detection is only a short support check ahead of a grounded Walker;
+    // it decides whether to turn and never becomes a platform target.
+    return this.getGroundContactRange() + 2;
   }
 
   getGroundProbeX() {
@@ -1381,10 +1436,9 @@ class Enemy extends Entity {
     return leadingEdge + this.direction * 5;
   }
 
-  getSurfacePlatformAt(probeX = this.x + this.w / 2) {
+  getSurfacePlatformAt(probeX = this.x + this.w / 2, maxDistance = this.getGroundContactRange()) {
     const body = this.getCollisionRect();
     const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
-    const maxDistance = this.getProbeRange();
     let bestPlatform = null;
     let bestDistance = Infinity;
 
@@ -1404,8 +1458,12 @@ class Enemy extends Entity {
     return bestPlatform;
   }
 
+  getDirectSurfacePlatformAt(probeX = this.x + this.w / 2) {
+    return this.getSurfacePlatformAt(probeX, this.getGroundContactRange());
+  }
+
   hasGroundAhead() {
-    return Boolean(this.getSurfacePlatformAt(this.getGroundProbeX()));
+    return Boolean(this.getSurfacePlatformAt(this.getGroundProbeX(), this.getEdgeProbeRange()));
   }
 
   hasWallAhead() {
@@ -1446,23 +1504,44 @@ class Enemy extends Entity {
     return hitWall && this.x !== oldX;
   }
 
-  snapToHoverSurface() {
-    const platform = this.getSurfacePlatformAt(this.x + this.w / 2);
+  attachToPatrolSurface(platform) {
+    const hoverGap = this.getHoverGap();
+    this.y = this.gravitySign > 0
+      ? platform.y - this.h - hoverGap
+      : platform.y + platform.h + hoverGap;
+    this.vy = 0;
+  }
 
-    if (platform) {
-      const hoverGap = this.getHoverGap();
-      this.y = this.gravitySign > 0
-        ? platform.y - this.h - hoverGap
-        : platform.y + platform.h + hoverGap;
-      this.vy = 0;
-      this.onSurface = true;
-      return;
-    }
+  beginLandingRecovery(platform) {
+    this.walkerState = "recovering";
+    this.landingRecoveryTimer = 0.1;
+    this.reverseCooldown = Math.max(this.reverseCooldown, 0.1);
+    this.groundedPlatform = platform;
+    this.onSurface = true;
+    this.vx = 0;
+    this.attachToPatrolSurface(platform);
+  }
 
-    // If a flipped or displaced walker briefly loses support, let static level
-    // geometry catch it and then restore the hover gap on the next update.
-    this.applyGravity(1 / 60);
-    this.moveAndCollide(1 / 60);
+  enterAirborneState(state = "airborne") {
+    this.walkerState = state;
+    this.landingRecoveryTimer = 0;
+    this.groundedPlatform = null;
+    this.onSurface = false;
+  }
+
+  flipGravity(castId) {
+    if (this.lastGravityCastId === castId) return;
+    super.flipGravity(castId);
+    this.enterAirborneState("gravity-flipped");
+  }
+
+  resetGravity() {
+    super.resetGravity();
+    this.enterAirborneState();
+    this.reverseCooldown = 0;
+
+    const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (platform) this.beginLandingRecovery(platform);
   }
 
   getDamageRect() {
