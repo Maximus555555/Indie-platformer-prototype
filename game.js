@@ -79,6 +79,26 @@ function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+function rectsTouchOrOverlap(a, b, margin = 0) {
+  return a.x <= b.x + b.w + margin
+    && a.x + a.w >= b.x - margin
+    && a.y <= b.y + b.h + margin
+    && a.y + a.h >= b.y - margin;
+}
+
+function intersectionDepth(a, b) {
+  const aCenterX = a.x + a.w / 2;
+  const bCenterX = b.x + b.w / 2;
+  const aCenterY = a.y + a.h / 2;
+  const bCenterY = b.y + b.h / 2;
+  return {
+    x: (a.w + b.w) / 2 - Math.abs(aCenterX - bCenterX),
+    y: (a.h + b.h) / 2 - Math.abs(aCenterY - bCenterY),
+    signX: aCenterX < bCenterX ? -1 : 1,
+    signY: aCenterY < bCenterY ? -1 : 1
+  };
+}
+
 function centerOf(entity) {
   return { x: entity.x + entity.w / 2, y: entity.y + entity.h / 2 };
 }
@@ -255,7 +275,9 @@ class Player extends Entity {
     // Never expand from crouch into a platform. This is especially important on
     // the frame after a gravity flip, when the player may still be beside the
     // previous surface while the held crouch input is changing state.
-    if (platforms.some((platform) => rectsOverlap(standRect, platform))) return;
+    const blockedByPlatform = platforms.some((platform) => rectsOverlap(standRect, platform));
+    const blockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(standRect, enemyRect));
+    if (blockedByPlatform || blockedByEnemy) return;
 
     this.isCrouching = false;
   }
@@ -274,6 +296,73 @@ class Player extends Entity {
     // either floor or ceiling gravity.
     this.y = this.gravitySign > 0 ? surfaceAnchor - this.h : surfaceAnchor;
     this.crouchBlend = clamp((STAND_HEIGHT - this.h) / (STAND_HEIGHT - CROUCH_HEIGHT), 0, 1);
+  }
+
+  moveAndCollide(dt) {
+    this.x += this.vx * dt;
+    this.resolveHorizontalSolids(platforms, true);
+    this.resolveHorizontalSolids(getSolidEnemyRects(), true);
+
+    this.y += this.vy * dt;
+    this.onSurface = false;
+    this.resolveVerticalSolids(platforms, true);
+    this.resolveVerticalSolids(getSolidEnemyRects(), false);
+
+    // Moving enemies or spawn/reset positions can still create an overlap after
+    // the axis passes. Nudge the player along the shallowest safe axis so
+    // enemies remain solid without trapping or violently launching the player.
+    this.resolveEnemyOverlaps();
+  }
+
+  resolveHorizontalSolids(solids, cancelOnHit) {
+    for (const solid of solids) {
+      if (!rectsOverlap(this, solid)) continue;
+      if (this.vx > 0) this.x = solid.x - this.w;
+      else if (this.vx < 0) this.x = solid.x + solid.w;
+      else continue;
+      if (cancelOnHit) this.vx = 0;
+    }
+  }
+
+  resolveVerticalSolids(solids, isPlatform) {
+    for (const solid of solids) {
+      if (!rectsOverlap(this, solid)) continue;
+
+      if (this.vy * this.gravitySign > 0) {
+        if (this.gravitySign > 0) this.y = solid.y - this.h;
+        else this.y = solid.y + solid.h;
+        this.onSurface = true;
+      } else if (this.vy < 0) {
+        this.y = solid.y + solid.h;
+      } else if (this.vy > 0) {
+        this.y = solid.y - this.h;
+      } else if (!isPlatform) {
+        this.separateFromEnemyRect(solid);
+      }
+      this.vy = 0;
+    }
+  }
+
+  resolveEnemyOverlaps() {
+    for (const solid of getSolidEnemyRects()) {
+      if (rectsOverlap(this, solid)) this.separateFromEnemyRect(solid);
+    }
+  }
+
+  separateFromEnemyRect(solid) {
+    const depth = intersectionDepth(this, solid);
+    if (depth.x <= 0 || depth.y <= 0) return;
+
+    const favorHorizontal = depth.x <= depth.y + 4;
+    if (favorHorizontal) {
+      this.x += depth.signX * (depth.x + 0.1);
+      this.vx = 0;
+      return;
+    }
+
+    this.y += depth.signY * (depth.y + 0.1);
+    if (depth.signY === -this.gravitySign) this.onSurface = true;
+    this.vy = 0;
   }
 
   flipGravity(castId) {
@@ -1262,6 +1351,16 @@ class Enemy extends Entity {
     }
   }
 
+  getCollisionRect() {
+    // Keep the solid body close to the visible core so the enemy blocks the
+    // player without invisible oversized edges.
+    return { x: this.x + 2, y: this.y + 1, w: this.w - 4, h: this.h - 2 };
+  }
+
+  getDamageRect() {
+    return this.getCollisionRect();
+  }
+
   hit(amount) {
     this.hp -= amount;
   }
@@ -1367,6 +1466,12 @@ class SystemPulse {
   }
 }
 
+function getSolidEnemyRects() {
+  return enemies
+    .filter((enemy) => enemy.hp > 0)
+    .map((enemy) => enemy.getCollisionRect());
+}
+
 function findPulseEndpoint(startX, y, direction) {
   const screenEdge = direction > 0 ? cameraX + canvas.width : cameraX;
   let endX = clamp(screenEdge, 0, ROOM_WIDTH);
@@ -1386,8 +1491,9 @@ function findPulseEndpoint(startX, y, direction) {
   }
 
   for (const enemy of enemies) {
-    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, enemy)) continue;
-    consider(direction > 0 ? enemy.x : enemy.x + enemy.w);
+    const damageRect = enemy.getDamageRect();
+    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
+    consider(direction > 0 ? damageRect.x : damageRect.x + damageRect.w);
   }
 
   return endX;
@@ -1403,8 +1509,9 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
   let bestDistance = Math.abs(endX - startX) + 0.001;
 
   for (const enemy of enemies) {
-    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, enemy)) continue;
-    const hitX = direction > 0 ? enemy.x : enemy.x + enemy.w;
+    const damageRect = enemy.getDamageRect();
+    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
+    const hitX = direction > 0 ? damageRect.x : damageRect.x + damageRect.w;
     const distanceToHit = (hitX - startX) * direction;
     if (distanceToHit >= 0 && distanceToHit <= bestDistance) {
       firstEnemy = enemy;
@@ -1464,8 +1571,8 @@ function update(dt) {
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
   if (!player.isDying && pressedThisFrame.has("e")) toggleGravityField();
 
-  player.update(dt);
   enemies.forEach((enemy) => enemy.update(dt));
+  player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
 
   for (let i = pulses.length - 1; i >= 0; i -= 1) {
@@ -1473,7 +1580,9 @@ function update(dt) {
   }
 
   for (const enemy of enemies) {
-    if (enemy.hp > 0 && !player.isDying && rectsOverlap(player, enemy)) player.takeDamage(1, enemy);
+    if (enemy.hp > 0 && !player.isDying && rectsTouchOrOverlap(player, enemy.getDamageRect(), 0.75)) {
+      player.takeDamage(1, enemy);
+    }
   }
 
   if (!player.isDying && (player.y > FALL_LIMIT || player.y + player.h < -120)) player.fallOutOfWorld();
