@@ -16,6 +16,7 @@ const noop = () => {};
 const context = new Proxy({
   canvas: null,
   createLinearGradient: () => ({ addColorStop: noop }),
+  createRadialGradient: () => ({ addColorStop: noop }),
   measureText: (text) => ({ width: String(text).length * 8 })
 }, {
   get(target, property) {

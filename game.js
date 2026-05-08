@@ -36,8 +36,8 @@ const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
 const DRONE_WINDUP = config.droneWindup ?? 0.34;
 const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 360;
 const DRONE_PROJECTILE_SIZE = config.droneProjectileSize ?? 10;
-const JUMPER_WIDTH = config.jumperWidth ?? 36;
-const JUMPER_HEIGHT = config.jumperHeight ?? 38;
+const JUMPER_WIDTH = config.jumperWidth ?? 30;
+const JUMPER_HEIGHT = config.jumperHeight ?? 32;
 const JUMPER_DETECTION_X = config.jumperDetectionX ?? 260;
 const JUMPER_DETECTION_Y = config.jumperDetectionY ?? 130;
 const JUMPER_CHARGE_DURATION = config.jumperChargeDuration ?? 0.34;
@@ -2913,7 +2913,7 @@ class Jumper extends Entity {
   }
 
   getCollisionRect() {
-    return { x: this.x + 4, y: this.y + 4, w: this.w - 8, h: this.h - 8 };
+    return { x: this.x + 3, y: this.y + 3, w: this.w - 6, h: this.h - 6 };
   }
 
   getDamageRect() {
@@ -3049,33 +3049,33 @@ class Jumper extends Entity {
 
   getPose(blend) {
     const crouch = {
-      coreY: -8,
-      coreRx: 11.5,
-      coreRy: 22,
-      plateTopY: 3,
-      plateInnerX: 8.5,
-      plateOuterX: 21,
-      plateInnerLowX: 5.5,
-      plateInnerLowY: 13,
-      plateTipX: 25,
-      plateTipY: 25,
-      plateFootX: 23,
-      plateFootY: 18,
+      coreY: -6,
+      coreRx: 8.8,
+      coreRy: 16.7,
+      plateTopY: 2.3,
+      plateInnerX: 6.6,
+      plateOuterX: 16,
+      plateInnerLowX: 4.2,
+      plateInnerLowY: 9.9,
+      plateTipX: 19,
+      plateTipY: 19,
+      plateFootX: 17.5,
+      plateFootY: 13.7,
       plateTilt: 0.02
     };
     const stand = {
-      coreY: -12,
-      coreRx: 11,
-      coreRy: 24,
-      plateTopY: -1,
-      plateInnerX: 10.5,
-      plateOuterX: 23,
-      plateInnerLowX: 7.5,
-      plateInnerLowY: 11,
-      plateTipX: 26.5,
-      plateTipY: 27,
-      plateFootX: 25.5,
-      plateFootY: 18,
+      coreY: -9,
+      coreRx: 8.4,
+      coreRy: 18.2,
+      plateTopY: -0.8,
+      plateInnerX: 8,
+      plateOuterX: 17.5,
+      plateInnerLowX: 5.7,
+      plateInnerLowY: 8.4,
+      plateTipX: 20.2,
+      plateTipY: 20.5,
+      plateFootX: 19.4,
+      plateFootY: 13.7,
       plateTilt: -0.04
     };
     const pose = {};
@@ -3108,36 +3108,45 @@ class Jumper extends Entity {
     ctx.closePath();
   }
 
-  drawSidePlate(side, pose, stretch) {
+  drawSidePlate(side, pose, stretch, deathFlash = false) {
     const points = [
       { x: side * pose.plateOuterX, y: pose.plateTopY },
-      { x: side * pose.plateInnerX, y: pose.plateTopY + 0.4 },
+      { x: side * pose.plateInnerX, y: pose.plateTopY + 0.3 },
       { x: side * pose.plateInnerLowX, y: pose.plateInnerLowY },
-      { x: side * pose.plateTipX, y: pose.plateTipY + stretch * 3.2 },
+      { x: side * pose.plateTipX, y: pose.plateTipY + stretch * 2.4 },
       { x: side * pose.plateFootX, y: pose.plateFootY }
     ];
 
     ctx.save();
-    ctx.rotate(side * pose.plateTilt + side * stretch * 0.06);
+    ctx.rotate(side * pose.plateTilt + side * stretch * 0.05);
     this.tracePolygon(points);
-    const gradient = ctx.createLinearGradient(side * 9, pose.plateTopY, side * 27, pose.plateTipY);
-    gradient.addColorStop(0, "rgba(150, 229, 255, 0.96)");
-    gradient.addColorStop(0.45, "rgba(89, 129, 226, 0.94)");
-    gradient.addColorStop(1, "rgba(70, 56, 190, 0.96)");
+    const gradient = ctx.createLinearGradient(side * 6, pose.plateTopY, side * 21, pose.plateTipY);
+    gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
+    gradient.addColorStop(0.52, deathFlash ? "rgba(214, 236, 255, 0.92)" : "rgba(90, 94, 226, 0.94)");
+    gradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.88)" : "rgba(55, 42, 162, 0.96)");
     ctx.fillStyle = gradient;
-    ctx.strokeStyle = "rgba(31, 29, 111, 0.92)";
-    ctx.lineWidth = 1.7;
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.9)" : "rgba(27, 24, 96, 0.92)";
+    ctx.lineWidth = 1.45;
     ctx.fill();
     ctx.stroke();
 
-    ctx.globalAlpha = 0.48;
-    ctx.strokeStyle = "rgba(230, 251, 255, 0.8)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(side * pose.plateOuterX, pose.plateTopY + 1);
-    ctx.lineTo(side * (pose.plateOuterX - 5), pose.plateTopY + 7);
-    ctx.lineTo(side * (pose.plateFootX - 2), pose.plateFootY - 1);
-    ctx.stroke();
+    // A clipped inner fill gives the side plates a clean energized glow
+    // without adding extra decorative linework or outer shadows.
+    this.tracePolygon(points);
+    ctx.clip();
+    const glow = ctx.createRadialGradient(
+      side * pose.plateInnerX,
+      pose.plateInnerLowY,
+      0.6,
+      side * pose.plateInnerX,
+      pose.plateInnerLowY,
+      12
+    );
+    glow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.42)" : "rgba(178, 117, 255, 0.34)");
+    glow.addColorStop(0.55, deathFlash ? "rgba(213, 226, 255, 0.2)" : "rgba(92, 77, 255, 0.18)");
+    glow.addColorStop(1, "rgba(92, 77, 255, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(side > 0 ? 0 : -24, -8, 24, 34);
     ctx.restore();
   }
 
@@ -3151,32 +3160,31 @@ class Jumper extends Entity {
     ctx.translate(0, -stretch * 1.7);
     ctx.scale(1 - stretch * 0.04, 1 + stretch * 0.08);
 
-    this.drawSidePlate(-1, pose, stretch + sideLag);
-    this.drawSidePlate(1, pose, stretch + sideLag);
+    this.drawSidePlate(-1, pose, stretch + sideLag, deathFlash);
+    this.drawSidePlate(1, pose, stretch + sideLag, deathFlash);
 
-    const coreGradient = ctx.createLinearGradient(0, pose.coreY - pose.coreRy, 0, pose.coreY + pose.coreRy);
-    coreGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(117, 220, 255, 0.98)");
-    coreGradient.addColorStop(0.48, deathFlash ? "rgba(214, 236, 255, 0.96)" : "rgba(82, 132, 230, 0.97)");
-    coreGradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(71, 55, 195, 0.96)");
-    this.traceDiamond(0, pose.coreY, pose.coreRx, pose.coreRy + stretch * 1.2);
+    const coreRy = pose.coreRy + stretch * 0.9;
+    const coreGradient = ctx.createLinearGradient(0, pose.coreY - coreRy, 0, pose.coreY + coreRy);
+    coreGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(121, 178, 255, 0.97)");
+    coreGradient.addColorStop(0.5, deathFlash ? "rgba(214, 236, 255, 0.96)" : "rgba(88, 90, 226, 0.97)");
+    coreGradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(48, 36, 160, 0.96)");
+    this.traceDiamond(0, pose.coreY, pose.coreRx, coreRy);
     ctx.fillStyle = coreGradient;
-    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(31, 29, 111, 0.96)";
-    ctx.lineWidth = 1.9;
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(27, 24, 96, 0.96)";
+    ctx.lineWidth = 1.5;
     ctx.fill();
     ctx.stroke();
 
-    ctx.globalAlpha = deathFlash ? 0.42 : 0.28;
-    this.traceDiamond(0, pose.coreY + 0.5, pose.coreRx * 0.38, pose.coreRy * 0.55);
-    ctx.fillStyle = "rgba(229, 247, 255, 0.9)";
-    ctx.fill();
-
-    ctx.globalAlpha = 0.55;
-    ctx.strokeStyle = "rgba(234, 251, 255, 0.78)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, pose.coreY - pose.coreRy + 1);
-    ctx.lineTo(0, pose.coreY + pose.coreRy - 1);
-    ctx.stroke();
+    this.traceDiamond(0, pose.coreY, pose.coreRx, coreRy);
+    ctx.save();
+    ctx.clip();
+    const coreGlow = ctx.createRadialGradient(0, pose.coreY, 0.5, 0, pose.coreY, coreRy * 0.8);
+    coreGlow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.48)" : "rgba(184, 113, 255, 0.42)");
+    coreGlow.addColorStop(0.58, deathFlash ? "rgba(215, 230, 255, 0.18)" : "rgba(91, 80, 255, 0.22)");
+    coreGlow.addColorStop(1, "rgba(91, 80, 255, 0)");
+    ctx.fillStyle = coreGlow;
+    ctx.fillRect(-pose.coreRx, pose.coreY - coreRy, pose.coreRx * 2, coreRy * 2);
+    ctx.restore();
     ctx.restore();
   }
 
@@ -3208,7 +3216,7 @@ class Jumper extends Entity {
     this.drawJumperBody(this.poseBlend, hitFlash > 0.45, stretch, sideLag);
     ctx.restore();
 
-    const visualTopY = cy + hoverBob + this.hitJoltY - 36;
+    const visualTopY = cy + hoverBob + this.hitJoltY - 28;
     drawGravityMarker(this, visualTopY);
   }
 }
