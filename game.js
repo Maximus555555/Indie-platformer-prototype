@@ -664,8 +664,8 @@ class Player extends Entity {
       const limbs = [
         [{ x: -2, y: 30 }, { x: -5.5 + glitch, y: 40 }, { x: -7, y: 50 }],
         [{ x: 2, y: 30 }, { x: 5.5 - glitch, y: 40 }, { x: 7, y: 50 }],
-        [{ x: -4.25, y: 19 }, { x: -9 - glitch, y: 25 }, { x: -12, y: 32 }],
-        [{ x: 3.65, y: 19 }, { x: 9 + glitch, y: 25 }, { x: 12, y: 32 }]
+        [{ x: -4.95, y: 17.4 }, { x: -9 - glitch, y: 24.4 }, { x: -12, y: 32 }],
+        [{ x: 2.95, y: 17.4 }, { x: 9 + glitch, y: 24.4 }, { x: 12, y: 32 }]
       ];
       for (const limb of limbs) {
         ctx.beginPath();
@@ -752,9 +752,11 @@ class Player extends Entity {
     const modelFeetY = 50;
     const characterOutlineWidth = 1.25;
     const torsoRadiusX = 5.4;
-    // Pull shoulder anchors a little farther back on the upper torso while
-    // leaving elbows/hands in their existing swing paths for natural motion.
-    const armAttachmentBackShift = 1.35;
+    // Shared upper-back shoulder anchor used by every visible player-arm pose
+    // so attacks, movement, landings, and recoil do not pop between states.
+    const armAttachmentBackShift = 2.45;
+    const shoulderBaseY = 16.4;
+    const crouchShoulderY = 25.8;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -913,24 +915,24 @@ class Player extends Entity {
 
     function walkingArm(legCycle, shoulderOffsetY, depthOffset) {
       const swing = -Math.cos(legCycle * Math.PI * 2);
-      const shoulder = { x: 2.8 - armAttachmentBackShift + depthOffset, y: 18 + shoulderOffsetY };
-      return [
-        shoulder,
-        { x: 2.4 + depthOffset + swing * 4.4, y: 25 + shoulderOffsetY },
-        { x: 2 + depthOffset + swing * 8.8, y: 33 + shoulderOffsetY }
-      ];
+      const shoulder = { x: 2.8 - armAttachmentBackShift + depthOffset, y: shoulderBaseY + shoulderOffsetY };
+      const hand = { x: shoulder.x + 1.8 + swing * 6.4, y: 32.6 + shoulderOffsetY };
+      // Keep the elbow flexing forward in player-local space. The canvas-facing
+      // scale mirrors this bend for left-facing movement instead of inverting it.
+      const elbow = { x: mix(shoulder.x, hand.x, 0.46) + 1.7, y: 24.7 + shoulderOffsetY };
+      return [shoulder, elbow, hand];
     }
 
     function restingArm(side, breathe) {
       return [
-        { x: 2.8 - armAttachmentBackShift + side * 1.2, y: 18 + breathe },
+        { x: 2.8 - armAttachmentBackShift + side * 1.2, y: shoulderBaseY + breathe },
         { x: 2.4 + side * 3.6, y: 27 + breathe * 0.4 },
         { x: 2 + side * 2.6, y: 36 }
       ];
     }
 
     function idleFrontArm(breathe) {
-      const shoulder = { x: 2.8 - armAttachmentBackShift + 0.85, y: 18 + breathe };
+      const shoulder = { x: 2.8 - armAttachmentBackShift + 0.85, y: shoulderBaseY + breathe };
       return [
         shoulder,
         { x: shoulder.x - 2.2, y: 27 + breathe * 0.4 },
@@ -972,7 +974,7 @@ class Player extends Entity {
       const torsoLean = 0.18 * lower;
       // Keep crouched hips in the torso's lower third so folded legs stay visibly attached.
       const hipY = mix(29, 40.6 + bodyY * 0.3, lower);
-      const shoulderY = mix(18, 27 + bodyY, lower);
+      const shoulderY = mix(shoulderBaseY, crouchShoulderY + bodyY, lower);
       const torsoCenter = {
         x: mix(0, 2.1, lower),
         y: mix(23, 31.5 + bodyY, lower)
@@ -986,7 +988,7 @@ class Player extends Entity {
         const handShift = crouchWalking ? -Math.cos((cycle + phaseOffset) * Math.PI * 2) : 0;
         const elbowShift = crouchWalking ? handShift * 0.28 : 0;
         const shoulder = {
-          x: mix(2.8 - armAttachmentBackShift + side * 1.2, 2.3 - armAttachmentBackShift + side * 0.65, lower),
+          x: mix(2.8 - armAttachmentBackShift + side * 1.2, 2.15 - armAttachmentBackShift + side * 0.65, lower),
           y: shoulderY
         };
         // Local +X is always the player's facing direction after mirroring.
@@ -1102,7 +1104,7 @@ class Player extends Entity {
           { elbowX: -1, elbowY: 25, handX: -2, handY: 33 },
           { elbowX: -6, elbowY: 24, handX: -10, handY: 32 }
         ];
-        const shoulder = { x: 3.4 - armAttachmentBackShift + shoulderLeanX + depthOffset, y: 18 + bodyY };
+        const shoulder = { x: 3.4 - armAttachmentBackShift + shoulderLeanX + depthOffset, y: shoulderBaseY + bodyY };
 
         return interpolateKeyframes(frames.map((frame) => [
           shoulder,
@@ -1132,12 +1134,12 @@ class Player extends Entity {
         },
         torso: jumpTorso,
         farArm: [
-          { x: 1.4 - armAttachmentBackShift, y: 18 },
+          { x: 1.4 - armAttachmentBackShift, y: shoulderBaseY },
           { x: 1.6, y: 22.1 },
           { x: 2.2, y: 27.2 }
         ],
         nearArm: [
-          { x: 3.8 - armAttachmentBackShift, y: 18 },
+          { x: 3.8 - armAttachmentBackShift, y: shoulderBaseY },
           { x: 5.6, y: 22.3 },
           { x: 7.1, y: 27.8 }
         ],
@@ -1163,12 +1165,12 @@ class Player extends Entity {
         head: { x: -0.65 + Math.sin(fallLean) * 11, y: 5.9 + fallSettle * 0.25, r: 5.4 },
         torso: { x: -0.65, y: 23 + fallSettle, rx: torsoRadiusX, ry: 12, rot: fallLean },
         farArm: [
-          { x: 1.2 - armAttachmentBackShift, y: 18 + fallSettle },
+          { x: 1.2 - armAttachmentBackShift, y: shoulderBaseY + fallSettle },
           { x: -5.8, y: 16.2 + fallSettle * 0.55 },
           { x: -9.4, y: 22.6 + fallSettle * 0.35 }
         ],
         nearArm: [
-          { x: 3.8 - armAttachmentBackShift, y: 18 + fallSettle },
+          { x: 3.8 - armAttachmentBackShift, y: shoulderBaseY + fallSettle },
           { x: 7.2, y: 23.8 + fallSettle * 0.45 },
           { x: 8.8, y: 30.4 + fallSettle * 0.35 }
         ],
