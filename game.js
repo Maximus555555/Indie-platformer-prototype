@@ -711,8 +711,9 @@ class Player extends Entity {
     const modelFeetY = 50;
     const characterOutlineWidth = 1.25;
     const torsoRadiusX = 5.4;
-    // Pull shoulder anchors just off the front edge so arms attach near the upper-middle torso.
-    const armAttachmentBackShift = 0.65;
+    // Pull shoulder anchors slightly closer to the torso center so every arm
+    // reads as connected to the upper-middle side instead of floating forward.
+    const armAttachmentBackShift = 1.05;
     const baseX = this.x + this.w / 2;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -873,6 +874,15 @@ class Player extends Entity {
         { x: 2.8 - armAttachmentBackShift + side * 1.2, y: 18 + breathe },
         { x: 2.4 + side * 3.6, y: 27 + breathe * 0.4 },
         { x: 2 + side * 2.6, y: 36 }
+      ];
+    }
+
+    function idleFrontArm(breathe) {
+      const shoulder = { x: 2.8 - armAttachmentBackShift + 0.85, y: 18 + breathe };
+      return [
+        shoulder,
+        { x: shoulder.x - 2.2, y: 27 + breathe * 0.4 },
+        { x: shoulder.x - 0.75, y: 36 }
       ];
     }
 
@@ -1146,9 +1156,9 @@ class Player extends Entity {
         head: { x: 0, y: 5.8 + breathe * 0.35, r: 5.4 },
         torso: { x: 0, y: 23 + breathe, rx: torsoRadiusX, ry: 12, rot: 0 },
         farArm: null,
-        // Keep the idle front arm just outside the torso silhouette so its
-        // standard-width outline remains complete instead of blending inward.
-        nearArm: restingArm(1, breathe),
+        // Keep the idle front arm fully visible, but bend it inward toward the
+        // body so the standing-only pose no longer looks reversed.
+        nearArm: idleFrontArm(breathe),
         farLeg: restingLeg(-1),
         nearLeg: restingLeg(1)
       };
