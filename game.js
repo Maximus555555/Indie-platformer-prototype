@@ -52,7 +52,6 @@ const ROOM_WIDTH = config.roomWidth ?? 1280;
 const HUD_MARGIN = 20;
 const HP_DIAMOND_SIZE = 14;
 const HP_DIAMOND_SPACING = 8;
-const HP_DAMAGE_FLASH_DURATION = 0.16;
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -1830,7 +1829,7 @@ function drawRoom() {
   }
 }
 
-function drawDiamond(x, y, size, filled, flashing = false) {
+function drawDiamond(x, y, size, filled) {
   const half = size / 2;
 
   ctx.beginPath();
@@ -1848,20 +1847,15 @@ function drawDiamond(x, y, size, filled, flashing = false) {
     ctx.fill();
     ctx.shadowBlur = 0;
   } else {
-    // Missing-health diamonds stay visible as dark blue markers instead of
-    // fading into the pale full-health palette or disappearing entirely.
-    ctx.fillStyle = flashing ? "rgba(80, 151, 220, 0.28)" : "rgba(13, 48, 89, 0.3)";
-    ctx.strokeStyle = flashing ? "rgba(82, 168, 240, 0.9)" : "rgba(5, 37, 82, 0.95)";
-    ctx.lineWidth = flashing ? 2 : 1.5;
-    if (flashing) {
-      ctx.shadowColor = "rgba(82, 168, 240, 0.35)";
-      ctx.shadowBlur = 5;
-    }
+    // Missing-health diamonds stay visible as a steady dark blue marker.
+    // They intentionally do not flash, pulse, brighten, or disappear on damage.
+    ctx.fillStyle = "rgba(13, 48, 89, 0.3)";
+    ctx.strokeStyle = "rgba(5, 37, 82, 0.95)";
+    ctx.lineWidth = 1.5;
     ctx.fill();
-    ctx.shadowBlur = 0;
   }
 
-  ctx.lineWidth = filled ? 1.5 : ctx.lineWidth;
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 }
 
@@ -1905,14 +1899,10 @@ function drawHud() {
 
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const flashWindowStart = CONTACT_DAMAGE_COOLDOWN - HP_DAMAGE_FLASH_DURATION;
-  const shouldFlashLostDiamond = player.damageTimer > 0 && player.damageTimer > flashWindowStart;
-
   for (let i = 0; i < maxHp; i += 1) {
     const x = placement.x + i * (HP_DIAMOND_SIZE + HP_DIAMOND_SPACING);
     const isFilled = i < currentHp;
-    const isRecentlyLost = !isFilled && i === currentHp && shouldFlashLostDiamond;
-    drawDiamond(x, placement.y, HP_DIAMOND_SIZE, isFilled, isRecentlyLost);
+    drawDiamond(x, placement.y, HP_DIAMOND_SIZE, isFilled);
   }
   ctx.restore();
 }
