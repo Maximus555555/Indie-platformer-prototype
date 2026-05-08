@@ -29,6 +29,11 @@ const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
 const PULSE_SPEED = config.pulseSpeed ?? 620;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
+const LANDING_ANIM_DURATION = 0.12;
+const LANDING_MIN_AIR_TIME = 0.07;
+const LANDING_MIN_IMPACT_SPEED = 120;
+const ATTACK_ANIM_DURATION = 0.19;
+const ATTACK_RELEASE_TIME = 0.075;
 const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
@@ -151,7 +156,11 @@ class Player extends Entity {
     this.crouchBlend = 0;
     this.fallPoseBlend = 0;
     this.landTimer = 0;
+    this.airTime = 0;
     this.attackTimer = 0;
+    this.attackReleaseTimer = 0;
+    this.attackPulseQueued = false;
+    this.attackFacing = 1;
   }
 
   update(dt) {
@@ -184,14 +193,27 @@ class Player extends Entity {
     if (this.damageTimer > 0) this.damageTimer -= dt;
 
     const wasOnSurface = this.onSurface;
+    if (!wasOnSurface) this.airTime += dt;
     this.applyGravity(dt);
+    const impactVy = this.vy;
     this.moveAndCollide(dt);
     const fallingDownward = !this.onSurface && this.vy * this.gravitySign > 0;
     this.fallPoseBlend = fallingDownward
       ? clamp(this.fallPoseBlend + dt / 0.11, 0, 1)
       : 0;
-    if (!wasOnSurface && this.onSurface) this.landTimer = 0.16;
-    if (this.landTimer > 0) this.landTimer -= dt;
+    if (!wasOnSurface && this.onSurface) {
+      const landedWithImpact = impactVy * this.gravitySign > LANDING_MIN_IMPACT_SPEED;
+      if (this.airTime >= LANDING_MIN_AIR_TIME && landedWithImpact) this.landTimer = LANDING_ANIM_DURATION;
+      this.airTime = 0;
+    } else if (this.onSurface) {
+      this.airTime = 0;
+    }
+    if (!this.onSurface) this.landTimer = 0;
+    else if (this.landTimer > 0) this.landTimer -= dt;
+    if (this.attackPulseQueued) {
+      this.attackReleaseTimer -= dt;
+      if (this.attackReleaseTimer <= 0) this.releasePulse();
+    }
     if (this.attackTimer > 0) this.attackTimer -= dt;
     this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
   }
@@ -253,10 +275,35 @@ class Player extends Entity {
 
   firePulse() {
     if (this.pulseTimer > 0) return;
-    const pulseX = this.facing > 0 ? this.x + this.w + 3 : this.x - 15;
-    pulses.push(new SystemPulse(pulseX, this.y + this.h * 0.45, this.facing));
     this.pulseTimer = PULSE_COOLDOWN;
-    this.attackTimer = 0.18;
+    this.attackTimer = ATTACK_ANIM_DURATION;
+    this.attackReleaseTimer = ATTACK_RELEASE_TIME;
+    this.attackPulseQueued = true;
+    this.attackFacing = this.facing;
+  }
+
+  releasePulse() {
+    if (!this.attackPulseQueued) return;
+    const spawn = this.getPulseSpawnPoint();
+    pulses.push(new SystemPulse(spawn.x, spawn.y, this.attackFacing));
+    this.attackPulseQueued = false;
+  }
+
+  getPulseSpawnPoint() {
+    const modelFeetY = 50;
+    const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
+    const verticalFlip = this.gravitySign > 0 ? 1 : -1;
+    const originY = this.gravitySign > 0
+      ? surfaceY - modelFeetY * PLAYER_VISUAL_SCALE
+      : surfaceY + modelFeetY * PLAYER_VISUAL_SCALE;
+    const handLocalX = 17;
+    const handLocalY = this.isCrouching ? 30 : 22.5;
+    const handX = this.x + this.w / 2 + this.attackFacing * PLAYER_VISUAL_SCALE * handLocalX;
+    const handY = originY + verticalFlip * PLAYER_VISUAL_SCALE * handLocalY;
+    return {
+      x: this.attackFacing > 0 ? handX + 2 : handX - 18,
+      y: handY - 4
+    };
   }
 
   takeDamage(amount) {
@@ -308,6 +355,10 @@ class Player extends Entity {
     this.isCrouching = false;
     this.h = STAND_HEIGHT;
     this.fallPoseBlend = 0;
+    this.landTimer = 0;
+    this.airTime = 0;
+    this.attackTimer = 0;
+    this.attackPulseQueued = false;
     this.onSurface = false;
   }
 
@@ -336,8 +387,9 @@ class Player extends Entity {
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
     const crouchBlend = grounded ? this.crouchBlend : 0;
-    const landSquash = this.landTimer > 0 ? this.landTimer / 0.16 : 0;
-    const poseSquash = crouchBlend > 0 ? 0 : landSquash * 0.035;
+    const landProgress = this.landTimer > 0 ? clamp(this.landTimer / LANDING_ANIM_DURATION, 0, 1) : 0;
+    const landCompression = grounded ? Math.pow(landProgress, 0.55) : 0;
+    const poseSquash = crouchBlend > 0 ? 0 : landCompression * 0.04;
     const scaleY = visualScale * (1 - poseSquash);
     const originY = this.gravitySign > 0
       ? surfaceY - modelFeetY * scaleY
@@ -407,6 +459,23 @@ class Player extends Entity {
         x: mix(point.x, next[pointIndex].x, amount),
         y: mix(point.y, next[pointIndex].y, amount)
       }));
+    }
+
+    function blendPoint(from, to, amount) {
+      return { x: mix(from.x, to.x, amount), y: mix(from.y, to.y, amount) };
+    }
+
+    function blendLimb(from, to, amount) {
+      return from.map((point, index) => blendPoint(point, to[index], amount));
+    }
+
+    function interpolateTimeline(frames, progress) {
+      const clampedProgress = clamp(progress, 0, 1);
+      const lastIndex = frames.length - 1;
+      const scaled = clampedProgress * lastIndex;
+      const index = Math.min(Math.floor(scaled), lastIndex - 1);
+      const amount = scaled - index;
+      return blendLimb(frames[index], frames[index + 1], amount);
     }
 
     // Eight keyed contact/down/passing/up stages are interpolated into a calm
@@ -705,14 +774,6 @@ class Player extends Entity {
         ]
       };
 
-      function blendPoint(from, to, amount) {
-        return { x: mix(from.x, to.x, amount), y: mix(from.y, to.y, amount) };
-      }
-
-      function blendLimb(from, to, amount) {
-        return from.map((point, index) => blendPoint(point, to[index], amount));
-      }
-
       pose = {
         head: {
           x: mix(jumpPose.head.x, fallPose.head.x, fallBlend),
@@ -743,10 +804,101 @@ class Player extends Entity {
       };
     }
 
+    if (landCompression > 0) {
+      const compression = landCompression * (this.isCrouching ? 0.55 : 1);
+      pose.torso = {
+        ...pose.torso,
+        y: pose.torso.y + compression * 3.2,
+        rot: pose.torso.rot + compression * 0.025
+      };
+      pose.head = { ...pose.head, y: pose.head.y + compression * 3.1 };
+
+      function compressLandingLeg(leg, side) {
+        return leg.map((point, index) => {
+          if (index === 0) return { x: point.x + compression * 0.25, y: point.y + compression * 2.2 };
+          if (index === 1) return { x: point.x + compression * (2.1 + side * 0.25), y: point.y + compression * 2.9 };
+          return { x: point.x, y: modelFeetY };
+        });
+      }
+
+      function balanceLandingArm(arm, side) {
+        if (!arm) return arm;
+        return arm.map((point, index) => {
+          if (index === 0) return { x: point.x, y: point.y + compression * 1.8 };
+          if (index === 1) return { x: point.x + compression * 1.5, y: point.y + compression * 2.4 };
+          return { x: point.x + compression * (2.6 + side * 0.35), y: point.y + compression * 2.7 };
+        });
+      }
+
+      pose.farLeg = compressLandingLeg(pose.farLeg, -1);
+      pose.nearLeg = compressLandingLeg(pose.nearLeg, 1);
+      pose.farArm = balanceLandingArm(pose.farArm, -1);
+      pose.nearArm = balanceLandingArm(pose.nearArm, 1);
+    }
+
+    let attackChargePoint = null;
+    let attackProgress = 0;
+    if (this.attackTimer > 0) {
+      attackProgress = 1 - clamp(this.attackTimer / ATTACK_ANIM_DURATION, 0, 1);
+      const baseFarArm = pose.farArm ?? restingArm(1, 0);
+      const baseNearArm = pose.nearArm ?? restingArm(-1, 0);
+      const chestX = pose.torso.x + Math.cos(pose.torso.rot) * 8.2;
+      const chestY = pose.torso.y - 2.4 + Math.sin(pose.torso.rot) * 2.5;
+      const releaseLean = attackProgress > 0.46 && attackProgress < 0.76
+        ? Math.sin((attackProgress - 0.46) / 0.3 * Math.PI) * 0.055
+        : 0;
+      pose.torso = { ...pose.torso, rot: pose.torso.rot + releaseLean };
+      pose.head = { ...pose.head, x: pose.head.x + releaseLean * 8, y: pose.head.y + releaseLean * 1.2 };
+
+      function attackArm(baseArm, side) {
+        const shoulder = baseArm[0];
+        const prepHand = { x: chestX + 1.4 + side * 2.1, y: chestY + 5.2 + side * 0.6 };
+        const meetHand = { x: chestX + 3.3 + side * 0.18, y: chestY + 1.8 + side * 0.18 };
+        const releaseHand = { x: chestX + 10.3 + side * 0.45, y: chestY + 2.2 + side * 0.2 };
+        const recoveryHand = blendPoint(releaseHand, baseArm[2], 0.72);
+        const frames = [
+          [shoulder, { x: mix(shoulder.x, prepHand.x, 0.5), y: mix(shoulder.y, prepHand.y, 0.72) }, prepHand],
+          [shoulder, { x: chestX + 0.7 + side * 1.8, y: chestY + 4.6 }, meetHand],
+          [shoulder, { x: chestX + 4.7 + side * 1.2, y: chestY + 4.2 }, releaseHand],
+          [shoulder, { x: mix(baseArm[1].x, releaseHand.x, 0.38), y: mix(baseArm[1].y, releaseHand.y, 0.48) }, recoveryHand],
+          baseArm
+        ];
+        return interpolateTimeline(frames, attackProgress);
+      }
+
+      pose.farArm = attackArm(baseFarArm, -1);
+      pose.nearArm = attackArm(baseNearArm, 1);
+      const farHand = pose.farArm[2];
+      const nearHand = pose.nearArm[2];
+      attackChargePoint = {
+        x: mix(farHand.x, nearHand.x, 0.5),
+        y: mix(farHand.y, nearHand.y, 0.5),
+        strength: attackProgress < 0.78 ? Math.sin(clamp(attackProgress / 0.78, 0, 1) * Math.PI) : 0
+      };
+    }
+
     strokeLimb(pose.farLeg, 2.8);
     if (pose.farArm) strokeLimb(pose.farArm, 2.4);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
     strokeLimb(pose.nearLeg, 3.2);
+    if (attackChargePoint && attackChargePoint.strength > 0.04) {
+      ctx.save();
+      ctx.shadowColor = "rgba(174, 244, 255, 0.95)";
+      ctx.shadowBlur = 8 + attackChargePoint.strength * 10;
+      ctx.strokeStyle = `rgba(78, 162, 242, ${0.45 + attackChargePoint.strength * 0.4})`;
+      ctx.fillStyle = `rgba(174, 244, 255, ${0.28 + attackChargePoint.strength * 0.42})`;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.arc(attackChargePoint.x, attackChargePoint.y, 1.7 + attackChargePoint.strength * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (attackProgress > 0.45 && attackProgress < 0.68) {
+        ctx.beginPath();
+        ctx.arc(attackChargePoint.x + 2.8, attackChargePoint.y, 4.4 + attackChargePoint.strength * 2.3, -0.72, 0.72);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     if (pose.nearArm) strokeLimb(pose.nearArm, 2.7);
 
     ctx.fillStyle = fill;
@@ -842,12 +994,24 @@ class SystemPulse {
 
   draw() {
     ctx.save();
-    ctx.fillStyle = "#aef4ff";
+    const movingRight = this.vx > 0;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
     ctx.shadowColor = "rgba(100, 216, 255, 0.85)";
     ctx.shadowBlur = 14;
-    ctx.fillRect(this.x, this.y, this.w, this.h);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-    ctx.fillRect(this.x + 3, this.y + 2, this.w - 6, 2);
+    ctx.fillStyle = "rgba(174, 244, 255, 0.92)";
+    ctx.strokeStyle = "rgba(78, 162, 242, 0.85)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.roundRect(this.x, this.y, this.w, this.h, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.78)";
+    ctx.beginPath();
+    ctx.arc(movingRight ? this.x + 2 : this.x + this.w - 2, cy, 7, -0.75, 0.75);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.fillRect(cx - 4, cy - 1, 8, 2);
     ctx.restore();
   }
 }
