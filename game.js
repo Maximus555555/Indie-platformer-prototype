@@ -29,8 +29,8 @@ const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
 const WALKER_WIDTH = config.walkerWidth ?? 32;
 const WALKER_HEIGHT = config.walkerHeight ?? 28;
 const WALKER_VISUAL_SCALE = config.walkerVisualScale ?? 0.78;
-const DRONE_WIDTH = config.droneWidth ?? 38;
-const DRONE_HEIGHT = config.droneHeight ?? 34;
+const DRONE_WIDTH = config.droneWidth ?? 32;
+const DRONE_HEIGHT = config.droneHeight ?? 28;
 const DRONE_DETECTION_RANGE = config.droneDetectionRange ?? 440;
 const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
 const DRONE_WINDUP = config.droneWindup ?? 0.34;
@@ -2144,7 +2144,7 @@ class Drone extends Entity {
   }
 
   getCollisionRect() {
-    return { x: this.x + 3, y: this.y + 3, w: this.w - 6, h: this.h - 6 };
+    return { x: this.x + 4, y: this.y + 3, w: this.w - 8, h: this.h - 6 };
   }
 
   getDamageRect() {
@@ -2205,14 +2205,12 @@ class Drone extends Entity {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     const anchors = [
-      { x: 0, y: -16, size: 5.4, shape: "diamond" },
-      { x: 14, y: 0, size: 5, shape: "diamond" },
-      { x: 0, y: 16, size: 5.4, shape: "diamond" },
-      { x: -14, y: 0, size: 5, shape: "diamond" },
-      { x: -28, y: 0, size: 3.4, shape: "diamond" },
-      { x: 28, y: 0, size: 3.4, shape: "diamond" },
-      { x: -5, y: 23, size: 3, shape: "spark" },
-      { x: 5, y: 23, size: 3, shape: "spark" }
+      { x: 0, y: -13, size: 4.6, shape: "diamond" },
+      { x: 11, y: 0, size: 4.2, shape: "diamond" },
+      { x: 0, y: 13, size: 4.6, shape: "diamond" },
+      { x: -11, y: 0, size: 4.2, shape: "diamond" },
+      { x: -22, y: 0, size: 3, shape: "diamond" },
+      { x: 22, y: 0, size: 3, shape: "diamond" }
     ];
 
     return anchors.map((anchor, index) => {
@@ -2267,25 +2265,17 @@ class Drone extends Entity {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
-        ctx.fillStyle = fragment.shape === "spark" ? "rgba(255, 205, 73, 0.82)" : "rgba(255, 133, 24, 0.86)";
+        ctx.fillStyle = "rgba(255, 133, 24, 0.86)";
         ctx.strokeStyle = "rgba(78, 32, 10, 0.78)";
         ctx.lineWidth = 0.9;
-        if (fragment.shape === "spark") {
-          ctx.beginPath();
-          ctx.moveTo(-size, -size * 0.25);
-          ctx.lineTo(0, size * 0.7);
-          ctx.lineTo(size, -size * 0.25);
-          ctx.stroke();
-        } else {
-          ctx.beginPath();
-          ctx.moveTo(0, -size);
-          ctx.lineTo(size, 0);
-          ctx.lineTo(0, size);
-          ctx.lineTo(-size, 0);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-        }
+        ctx.beginPath();
+        ctx.moveTo(0, -size);
+        ctx.lineTo(size, 0);
+        ctx.lineTo(0, size);
+        ctx.lineTo(-size, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
         ctx.restore();
       }
     }
@@ -2302,82 +2292,47 @@ class Drone extends Entity {
     ctx.closePath();
   }
 
-  drawSpark(cx, cy, scale = 1) {
-    ctx.beginPath();
-    ctx.moveTo(cx - 8 * scale, cy - 2 * scale);
-    ctx.lineTo(cx - 3.5 * scale, cy + 6 * scale);
-    ctx.lineTo(cx, cy + 1.5 * scale);
-    ctx.lineTo(cx + 3.5 * scale, cy + 6 * scale);
-    ctx.lineTo(cx + 8 * scale, cy - 2 * scale);
-    ctx.stroke();
-  }
-
   drawDroneBody(xOffset = 0, yOffset = 0, charge = 0, deathFlash = false) {
-    const glowAlpha = deathFlash ? 0.9 : 0.32 + charge * 0.36;
+    const orbitAngle = this.hoverTimer * 1.45;
+    const coreFill = deathFlash ? "rgba(255, 245, 188, 0.98)" : "rgba(255, 136, 22, 0.96)";
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
 
-    ctx.strokeStyle = "rgba(48, 32, 20, 0.72)";
-    ctx.fillStyle = "rgba(255, 154, 24, 0.34)";
-    ctx.lineWidth = 3.2;
-    this.drawDiamondShape(xOffset - 12, yOffset, 17, 26);
+    ctx.strokeStyle = "rgba(42, 25, 14, 0.88)";
+    ctx.fillStyle = "rgba(255, 143, 22, 0.36)";
+    ctx.lineWidth = 2.4;
+    this.drawDiamondShape(xOffset - 8, yOffset, 13, 19);
     ctx.fill();
     ctx.stroke();
-    this.drawDiamondShape(xOffset + 12, yOffset, 17, 26);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(255, 133, 20, 0.96)";
-    ctx.strokeStyle = "rgba(27, 20, 16, 0.96)";
-    ctx.lineWidth = 3.1;
-    this.drawDiamondShape(xOffset, yOffset, 19, 24);
+    this.drawDiamondShape(xOffset + 8, yOffset, 13, 19);
     ctx.fill();
     ctx.stroke();
 
-    const coreGradient = ctx.createLinearGradient(xOffset - 14, yOffset - 20, xOffset + 12, yOffset + 18);
-    coreGradient.addColorStop(0, deathFlash ? "rgba(255,255,255,0.96)" : "rgba(255, 239, 97, 0.9)");
-    coreGradient.addColorStop(0.52, `rgba(255, 184, 35, ${0.82 + charge * 0.16})`);
-    coreGradient.addColorStop(1, "rgba(229, 77, 10, 0.9)");
-    ctx.fillStyle = coreGradient;
-    this.drawDiamondShape(xOffset, yOffset, 15, 20);
+    ctx.fillStyle = coreFill;
+    ctx.strokeStyle = "rgba(26, 19, 14, 0.96)";
+    ctx.lineWidth = 2.6;
+    this.drawDiamondShape(xOffset, yOffset, 16, 20);
     ctx.fill();
-
-    ctx.strokeStyle = `rgba(255, 232, 105, ${0.44 + charge * 0.35})`;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(xOffset, yOffset - 20);
-    ctx.lineTo(xOffset, yOffset + 20);
-    ctx.moveTo(xOffset - 15, yOffset);
-    ctx.lineTo(xOffset + 15, yOffset);
     ctx.stroke();
 
-    ctx.shadowColor = "rgba(255, 177, 41, 0.7)";
-    ctx.shadowBlur = 8 + charge * 7;
-    ctx.fillStyle = `rgba(255, 225, 76, ${glowAlpha})`;
-    this.drawDiamondShape(xOffset, yOffset, 5 + charge * 2, 6 + charge * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    for (const side of [-1, 1]) {
-      ctx.fillStyle = "rgba(255, 143, 22, 0.93)";
-      ctx.strokeStyle = "rgba(39, 22, 13, 0.94)";
-      ctx.lineWidth = 2.4;
-      this.drawDiamondShape(xOffset + side * 42, yOffset + 1, 10, 15);
+    if (charge > 0 || deathFlash) {
+      const glowAlpha = deathFlash ? 0.82 : 0.24 + charge * 0.32;
+      ctx.fillStyle = `rgba(255, 224, 82, ${glowAlpha})`;
+      this.drawDiamondShape(xOffset, yOffset, 4 + charge * 1.5, 5 + charge * 1.5);
       ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "rgba(255, 223, 76, 0.48)";
-      this.drawDiamondShape(xOffset + side * 42, yOffset + 1, 5, 8);
-      ctx.fill();
-
-      ctx.strokeStyle = "rgba(255, 181, 31, 0.8)";
-      ctx.lineWidth = 3;
-      this.drawSpark(xOffset + side * 42, yOffset + 24, 0.65);
     }
 
-    ctx.strokeStyle = "rgba(255, 181, 31, 0.86)";
-    ctx.lineWidth = 3.2;
-    this.drawSpark(xOffset, yOffset + 32, 0.78);
+    for (let index = 0; index < 2; index += 1) {
+      const angle = orbitAngle + index * Math.PI;
+      const sideX = xOffset + Math.cos(angle) * 26;
+      const sideY = yOffset + Math.sin(angle) * 5;
+      ctx.fillStyle = "rgba(255, 145, 24, 0.92)";
+      ctx.strokeStyle = "rgba(36, 22, 13, 0.92)";
+      ctx.lineWidth = 2;
+      this.drawDiamondShape(sideX, sideY, 7, 10);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   draw() {
