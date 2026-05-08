@@ -1247,8 +1247,10 @@ class Player extends Entity {
         // Keep the idle front arm fully visible, but bend it inward toward the
         // body so the standing-only pose no longer looks reversed.
         nearArm: idleFrontArm(breathe),
-        farLeg: restingLeg(-1),
-        nearLeg: restingLeg(1)
+        // Cross the idle stance depth: the back leg now rests slightly
+        // forward while the front leg sits slightly back.
+        farLeg: restingLeg(1),
+        nearLeg: restingLeg(-1)
       };
     }
 
