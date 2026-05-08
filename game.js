@@ -1518,12 +1518,25 @@ class Enemy extends Entity {
     this.updateGravityFlipVisual(dt);
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
-    if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
-      this.updateGroundedPatrol(dt);
+    if (this.isTouchingVerticalWorldEdge()) {
+      this.beginDeath();
       return;
     }
 
-    this.updateAirbornePhysics(dt);
+    if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
+      this.updateGroundedPatrol(dt);
+    } else {
+      this.updateAirbornePhysics(dt);
+    }
+
+    if (!this.isDying && this.isTouchingVerticalWorldEdge()) this.beginDeath();
+  }
+
+  isTouchingVerticalWorldEdge() {
+    const body = this.getCollisionRect();
+    // Match the player fall envelope so Walkers shatter instead of persisting
+    // forever once gravity or a platform gap pushes them off the playable area.
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120;
   }
 
   updateGroundedPatrol(dt) {
