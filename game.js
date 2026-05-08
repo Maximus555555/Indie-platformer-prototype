@@ -1908,24 +1908,71 @@ class Enemy extends Entity {
       ctx.stroke();
     }
 
-    function fillInnerGlow(points, insetScale, alpha) {
-      const center = points.reduce((sum, point) => ({
+    function getPolygonCenter(points) {
+      return points.reduce((sum, point) => ({
         x: sum.x + point.x / points.length,
         y: sum.y + point.y / points.length
       }), { x: 0, y: 0 });
-      const innerPoints = points.map((point) => ({
+    }
+
+    function insetPolygon(points, insetScale) {
+      const center = getPolygonCenter(points);
+      return points.map((point) => ({
         x: center.x + (point.x - center.x) * insetScale,
         y: center.y + (point.y - center.y) * insetScale
       }));
+    }
+
+    function fillInnerGlow(points, insetScale, alpha) {
+      const center = getPolygonCenter(points);
+      const innerPoints = insetPolygon(points, insetScale);
 
       ctx.save();
       tracePolygon(points);
       ctx.clip();
       ctx.shadowColor = `rgba(118, 226, 255, ${alpha})`;
-      ctx.shadowBlur = 8;
-      ctx.fillStyle = `rgba(136, 232, 255, ${alpha})`;
+      ctx.shadowBlur = 10;
+      const glowGradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, 16);
+      glowGradient.addColorStop(0, `rgba(174, 244, 255, ${Math.min(alpha + 0.18, 0.74)})`);
+      glowGradient.addColorStop(0.58, `rgba(90, 206, 252, ${alpha})`);
+      glowGradient.addColorStop(1, "rgba(33, 129, 220, 0)");
+      ctx.fillStyle = glowGradient;
       tracePolygon(innerPoints);
       ctx.fill();
+      ctx.restore();
+    }
+
+    function fillCenterBevel(points) {
+      const center = getPolygonCenter(points);
+      const innerPoints = insetPolygon(points, 0.58);
+
+      ctx.save();
+      tracePolygon(points);
+      ctx.clip();
+
+      const shellGradient = ctx.createLinearGradient(-7, -10, 7, 12);
+      shellGradient.addColorStop(0, "rgba(226, 255, 255, 0.58)");
+      shellGradient.addColorStop(0.44, "rgba(95, 218, 255, 0.22)");
+      shellGradient.addColorStop(1, "rgba(16, 92, 174, 0.4)");
+      ctx.fillStyle = shellGradient;
+      tracePolygon(points);
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(235, 255, 255, 0.34)";
+      tracePolygon([points[0], points[1], center]);
+      ctx.fill();
+      ctx.fillStyle = "rgba(2, 63, 138, 0.24)";
+      tracePolygon([points[2], points[3], center]);
+      ctx.fill();
+
+      const coreGlow = ctx.createRadialGradient(center.x, center.y - 1, 0, center.x, center.y, 8);
+      coreGlow.addColorStop(0, "rgba(216, 255, 255, 0.92)");
+      coreGlow.addColorStop(0.55, "rgba(112, 231, 255, 0.52)");
+      coreGlow.addColorStop(1, "rgba(36, 151, 234, 0)");
+      ctx.fillStyle = coreGlow;
+      tracePolygon(innerPoints);
+      ctx.fill();
+
       ctx.restore();
     }
 
@@ -1979,8 +2026,8 @@ class Enemy extends Entity {
 
     drawPolygon(leftPlate);
     drawPolygon(rightPlate);
-    fillInnerGlow(leftPlate, 0.54, 0.18);
-    fillInnerGlow(rightPlate, 0.54, 0.18);
+    fillInnerGlow(leftPlate, 0.54, 0.28);
+    fillInnerGlow(rightPlate, 0.54, 0.28);
     strokePolygon(leftPlate);
     strokePolygon(rightPlate);
 
@@ -1997,17 +2044,24 @@ class Enemy extends Entity {
     ctx.fillStyle = "rgba(67, 188, 234, 0.18)";
     ctx.lineWidth = 1.8;
     drawPolygon(core);
-    fillInnerGlow(core, 0.48, 0.24);
+    fillInnerGlow(core, 0.48, 0.34);
     strokePolygon(core);
 
     ctx.strokeStyle = "rgba(139, 237, 255, 0.7)";
     ctx.fillStyle = "rgba(118, 226, 255, 0.08)";
     ctx.lineWidth = 1;
     drawPolygon(innerCore);
+    fillInnerGlow(innerCore, 0.56, 0.38);
+    strokePolygon(innerCore);
+
+    ctx.shadowColor = "rgba(94, 219, 255, 0.62)";
+    ctx.shadowBlur = 12;
+    fillCenterBevel(centerGlow);
     ctx.fillStyle = "rgba(151, 244, 255, 0.3)";
-    ctx.strokeStyle = "rgba(160, 246, 255, 0.82)";
+    ctx.strokeStyle = "rgba(206, 253, 255, 0.92)";
     ctx.lineWidth = 0.8;
-    drawPolygon(centerGlow);
+    strokePolygon(centerGlow);
+    ctx.shadowBlur = 0;
 
     ctx.restore();
     drawGravityMarker(this);
