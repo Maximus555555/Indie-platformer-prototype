@@ -1146,7 +1146,9 @@ class Player extends Entity {
         head: { x: 0, y: 5.8 + breathe * 0.35, r: 5.4 },
         torso: { x: 0, y: 23 + breathe, rx: torsoRadiusX, ry: 12, rot: 0 },
         farArm: null,
-        nearArm: restingArm(-1, breathe),
+        // Keep the idle front arm just outside the torso silhouette so its
+        // standard-width outline remains complete instead of blending inward.
+        nearArm: restingArm(1, breathe),
         farLeg: restingLeg(-1),
         nearLeg: restingLeg(1)
       };
@@ -1436,12 +1438,14 @@ class Enemy extends Entity {
   }
 
   getHoverGap() {
-    return 4;
+    // The visual plates extend slightly past the collision body, so keep the
+    // anchored body high enough that the lowest bob frame still shows air.
+    return 14;
   }
 
   getGroundContactRange() {
-    // The Walker hovers a few pixels from its patrol surface, so direct support
-    // means only that tiny hover gap plus collision-rect inset is present.
+    // The Walker hovers above its patrol surface, so direct support means only
+    // that controlled hover gap plus collision-rect inset is present.
     return this.getHoverGap() + 4;
   }
 
@@ -1579,16 +1583,47 @@ class Enemy extends Entity {
     const cx = this.x + this.w / 2;
     const cy = this.y + this.h / 2;
     // Visual-only bob: the physics body remains anchored to the patrol surface
-    // so collision, System Pulse hits, and edge detection stay unchanged.
-    const hoverBob = Math.sin(this.idleTimer * 2.35) * 3 * (this.gravitySign > 0 ? -1 : 1);
+    // so collision, System Pulse hits, and edge detection stay unchanged. Keep
+    // the fluctuation nearly still so the Walker reads as a controlled hover.
+    const hoverBob = Math.sin(this.idleTimer * 2.35) * 1 * (this.gravitySign > 0 ? -1 : 1);
 
-    function drawPolygon(points) {
+    function tracePolygon(points) {
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
       ctx.closePath();
+    }
+
+    function drawPolygon(points) {
+      tracePolygon(points);
       ctx.fill();
       ctx.stroke();
+    }
+
+    function strokePolygon(points) {
+      tracePolygon(points);
+      ctx.stroke();
+    }
+
+    function fillInnerGlow(points, insetScale, alpha) {
+      const center = points.reduce((sum, point) => ({
+        x: sum.x + point.x / points.length,
+        y: sum.y + point.y / points.length
+      }), { x: 0, y: 0 });
+      const innerPoints = points.map((point) => ({
+        x: center.x + (point.x - center.x) * insetScale,
+        y: center.y + (point.y - center.y) * insetScale
+      }));
+
+      ctx.save();
+      tracePolygon(points);
+      ctx.clip();
+      ctx.shadowColor = `rgba(118, 226, 255, ${alpha})`;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = `rgba(136, 232, 255, ${alpha})`;
+      tracePolygon(innerPoints);
+      ctx.fill();
+      ctx.restore();
     }
 
     ctx.save();
@@ -1616,10 +1651,16 @@ class Enemy extends Entity {
 
     drawPolygon(leftPlate);
     drawPolygon(rightPlate);
+    fillInnerGlow(leftPlate, 0.54, 0.18);
+    fillInnerGlow(rightPlate, 0.54, 0.18);
+    strokePolygon(leftPlate);
+    strokePolygon(rightPlate);
 
     ctx.strokeStyle = "#2fb6ec";
     ctx.fillStyle = "rgba(67, 188, 234, 0.18)";
     drawPolygon(core);
+    fillInnerGlow(core, 0.48, 0.24);
+    strokePolygon(core);
 
     ctx.restore();
     drawGravityMarker(this);
