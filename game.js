@@ -26,6 +26,9 @@ const PLAYER_WIDTH = config.playerWidth ?? 24;
 const CROUCH_HEIGHT = config.crouchHeight ?? 34;
 const STAND_HEIGHT = config.standHeight ?? 50;
 const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
+const WALKER_WIDTH = config.walkerWidth ?? 32;
+const WALKER_HEIGHT = config.walkerHeight ?? 28;
+const WALKER_VISUAL_SCALE = config.walkerVisualScale ?? 0.78;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
@@ -1490,7 +1493,7 @@ class Player extends Entity {
 
 class Enemy extends Entity {
   constructor(x, y) {
-    super(x, y, 38, 34);
+    super(x, y, WALKER_WIDTH, WALKER_HEIGHT);
     this.hp = 2;
     this.speed = 86;
     this.direction = -1;
@@ -1584,7 +1587,7 @@ class Enemy extends Entity {
   getHoverGap() {
     // The visual plates extend slightly past the collision body, so keep the
     // anchored body high enough that the lowest bob frame still shows air.
-    return 14;
+    return 10;
   }
 
   getGroundContactRange() {
@@ -1903,79 +1906,6 @@ class Enemy extends Entity {
       ctx.stroke();
     }
 
-    function strokePolygon(points) {
-      tracePolygon(points);
-      ctx.stroke();
-    }
-
-    function getPolygonCenter(points) {
-      return points.reduce((sum, point) => ({
-        x: sum.x + point.x / points.length,
-        y: sum.y + point.y / points.length
-      }), { x: 0, y: 0 });
-    }
-
-    function insetPolygon(points, insetScale) {
-      const center = getPolygonCenter(points);
-      return points.map((point) => ({
-        x: center.x + (point.x - center.x) * insetScale,
-        y: center.y + (point.y - center.y) * insetScale
-      }));
-    }
-
-    function fillInnerGlow(points, insetScale, alpha) {
-      const center = getPolygonCenter(points);
-      const innerPoints = insetPolygon(points, insetScale);
-
-      ctx.save();
-      tracePolygon(points);
-      ctx.clip();
-      ctx.shadowColor = `rgba(118, 226, 255, ${alpha})`;
-      ctx.shadowBlur = 10;
-      const glowGradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, 16);
-      glowGradient.addColorStop(0, `rgba(174, 244, 255, ${Math.min(alpha + 0.18, 0.74)})`);
-      glowGradient.addColorStop(0.58, `rgba(90, 206, 252, ${alpha})`);
-      glowGradient.addColorStop(1, "rgba(33, 129, 220, 0)");
-      ctx.fillStyle = glowGradient;
-      tracePolygon(innerPoints);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    function fillCenterBevel(points) {
-      const center = getPolygonCenter(points);
-      const innerPoints = insetPolygon(points, 0.58);
-
-      ctx.save();
-      tracePolygon(points);
-      ctx.clip();
-
-      const shellGradient = ctx.createLinearGradient(-7, -10, 7, 12);
-      shellGradient.addColorStop(0, "rgba(226, 255, 255, 0.58)");
-      shellGradient.addColorStop(0.44, "rgba(95, 218, 255, 0.22)");
-      shellGradient.addColorStop(1, "rgba(16, 92, 174, 0.4)");
-      ctx.fillStyle = shellGradient;
-      tracePolygon(points);
-      ctx.fill();
-
-      ctx.fillStyle = "rgba(235, 255, 255, 0.34)";
-      tracePolygon([points[0], points[1], center]);
-      ctx.fill();
-      ctx.fillStyle = "rgba(2, 63, 138, 0.24)";
-      tracePolygon([points[2], points[3], center]);
-      ctx.fill();
-
-      const coreGlow = ctx.createRadialGradient(center.x, center.y - 1, 0, center.x, center.y, 8);
-      coreGlow.addColorStop(0, "rgba(216, 255, 255, 0.92)");
-      coreGlow.addColorStop(0.55, "rgba(112, 231, 255, 0.52)");
-      coreGlow.addColorStop(1, "rgba(36, 151, 234, 0)");
-      ctx.fillStyle = coreGlow;
-      tracePolygon(innerPoints);
-      ctx.fill();
-
-      ctx.restore();
-    }
-
     function strokeLine(from, to) {
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
@@ -1985,7 +1915,7 @@ class Enemy extends Entity {
 
     ctx.save();
     ctx.translate(cx, cy + hoverBob);
-    ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+    ctx.scale(WALKER_VISUAL_SCALE, (this.gravitySign > 0 ? 1 : -1) * WALKER_VISUAL_SCALE);
     const gravityFlipVisual = this.getGravityFlipVisualTransform();
     if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
       ctx.rotate(gravityFlipVisual.rotation);
@@ -1995,7 +1925,7 @@ class Enemy extends Entity {
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
     ctx.strokeStyle = "#49c7f4";
-    ctx.fillStyle = "rgba(77, 199, 244, 0.12)";
+    ctx.fillStyle = "rgba(77, 199, 244, 0.16)";
     ctx.lineWidth = 1.8;
 
     const leftPlate = [
@@ -2026,10 +1956,6 @@ class Enemy extends Entity {
 
     drawPolygon(leftPlate);
     drawPolygon(rightPlate);
-    fillInnerGlow(leftPlate, 0.54, 0.28);
-    fillInnerGlow(rightPlate, 0.54, 0.28);
-    strokePolygon(leftPlate);
-    strokePolygon(rightPlate);
 
     ctx.strokeStyle = "rgba(119, 230, 255, 0.58)";
     ctx.lineWidth = 1.05;
@@ -2044,24 +1970,16 @@ class Enemy extends Entity {
     ctx.fillStyle = "rgba(67, 188, 234, 0.18)";
     ctx.lineWidth = 1.8;
     drawPolygon(core);
-    fillInnerGlow(core, 0.48, 0.34);
-    strokePolygon(core);
 
     ctx.strokeStyle = "rgba(139, 237, 255, 0.7)";
     ctx.fillStyle = "rgba(118, 226, 255, 0.08)";
     ctx.lineWidth = 1;
     drawPolygon(innerCore);
-    fillInnerGlow(innerCore, 0.56, 0.38);
-    strokePolygon(innerCore);
 
-    ctx.shadowColor = "rgba(94, 219, 255, 0.62)";
-    ctx.shadowBlur = 12;
-    fillCenterBevel(centerGlow);
-    ctx.fillStyle = "rgba(151, 244, 255, 0.3)";
+    ctx.fillStyle = "rgba(151, 244, 255, 0.32)";
     ctx.strokeStyle = "rgba(206, 253, 255, 0.92)";
     ctx.lineWidth = 0.8;
-    strokePolygon(centerGlow);
-    ctx.shadowBlur = 0;
+    drawPolygon(centerGlow);
 
     ctx.restore();
     drawGravityMarker(this);
