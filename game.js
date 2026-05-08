@@ -42,7 +42,9 @@ const DRONE_ORBIT_RADIUS_Y = 6.5;
 const DRONE_ORBIT_SPEED = 2.1;
 const DRONE_OUTER_DIAMOND_RX = 7;
 const DRONE_OUTER_DIAMOND_RY = 10;
-const DRONE_FRONT_FIRE_TOLERANCE = Math.PI / 12;
+const DRONE_FRONT_FIRE_TOLERANCE = Math.PI / 24;
+const DRONE_HIDDEN_RESPAWN_X = 6;
+const DRONE_HIDDEN_EXIT_X = 13.5;
 const DRONE_RESPAWN_DELAY = 0.65;
 const DRONE_AIM_TURN_SPEED = 14;
 const DRONE_OUTER_DIAMOND_FILL = "rgb(255, 153, 25)";
@@ -2038,12 +2040,16 @@ class Drone extends Entity {
     this.deathFragments = [];
     this.droneState = "hovering";
     this.orbitSlots = Array.from({ length: DRONE_ORBIT_SLOT_COUNT }, (_, index) => ({
+      // The slot angle is always derived from hoverTimer + phaseOffset. Fired
+      // diamonds only make the slot unavailable; the timing never resets.
       state: "orbiting",
       aimAngle: 0,
       respawnTimer: 0,
-      phaseOffset: index * Math.PI
+      phaseOffset: index * Math.PI,
+      hiddenUntilExit: false
     }));
     this.armedOrbitSlot = null;
+    this.armedOrbitShot = null;
     this.waitingForFrontShot = false;
   }
 
@@ -2054,6 +2060,7 @@ class Drone extends Entity {
     }
     if (this.hp <= 0) return;
 
+    const previousHoverTimer = this.hoverTimer;
     this.hoverTimer += dt;
     this.updateGravityFlipVisual(dt);
     this.updateHitReaction(dt);
@@ -2066,7 +2073,7 @@ class Drone extends Entity {
     if (this.droneState === "hovering") {
       this.vx = 0;
       this.vy = 0;
-      this.updateShooting(dt);
+      this.updateShooting(dt, previousHoverTimer);
     } else {
       this.windupTimer = 0;
       this.fireCooldown = Math.max(this.fireCooldown, 0.35);
@@ -2089,7 +2096,7 @@ class Drone extends Entity {
     this.hitJoltY = -this.gravitySign * 2.2 * progress;
   }
 
-  updateShooting(dt) {
+  updateShooting(dt, previousHoverTimer = this.hoverTimer) {
     this.updateOrbitSlotRespawns(dt);
     this.updateOrbitSlotAiming(dt);
 
@@ -2100,11 +2107,12 @@ class Drone extends Entity {
     if (!playerInRange) {
       this.waitingForFrontShot = false;
       this.armedOrbitSlot = null;
+      this.armedOrbitShot = null;
     }
 
     if (this.windupTimer > 0) {
       this.windupTimer = Math.max(0, this.windupTimer - dt);
-      return;
+      if (this.windupTimer > 0) return;
     }
 
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
@@ -2118,18 +2126,20 @@ class Drone extends Entity {
 
     // Once wound up, wait for an actual orbiting diamond to rotate into the
     // player-facing front position instead of spawning a separate projectile.
-    this.armedOrbitSlot = this.findFrontOrbitSlot();
-    if (this.fireAtPlayer()) {
+    this.armedOrbitShot = this.findFrontOrbitSlot(previousHoverTimer);
+    this.armedOrbitSlot = this.armedOrbitShot?.slotIndex ?? null;
+    if (this.fireAtPlayer(previousHoverTimer)) {
       this.fireCooldown = DRONE_FIRE_COOLDOWN;
       this.waitingForFrontShot = false;
       this.armedOrbitSlot = null;
+      this.armedOrbitShot = null;
     }
   }
 
-  getOrbitAngle(slotIndex) {
+  getOrbitAngle(slotIndex, hoverTimer = this.hoverTimer) {
     const slot = this.orbitSlots[slotIndex];
     const phaseOffset = slot?.phaseOffset ?? slotIndex * Math.PI;
-    return this.hoverTimer * DRONE_ORBIT_SPEED + phaseOffset;
+    return hoverTimer * DRONE_ORBIT_SPEED + phaseOffset;
   }
 
   getOrbitParamAngleForDirection(directionAngle) {
@@ -2139,23 +2149,15 @@ class Drone extends Entity {
     );
   }
 
-  alignOrbitSlotToRear(slotIndex) {
-    const slot = this.orbitSlots[slotIndex];
-    if (!slot) return;
-
-    const rearDirection = this.getSlotAimAngle() + Math.PI;
-    // Regenerated diamonds are invisible while missing, then re-enter from the
-    // player-opposed rear side so they do not pop into the front layer.
-    const rearOrbitAngle = this.getOrbitParamAngleForDirection(rearDirection);
-    slot.phaseOffset = rearOrbitAngle - this.hoverTimer * DRONE_ORBIT_SPEED;
+  getOrbitSlotPosition(slotIndex, hoverTimer = this.hoverTimer, directionAngle = this.getSlotAimAngle()) {
+    const angle = this.getOrbitAngle(slotIndex, hoverTimer);
+    return this.getOrbitPositionFromAngle(angle, directionAngle);
   }
 
-  getOrbitSlotPosition(slotIndex) {
-    const angle = this.getOrbitAngle(slotIndex);
+  getOrbitPositionFromAngle(angle, frontAngle = this.getSlotAimAngle()) {
     const x = Math.cos(angle) * DRONE_ORBIT_RADIUS_X;
     const y = Math.sin(angle) * DRONE_ORBIT_RADIUS_Y;
     const positionAngle = Math.atan2(y, x);
-    const frontAngle = this.getSlotAimAngle();
     // Front is the orbit direction facing the player, so right/left/angled
     // targets all use the same angular comparison in Drone-local space.
     const frontDelta = Math.abs(shortestAngleDelta(positionAngle, frontAngle));
@@ -2166,9 +2168,25 @@ class Drone extends Entity {
       y,
       positionAngle,
       isFront: frontDelta <= Math.PI / 2,
-      isFrontFirePosition: frontDelta <= DRONE_FRONT_FIRE_TOLERANCE
+      isFrontFirePosition: frontDelta <= DRONE_FRONT_FIRE_TOLERANCE,
+      // Empty slots regenerate only while they pass through the center-covered
+      // rear half of the orbit, then stay suppressed until the body can reveal
+      // them naturally from behind.
+      isHiddenRearRespawnZone: frontDelta > Math.PI / 2 && Math.abs(x) <= DRONE_HIDDEN_RESPAWN_X,
+      isCenterOccluded: frontDelta > Math.PI / 2 && Math.abs(x) <= DRONE_HIDDEN_EXIT_X
     };
   }
+
+  getForwardOrbitDelta(fromAngle, toAngle) {
+    return (toAngle - fromAngle + Math.PI * 2) % (Math.PI * 2);
+  }
+
+  didOrbitAngleCross(prevAngle, currentAngle, targetAngle) {
+    const frameTravel = this.getForwardOrbitDelta(prevAngle, currentAngle);
+    if (frameTravel <= 0 || frameTravel > Math.PI) return false;
+    return this.getForwardOrbitDelta(prevAngle, targetAngle) <= frameTravel + 0.0001;
+  }
+
 
   getSlotAimAngle() {
     const droneCenter = centerOf(this);
@@ -2196,53 +2214,75 @@ class Drone extends Entity {
     }
   }
 
-  findFrontOrbitSlot() {
-    let frontSlotIndex = null;
-    let smallestFrontDelta = Infinity;
+  findFrontOrbitSlot(previousHoverTimer = this.hoverTimer) {
+    let bestShot = null;
+    const frontAngle = this.getSlotAimAngle();
+    const frontOrbitAngle = this.getOrbitParamAngleForDirection(frontAngle);
 
     for (let index = 0; index < this.orbitSlots.length; index += 1) {
       if (this.orbitSlots[index].state !== "orbiting") continue;
 
-      const position = this.getOrbitSlotPosition(index);
-      if (!position.isFrontFirePosition) continue;
+      const position = this.getOrbitSlotPosition(index, this.hoverTimer, frontAngle);
+      const prevAngle = this.getOrbitAngle(index, previousHoverTimer);
+      const currentAngle = this.getOrbitAngle(index, this.hoverTimer);
+      const crossedFront = this.didOrbitAngleCross(prevAngle, currentAngle, frontOrbitAngle);
+      const justPassedFront = this.getForwardOrbitDelta(frontOrbitAngle, currentAngle) <= DRONE_FRONT_FIRE_TOLERANCE;
+      if (!crossedFront && !justPassedFront) continue;
 
-      const frontDelta = Math.abs(shortestAngleDelta(position.positionAngle, this.getSlotAimAngle()));
-      if (frontDelta < smallestFrontDelta) {
-        frontSlotIndex = index;
-        smallestFrontDelta = frontDelta;
+      const frontDelta = Math.abs(shortestAngleDelta(position.positionAngle, frontAngle));
+      const fireAngle = crossedFront ? frontOrbitAngle : position.angle;
+      const firePosition = crossedFront
+        ? this.getOrbitPositionFromAngle(fireAngle, frontAngle)
+        : position;
+
+      if (!bestShot || frontDelta < bestShot.frontDelta) {
+        bestShot = { slotIndex: index, fireAngle, firePosition, frontDelta };
       }
     }
 
-    return frontSlotIndex;
+    return bestShot;
   }
 
   updateOrbitSlotRespawns(dt) {
+    const frontAngle = this.getSlotAimAngle();
+
     for (let index = 0; index < this.orbitSlots.length; index += 1) {
       const slot = this.orbitSlots[index];
-      if (slot.state !== "fired" && slot.state !== "waitingRespawn") continue;
+      if (slot.state !== "fired") {
+        if (slot.hiddenUntilExit && !this.getOrbitSlotPosition(index, this.hoverTimer, frontAngle).isCenterOccluded) {
+          slot.hiddenUntilExit = false;
+        }
+        continue;
+      }
 
+      // The slot keeps orbiting while empty. It may only regain its visible
+      // diamond after the quick regen delay and while the tracked slot is in
+      // the rear hidden zone, so no phase reset or visible pop is needed.
       slot.respawnTimer = Math.max(0, slot.respawnTimer - dt);
       if (slot.respawnTimer > 0) continue;
 
-      this.alignOrbitSlotToRear(index);
+      const position = this.getOrbitSlotPosition(index, this.hoverTimer, frontAngle);
+      if (!position.isHiddenRearRespawnZone) continue;
+
       slot.state = "orbiting";
-      slot.aimAngle = this.getSlotAimAngle();
+      slot.aimAngle = frontAngle;
+      slot.hiddenUntilExit = true;
     }
   }
 
   markOrbitSlotReadyToRespawn(slotIndex) {
     const slot = this.orbitSlots[slotIndex];
     if (!slot || slot.state !== "fired") return;
-    slot.state = "waitingRespawn";
+    slot.respawnTimer = Math.min(slot.respawnTimer, DRONE_RESPAWN_DELAY);
   }
 
-  fireAtPlayer() {
+  fireAtPlayer(previousHoverTimer = this.hoverTimer) {
     if (player.isDying) return false;
-    const slotIndex = this.armedOrbitSlot ?? this.findFrontOrbitSlot();
-    if (slotIndex === null || this.orbitSlots[slotIndex].state !== "orbiting") return false;
+    const shot = this.armedOrbitShot ?? this.findFrontOrbitSlot(previousHoverTimer);
+    if (!shot || this.orbitSlots[shot.slotIndex].state !== "orbiting") return false;
 
     const droneCenter = centerOf(this);
-    const slotPosition = this.getOrbitSlotPosition(slotIndex);
+    const slotPosition = shot.firePosition;
     if (!slotPosition.isFrontFirePosition) return false;
 
     const from = {
@@ -2251,17 +2291,20 @@ class Drone extends Entity {
     };
     const aimAngle = this.getSlotAimAngle();
     const worldAimAngle = this.gravitySign > 0 ? aimAngle : -aimAngle;
+    const slot = this.orbitSlots[shot.slotIndex];
 
-    this.orbitSlots[slotIndex].aimAngle = aimAngle;
-    this.orbitSlots[slotIndex].state = "fired";
-    this.orbitSlots[slotIndex].respawnTimer = DRONE_RESPAWN_DELAY;
+    slot.aimAngle = aimAngle;
+    slot.state = "fired";
+    slot.respawnTimer = DRONE_RESPAWN_DELAY;
+    slot.hiddenUntilExit = false;
     droneProjectiles.push(new DroneProjectile(
       from.x,
       from.y,
       Math.cos(worldAimAngle),
       Math.sin(worldAimAngle),
       this,
-      slotIndex
+      shot.slotIndex,
+      worldAimAngle
     ));
     return true;
   }
@@ -2482,11 +2525,13 @@ class Drone extends Entity {
 
   drawOrbitLayer(drawFront, charge) {
     for (let index = 0; index < this.orbitSlots.length; index += 1) {
-      if (this.orbitSlots[index].state !== "orbiting") continue;
+      const slot = this.orbitSlots[index];
+      if (slot.state !== "orbiting") continue;
 
       const position = this.getOrbitSlotPosition(index);
+      if (slot.hiddenUntilExit && position.isCenterOccluded) continue;
       if (position.isFront !== drawFront) continue;
-      this.drawOrbitDiamond(position, charge, this.armedOrbitSlot === index, this.orbitSlots[index].aimAngle);
+      this.drawOrbitDiamond(position, charge, this.armedOrbitSlot === index, slot.aimAngle);
     }
   }
 
@@ -2560,7 +2605,7 @@ class Drone extends Entity {
 }
 
 class DroneProjectile {
-  constructor(x, y, dx, dy, owner = null, slotIndex = null) {
+  constructor(x, y, dx, dy, owner = null, slotIndex = null, orientationAngle = Math.atan2(dy, dx)) {
     this.x = x;
     this.y = y;
     this.vx = dx * DRONE_PROJECTILE_SPEED;
@@ -2569,6 +2614,7 @@ class DroneProjectile {
     this.owner = owner;
     this.slotIndex = slotIndex;
     this.age = 0;
+    this.orientationAngle = orientationAngle;
     this.active = true;
   }
 
@@ -2615,10 +2661,9 @@ class DroneProjectile {
 
   draw() {
     if (!this.active) return;
-    const angle = Math.atan2(this.vy, this.vx);
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.rotate(angle + Math.PI / 2);
+    ctx.rotate(this.orientationAngle + Math.PI / 2);
     ctx.shadowColor = "rgba(255, 168, 35, 0.75)";
     ctx.shadowBlur = 8;
     ctx.fillStyle = DRONE_OUTER_DIAMOND_FILL;
