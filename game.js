@@ -36,6 +36,12 @@ const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
 const DRONE_WINDUP = config.droneWindup ?? 0.34;
 const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 230;
 const DRONE_PROJECTILE_SIZE = config.droneProjectileSize ?? 10;
+const DRONE_ORBIT_SLOT_COUNT = 2;
+const DRONE_ORBIT_RADIUS_X = 34;
+const DRONE_ORBIT_RADIUS_Y = 6.5;
+const DRONE_ORBIT_SPEED = 1.45;
+const DRONE_OUTER_DIAMOND_RX = 7;
+const DRONE_OUTER_DIAMOND_RY = 10;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
@@ -2022,6 +2028,8 @@ class Drone extends Entity {
     this.deathTimer = 0;
     this.deathFragments = [];
     this.droneState = "hovering";
+    this.orbitSlots = Array.from({ length: DRONE_ORBIT_SLOT_COUNT }, () => ({ state: "orbiting" }));
+    this.armedOrbitSlot = null;
   }
 
   update(dt) {
@@ -2067,6 +2075,8 @@ class Drone extends Entity {
   }
 
   updateShooting(dt) {
+    this.updateOrbitSlotRespawns();
+
     const playerCenter = centerOf(player);
     const droneCenter = centerOf(this);
     const playerInRange = distance(playerCenter, droneCenter) <= DRONE_DETECTION_RANGE && !player.isDying;
@@ -2081,15 +2091,73 @@ class Drone extends Entity {
     }
 
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (playerInRange && this.fireCooldown <= 0) this.windupTimer = DRONE_WINDUP;
+    if (playerInRange && this.fireCooldown <= 0) {
+      this.armedOrbitSlot = this.findAvailableOrbitSlot();
+      if (this.armedOrbitSlot !== null) this.windupTimer = DRONE_WINDUP;
+    }
+  }
+
+  getOrbitAngle(slotIndex) {
+    return this.hoverTimer * DRONE_ORBIT_SPEED + slotIndex * Math.PI;
+  }
+
+  getOrbitSlotPosition(slotIndex) {
+    const angle = this.getOrbitAngle(slotIndex);
+    return {
+      angle,
+      x: Math.cos(angle) * DRONE_ORBIT_RADIUS_X,
+      y: Math.sin(angle) * DRONE_ORBIT_RADIUS_Y,
+      isFront: Math.sin(angle) >= 0
+    };
+  }
+
+  findAvailableOrbitSlot() {
+    for (let index = 0; index < this.orbitSlots.length; index += 1) {
+      if (this.orbitSlots[index].state === "orbiting") return index;
+    }
+    return null;
+  }
+
+  updateOrbitSlotRespawns() {
+    for (let index = 0; index < this.orbitSlots.length; index += 1) {
+      const slot = this.orbitSlots[index];
+      if (slot.state !== "waitingRespawn") continue;
+
+      const position = this.getOrbitSlotPosition(index);
+      if (!position.isFront) slot.state = "orbiting";
+    }
+  }
+
+  markOrbitSlotReadyToRespawn(slotIndex) {
+    const slot = this.orbitSlots[slotIndex];
+    if (!slot || slot.state !== "fired") return;
+    slot.state = "waitingRespawn";
   }
 
   fireAtPlayer() {
     if (player.isDying) return;
-    const from = centerOf(this);
+    const slotIndex = this.armedOrbitSlot ?? this.findAvailableOrbitSlot();
+    this.armedOrbitSlot = null;
+    if (slotIndex === null || this.orbitSlots[slotIndex].state !== "orbiting") return;
+
+    const droneCenter = centerOf(this);
+    const slotPosition = this.getOrbitSlotPosition(slotIndex);
+    const from = {
+      x: droneCenter.x + slotPosition.x,
+      y: droneCenter.y + slotPosition.y * this.gravitySign
+    };
     const to = centerOf(player);
     const angle = Math.atan2(to.y - from.y, to.x - from.x);
-    droneProjectiles.push(new DroneProjectile(from.x, from.y, Math.cos(angle), Math.sin(angle)));
+
+    this.orbitSlots[slotIndex].state = "fired";
+    droneProjectiles.push(new DroneProjectile(
+      from.x,
+      from.y,
+      Math.cos(angle),
+      Math.sin(angle),
+      this,
+      slotIndex
+    ));
   }
 
   isTouchingVerticalWorldEdge() {
@@ -2189,6 +2257,7 @@ class Drone extends Entity {
     this.vx = 0;
     this.vy = 0;
     this.windupTimer = 0;
+    this.armedOrbitSlot = null;
     this.deathFragments = this.createDeathFragments();
     activeGravityEntities.delete(this);
   }
@@ -2292,47 +2361,77 @@ class Drone extends Entity {
     ctx.closePath();
   }
 
+  drawOrbitDiamond(position, charge, isArmed) {
+    const depthScale = position.isFront ? 1.05 : 0.9;
+    const alpha = position.isFront ? 0.94 : 0.58;
+    const glow = isArmed ? 0.18 + charge * 0.24 : 0;
+    const fillAlpha = Math.min(1, 0.9 + glow);
+
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.translate(position.x, position.y);
+    ctx.scale(depthScale, depthScale);
+    ctx.fillStyle = `rgba(255, ${145 + Math.round(charge * 32)}, 24, ${fillAlpha})`;
+    ctx.strokeStyle = "rgba(36, 22, 13, 0.92)";
+    ctx.lineWidth = 2;
+    this.drawDiamondShape(0, 0, DRONE_OUTER_DIAMOND_RX, DRONE_OUTER_DIAMOND_RY);
+    ctx.fill();
+    ctx.stroke();
+
+    if (isArmed) {
+      ctx.fillStyle = `rgba(255, 228, 92, ${0.28 + charge * 0.32})`;
+      this.drawDiamondShape(0, 0, 2.5 + charge, 3.6 + charge);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawOrbitLayer(drawFront, charge) {
+    for (let index = 0; index < this.orbitSlots.length; index += 1) {
+      if (this.orbitSlots[index].state !== "orbiting") continue;
+
+      const position = this.getOrbitSlotPosition(index);
+      if (position.isFront !== drawFront) continue;
+      this.drawOrbitDiamond(position, charge, this.armedOrbitSlot === index);
+    }
+  }
+
   drawDroneBody(xOffset = 0, yOffset = 0, charge = 0, deathFlash = false) {
-    const orbitAngle = this.hoverTimer * 1.45;
     const coreFill = deathFlash ? "rgba(255, 245, 188, 0.98)" : "rgba(255, 136, 22, 0.96)";
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
 
+    ctx.save();
+    ctx.translate(xOffset, yOffset);
+
+    this.drawOrbitLayer(false, charge);
+
     ctx.strokeStyle = "rgba(42, 25, 14, 0.88)";
-    ctx.fillStyle = "rgba(255, 143, 22, 0.36)";
-    ctx.lineWidth = 2.4;
-    this.drawDiamondShape(xOffset - 8, yOffset, 13, 19);
+    ctx.fillStyle = "rgba(255, 143, 22, 0.34)";
+    ctx.lineWidth = 2.2;
+    this.drawDiamondShape(-6.5, 0, 10.5, 19);
     ctx.fill();
     ctx.stroke();
-    this.drawDiamondShape(xOffset + 8, yOffset, 13, 19);
+    this.drawDiamondShape(6.5, 0, 10.5, 19);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = coreFill;
     ctx.strokeStyle = "rgba(26, 19, 14, 0.96)";
     ctx.lineWidth = 2.6;
-    this.drawDiamondShape(xOffset, yOffset, 16, 20);
+    this.drawDiamondShape(0, 0, 12.5, 20);
     ctx.fill();
     ctx.stroke();
 
     if (charge > 0 || deathFlash) {
       const glowAlpha = deathFlash ? 0.82 : 0.24 + charge * 0.32;
       ctx.fillStyle = `rgba(255, 224, 82, ${glowAlpha})`;
-      this.drawDiamondShape(xOffset, yOffset, 4 + charge * 1.5, 5 + charge * 1.5);
+      this.drawDiamondShape(0, 0, 4 + charge * 1.5, 5 + charge * 1.5);
       ctx.fill();
     }
 
-    for (let index = 0; index < 2; index += 1) {
-      const angle = orbitAngle + index * Math.PI;
-      const sideX = xOffset + Math.cos(angle) * 26;
-      const sideY = yOffset + Math.sin(angle) * 5;
-      ctx.fillStyle = "rgba(255, 145, 24, 0.92)";
-      ctx.strokeStyle = "rgba(36, 22, 13, 0.92)";
-      ctx.lineWidth = 2;
-      this.drawDiamondShape(sideX, sideY, 7, 10);
-      ctx.fill();
-      ctx.stroke();
-    }
+    this.drawOrbitLayer(true, charge);
+    ctx.restore();
   }
 
   draw() {
@@ -2367,14 +2466,24 @@ class Drone extends Entity {
 }
 
 class DroneProjectile {
-  constructor(x, y, dx, dy) {
+  constructor(x, y, dx, dy, owner = null, slotIndex = null) {
     this.x = x;
     this.y = y;
     this.vx = dx * DRONE_PROJECTILE_SPEED;
     this.vy = dy * DRONE_PROJECTILE_SPEED;
     this.size = DRONE_PROJECTILE_SIZE;
+    this.owner = owner;
+    this.slotIndex = slotIndex;
     this.age = 0;
     this.active = true;
+  }
+
+  deactivate() {
+    if (!this.active) return;
+    this.active = false;
+    if (this.owner && this.slotIndex !== null && !this.owner.isDying && this.owner.hp > 0) {
+      this.owner.markOrbitSlotReadyToRespawn(this.slotIndex);
+    }
   }
 
   getRect() {
@@ -2395,18 +2504,18 @@ class DroneProjectile {
     const rect = this.getRect();
     if (this.x < -40 || this.x > ROOM_WIDTH + 40 || this.y < -80 || this.y > bottomFallBoundary + 80
       || this.x < cameraX - 28 || this.x > cameraX + canvas.width + 28) {
-      this.active = false;
+      this.deactivate();
       return;
     }
 
     if (platforms.some((platform) => rectsOverlap(rect, platform))) {
-      this.active = false;
+      this.deactivate();
       return;
     }
 
     if (!player.isDying && rectsOverlap(rect, player)) {
       player.takeDamage(1, rect);
-      this.active = false;
+      this.deactivate();
     }
   }
 
@@ -2422,19 +2531,19 @@ class DroneProjectile {
     ctx.strokeStyle = "rgba(46, 26, 14, 0.94)";
     ctx.lineWidth = 1.4;
     ctx.beginPath();
-    ctx.moveTo(0, -this.size * 0.68);
-    ctx.lineTo(this.size * 0.5, 0);
-    ctx.lineTo(0, this.size * 0.68);
-    ctx.lineTo(-this.size * 0.5, 0);
+    ctx.moveTo(0, -DRONE_OUTER_DIAMOND_RY);
+    ctx.lineTo(DRONE_OUTER_DIAMOND_RX, 0);
+    ctx.lineTo(0, DRONE_OUTER_DIAMOND_RY);
+    ctx.lineTo(-DRONE_OUTER_DIAMOND_RX, 0);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "rgba(255, 230, 97, 0.7)";
     ctx.beginPath();
-    ctx.moveTo(0, -this.size * 0.3);
-    ctx.lineTo(this.size * 0.22, 0);
-    ctx.lineTo(0, this.size * 0.3);
-    ctx.lineTo(-this.size * 0.22, 0);
+    ctx.moveTo(0, -DRONE_OUTER_DIAMOND_RY * 0.42);
+    ctx.lineTo(DRONE_OUTER_DIAMOND_RX * 0.42, 0);
+    ctx.lineTo(0, DRONE_OUTER_DIAMOND_RY * 0.42);
+    ctx.lineTo(-DRONE_OUTER_DIAMOND_RX * 0.42, 0);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -2840,8 +2949,8 @@ function draw() {
   drawRoom();
   drawGravityPreview();
   pulses.forEach((pulse) => pulse.draw());
-  droneProjectiles.forEach((projectile) => projectile.draw());
   enemies.forEach((enemy) => enemy.draw());
+  droneProjectiles.forEach((projectile) => projectile.draw());
   player.draw();
   ctx.restore();
   drawHud();
