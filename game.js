@@ -29,6 +29,13 @@ const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
 const WALKER_WIDTH = config.walkerWidth ?? 32;
 const WALKER_HEIGHT = config.walkerHeight ?? 28;
 const WALKER_VISUAL_SCALE = config.walkerVisualScale ?? 0.78;
+const DRONE_WIDTH = config.droneWidth ?? 38;
+const DRONE_HEIGHT = config.droneHeight ?? 34;
+const DRONE_DETECTION_RANGE = config.droneDetectionRange ?? 440;
+const DRONE_FIRE_COOLDOWN = config.droneFireCooldown ?? 1.85;
+const DRONE_WINDUP = config.droneWindup ?? 0.34;
+const DRONE_PROJECTILE_SPEED = config.droneProjectileSpeed ?? 230;
+const DRONE_PROJECTILE_SIZE = config.droneProjectileSize ?? 10;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
@@ -70,6 +77,7 @@ const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
 const keys = new Set();
 const pressedThisFrame = new Set();
 const pulses = [];
+const droneProjectiles = [];
 let lastTime = performance.now();
 let gravityCastId = 0;
 let gravityFieldActive = false;
@@ -1999,6 +2007,485 @@ class Enemy extends Entity {
   }
 }
 
+
+class Drone extends Entity {
+  constructor(x, y) {
+    super(x, y, DRONE_WIDTH, DRONE_HEIGHT);
+    this.hp = 2;
+    this.hoverTimer = Math.random() * Math.PI * 2;
+    this.fireCooldown = 0.75;
+    this.windupTimer = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
+    this.droneState = "hovering";
+  }
+
+  update(dt) {
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    this.hoverTimer += dt;
+    this.updateGravityFlipVisual(dt);
+    this.updateHitReaction(dt);
+
+    if (this.isTouchingVerticalWorldEdge()) {
+      this.beginDeath();
+      return;
+    }
+
+    if (this.droneState === "hovering") {
+      this.vx = 0;
+      this.vy = 0;
+      this.updateShooting(dt);
+    } else {
+      this.windupTimer = 0;
+      this.fireCooldown = Math.max(this.fireCooldown, 0.35);
+      this.applyGravity(dt);
+      this.moveAndCollide(dt);
+      if (this.onSurface) this.beginHoveringOnSurface();
+    }
+  }
+
+  updateHitReaction(dt) {
+    if (this.hitTimer <= 0) {
+      this.hitJoltX = 0;
+      this.hitJoltY = 0;
+      return;
+    }
+
+    this.hitTimer = Math.max(0, this.hitTimer - dt);
+    const progress = this.hitTimer / 0.12;
+    this.hitJoltX *= Math.max(0, 1 - dt * 16);
+    this.hitJoltY = -this.gravitySign * 2.2 * progress;
+  }
+
+  updateShooting(dt) {
+    const playerCenter = centerOf(player);
+    const droneCenter = centerOf(this);
+    const playerInRange = distance(playerCenter, droneCenter) <= DRONE_DETECTION_RANGE && !player.isDying;
+
+    if (this.windupTimer > 0) {
+      this.windupTimer = Math.max(0, this.windupTimer - dt);
+      if (this.windupTimer <= 0) {
+        this.fireAtPlayer();
+        this.fireCooldown = DRONE_FIRE_COOLDOWN;
+      }
+      return;
+    }
+
+    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    if (playerInRange && this.fireCooldown <= 0) this.windupTimer = DRONE_WINDUP;
+  }
+
+  fireAtPlayer() {
+    if (player.isDying) return;
+    const from = centerOf(this);
+    const to = centerOf(player);
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    droneProjectiles.push(new DroneProjectile(from.x, from.y, Math.cos(angle), Math.sin(angle)));
+  }
+
+  isTouchingVerticalWorldEdge() {
+    const body = this.getCollisionRect();
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120;
+  }
+
+  beginHoveringOnSurface() {
+    const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (platform) this.attachToHoverSurface(platform);
+    this.droneState = "hovering";
+    this.onSurface = true;
+    this.vx = 0;
+    this.vy = 0;
+  }
+
+  attachToHoverSurface(platform) {
+    const hoverGap = this.getHoverGap();
+    this.y = this.gravitySign > 0
+      ? platform.y - this.h - hoverGap
+      : platform.y + platform.h + hoverGap;
+  }
+
+  getHoverGap() {
+    return 14;
+  }
+
+  getSurfacePlatformAt(probeX = this.x + this.w / 2, maxDistance = this.getHoverGap() + 8) {
+    const body = this.getCollisionRect();
+    const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
+    let bestPlatform = null;
+    let bestDistance = Infinity;
+
+    for (const platform of platforms) {
+      if (probeX < platform.x || probeX > platform.x + platform.w) continue;
+
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const distanceToSurface = (surfaceY - surfaceEdgeY) * this.gravitySign;
+      if (distanceToSurface < -0.5 || distanceToSurface > maxDistance) continue;
+
+      if (distanceToSurface < bestDistance) {
+        bestPlatform = platform;
+        bestDistance = distanceToSurface;
+      }
+    }
+
+    return bestPlatform;
+  }
+
+  getDirectSurfacePlatformAt(probeX = this.x + this.w / 2) {
+    return this.getSurfacePlatformAt(probeX, this.getHoverGap() + 8);
+  }
+
+  getCollisionRect() {
+    return { x: this.x + 3, y: this.y + 3, w: this.w - 6, h: this.h - 6 };
+  }
+
+  getDamageRect() {
+    return this.getCollisionRect();
+  }
+
+  hit(amount) {
+    if (this.isDying || this.hp <= 0) return;
+    this.hp -= amount;
+    this.hitTimer = 0.12;
+    const playerFacing = player.facing || 1;
+    this.hitJoltX = playerFacing * 2.5;
+    this.hitJoltY = -this.gravitySign * 2;
+    if (this.droneState !== "hovering") this.vy -= this.gravitySign * 45;
+    if (this.hp <= 0) this.beginDeath();
+  }
+
+  flipGravity(castId) {
+    if (this.lastGravityCastId === castId) return;
+    const previousGravitySign = this.gravitySign;
+    super.flipGravity(castId);
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+    this.droneState = "falling";
+    this.windupTimer = 0;
+    this.fireCooldown = Math.max(this.fireCooldown, 0.45);
+  }
+
+  resetGravity() {
+    const previousGravitySign = this.gravitySign;
+    super.resetGravity();
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+    this.droneState = "falling";
+    this.windupTimer = 0;
+    this.fireCooldown = Math.max(this.fireCooldown, 0.45);
+  }
+
+  beginDeath() {
+    if (this.isDying) return;
+    this.hp = 0;
+    this.isDying = true;
+    this.deathTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.windupTimer = 0;
+    this.deathFragments = this.createDeathFragments();
+    activeGravityEntities.delete(this);
+  }
+
+  updateDeath(dt) {
+    this.deathTimer += dt;
+    if (this.deathTimer >= ENEMY_DEATH_TOTAL_DURATION) {
+      this.isDying = false;
+      this.deathFragments = [];
+    }
+  }
+
+  createDeathFragments() {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const anchors = [
+      { x: 0, y: -16, size: 5.4, shape: "diamond" },
+      { x: 14, y: 0, size: 5, shape: "diamond" },
+      { x: 0, y: 16, size: 5.4, shape: "diamond" },
+      { x: -14, y: 0, size: 5, shape: "diamond" },
+      { x: -28, y: 0, size: 3.4, shape: "diamond" },
+      { x: 28, y: 0, size: 3.4, shape: "diamond" },
+      { x: -5, y: 23, size: 3, shape: "spark" },
+      { x: 5, y: 23, size: 3, shape: "spark" }
+    ];
+
+    return anchors.map((anchor, index) => {
+      const worldX = cx + anchor.x;
+      const worldY = cy + anchor.y * this.gravitySign;
+      const angle = Math.atan2(worldY - cy, worldX - cx) + (index % 3 - 1) * 0.22;
+      const speed = 22 + (index % 4) * 7;
+      return {
+        x: worldX,
+        y: worldY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: anchor.size,
+        rot: Math.PI / 4 + index * 0.38,
+        spin: (index % 2 === 0 ? 1 : -1) * (1.8 + index * 0.05),
+        shape: anchor.shape
+      };
+    });
+  }
+
+  drawDeath() {
+    const flashEnd = ENEMY_DEATH_FLASH_DURATION;
+    const destabilizeEnd = flashEnd + ENEMY_DEATH_DESTABILIZE_DURATION;
+    const fragmentEnd = destabilizeEnd + ENEMY_DEATH_FRAGMENT_DURATION;
+    const progress = clamp(this.deathTimer / ENEMY_DEATH_TOTAL_DURATION, 0, 1);
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(255, 177, 47, 0.52)";
+    ctx.shadowBlur = 10;
+
+    if (this.deathTimer < destabilizeEnd) {
+      const flashAlpha = this.deathTimer < flashEnd ? 0.95 : 0.68;
+      const jitter = this.deathTimer < flashEnd ? 0 : Math.sin(this.deathTimer * 92) * 0.8;
+      ctx.translate(cx + jitter, cy);
+      ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+      ctx.globalAlpha = flashAlpha;
+      this.drawDroneBody(0, 0, 1, true);
+    } else {
+      const fragmentProgress = clamp((this.deathTimer - destabilizeEnd) / (fragmentEnd - destabilizeEnd), 0, 1);
+      const fadeProgress = this.deathTimer > fragmentEnd
+        ? clamp((this.deathTimer - fragmentEnd) / ENEMY_DEATH_FADE_DURATION, 0, 1)
+        : 0;
+      ctx.globalAlpha = 1 - fadeProgress;
+
+      for (const fragment of this.deathFragments) {
+        const travel = Math.sin(fragmentProgress * Math.PI * 0.5);
+        const x = fragment.x + fragment.vx * travel * 0.32;
+        const y = fragment.y + fragment.vy * travel * 0.32;
+        const size = fragment.size * (1 - fadeProgress * 0.34);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
+        ctx.fillStyle = fragment.shape === "spark" ? "rgba(255, 205, 73, 0.82)" : "rgba(255, 133, 24, 0.86)";
+        ctx.strokeStyle = "rgba(78, 32, 10, 0.78)";
+        ctx.lineWidth = 0.9;
+        if (fragment.shape === "spark") {
+          ctx.beginPath();
+          ctx.moveTo(-size, -size * 0.25);
+          ctx.lineTo(0, size * 0.7);
+          ctx.lineTo(size, -size * 0.25);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(0, -size);
+          ctx.lineTo(size, 0);
+          ctx.lineTo(0, size);
+          ctx.lineTo(-size, 0);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  drawDiamondShape(cx, cy, rx, ry) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - ry);
+    ctx.lineTo(cx + rx, cy);
+    ctx.lineTo(cx, cy + ry);
+    ctx.lineTo(cx - rx, cy);
+    ctx.closePath();
+  }
+
+  drawSpark(cx, cy, scale = 1) {
+    ctx.beginPath();
+    ctx.moveTo(cx - 8 * scale, cy - 2 * scale);
+    ctx.lineTo(cx - 3.5 * scale, cy + 6 * scale);
+    ctx.lineTo(cx, cy + 1.5 * scale);
+    ctx.lineTo(cx + 3.5 * scale, cy + 6 * scale);
+    ctx.lineTo(cx + 8 * scale, cy - 2 * scale);
+    ctx.stroke();
+  }
+
+  drawDroneBody(xOffset = 0, yOffset = 0, charge = 0, deathFlash = false) {
+    const glowAlpha = deathFlash ? 0.9 : 0.32 + charge * 0.36;
+    ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+
+    ctx.strokeStyle = "rgba(48, 32, 20, 0.72)";
+    ctx.fillStyle = "rgba(255, 154, 24, 0.34)";
+    ctx.lineWidth = 3.2;
+    this.drawDiamondShape(xOffset - 12, yOffset, 17, 26);
+    ctx.fill();
+    ctx.stroke();
+    this.drawDiamondShape(xOffset + 12, yOffset, 17, 26);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 133, 20, 0.96)";
+    ctx.strokeStyle = "rgba(27, 20, 16, 0.96)";
+    ctx.lineWidth = 3.1;
+    this.drawDiamondShape(xOffset, yOffset, 19, 24);
+    ctx.fill();
+    ctx.stroke();
+
+    const coreGradient = ctx.createLinearGradient(xOffset - 14, yOffset - 20, xOffset + 12, yOffset + 18);
+    coreGradient.addColorStop(0, deathFlash ? "rgba(255,255,255,0.96)" : "rgba(255, 239, 97, 0.9)");
+    coreGradient.addColorStop(0.52, `rgba(255, 184, 35, ${0.82 + charge * 0.16})`);
+    coreGradient.addColorStop(1, "rgba(229, 77, 10, 0.9)");
+    ctx.fillStyle = coreGradient;
+    this.drawDiamondShape(xOffset, yOffset, 15, 20);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(255, 232, 105, ${0.44 + charge * 0.35})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(xOffset, yOffset - 20);
+    ctx.lineTo(xOffset, yOffset + 20);
+    ctx.moveTo(xOffset - 15, yOffset);
+    ctx.lineTo(xOffset + 15, yOffset);
+    ctx.stroke();
+
+    ctx.shadowColor = "rgba(255, 177, 41, 0.7)";
+    ctx.shadowBlur = 8 + charge * 7;
+    ctx.fillStyle = `rgba(255, 225, 76, ${glowAlpha})`;
+    this.drawDiamondShape(xOffset, yOffset, 5 + charge * 2, 6 + charge * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = "rgba(255, 143, 22, 0.93)";
+      ctx.strokeStyle = "rgba(39, 22, 13, 0.94)";
+      ctx.lineWidth = 2.4;
+      this.drawDiamondShape(xOffset + side * 42, yOffset + 1, 10, 15);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(255, 223, 76, 0.48)";
+      this.drawDiamondShape(xOffset + side * 42, yOffset + 1, 5, 8);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255, 181, 31, 0.8)";
+      ctx.lineWidth = 3;
+      this.drawSpark(xOffset + side * 42, yOffset + 24, 0.65);
+    }
+
+    ctx.strokeStyle = "rgba(255, 181, 31, 0.86)";
+    ctx.lineWidth = 3.2;
+    this.drawSpark(xOffset, yOffset + 32, 0.78);
+  }
+
+  draw() {
+    if (this.isDying) {
+      this.drawDeath();
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const hoverBob = this.droneState === "hovering"
+      ? Math.sin(this.hoverTimer * 2.4) * 2 * (this.gravitySign > 0 ? -1 : 1)
+      : 0;
+    const charge = this.windupTimer > 0 ? 1 - this.windupTimer / DRONE_WINDUP : 0;
+    const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.12 : 0;
+
+    ctx.save();
+    ctx.translate(cx + this.hitJoltX, cy + hoverBob + this.hitJoltY);
+    ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+    const gravityFlipVisual = this.getGravityFlipVisualTransform();
+    if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
+      ctx.rotate(gravityFlipVisual.rotation);
+      ctx.scale(gravityFlipVisual.scaleX, 1);
+    }
+    ctx.shadowColor = "rgba(255, 168, 35, 0.35)";
+    ctx.shadowBlur = 4 + charge * 7 + hitFlash * 5;
+    this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
+    ctx.restore();
+    drawGravityMarker(this);
+  }
+}
+
+class DroneProjectile {
+  constructor(x, y, dx, dy) {
+    this.x = x;
+    this.y = y;
+    this.vx = dx * DRONE_PROJECTILE_SPEED;
+    this.vy = dy * DRONE_PROJECTILE_SPEED;
+    this.size = DRONE_PROJECTILE_SIZE;
+    this.age = 0;
+    this.active = true;
+  }
+
+  getRect() {
+    return {
+      x: this.x - this.size / 2,
+      y: this.y - this.size / 2,
+      w: this.size,
+      h: this.size
+    };
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    const rect = this.getRect();
+    if (this.x < -40 || this.x > ROOM_WIDTH + 40 || this.y < -80 || this.y > bottomFallBoundary + 80
+      || this.x < cameraX - 28 || this.x > cameraX + canvas.width + 28) {
+      this.active = false;
+      return;
+    }
+
+    if (platforms.some((platform) => rectsOverlap(rect, platform))) {
+      this.active = false;
+      return;
+    }
+
+    if (!player.isDying && rectsOverlap(rect, player)) {
+      player.takeDamage(1, rect);
+      this.active = false;
+    }
+  }
+
+  draw() {
+    if (!this.active) return;
+    const angle = Math.atan2(this.vy, this.vx);
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(angle + Math.PI / 4);
+    ctx.shadowColor = "rgba(255, 168, 35, 0.75)";
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = "rgba(255, 153, 25, 0.95)";
+    ctx.strokeStyle = "rgba(46, 26, 14, 0.94)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(0, -this.size * 0.68);
+    ctx.lineTo(this.size * 0.5, 0);
+    ctx.lineTo(0, this.size * 0.68);
+    ctx.lineTo(-this.size * 0.5, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 230, 97, 0.7)";
+    ctx.beginPath();
+    ctx.moveTo(0, -this.size * 0.3);
+    ctx.lineTo(this.size * 0.22, 0);
+    ctx.lineTo(0, this.size * 0.3);
+    ctx.lineTo(-this.size * 0.22, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 class SystemPulse {
   constructor(startX, y, endX, direction) {
     this.startX = startX;
@@ -2194,7 +2681,7 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
 }
 
 const player = new Player();
-const enemies = [new Enemy(660, 435)];
+const enemies = [new Enemy(660, 435), new Drone(1085, 210)];
 
 function drawGravityMarker(entity) {
   if (entity.gravitySign === 1) return;
@@ -2245,9 +2732,13 @@ function update(dt) {
   enemies.forEach((enemy) => enemy.update(dt));
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
+  droneProjectiles.forEach((projectile) => projectile.update(dt));
 
   for (let i = pulses.length - 1; i >= 0; i -= 1) {
     if (!pulses[i].active) pulses.splice(i, 1);
+  }
+  for (let i = droneProjectiles.length - 1; i >= 0; i -= 1) {
+    if (!droneProjectiles[i].active) droneProjectiles.splice(i, 1);
   }
 
   for (const enemy of enemies) {
@@ -2394,6 +2885,7 @@ function draw() {
   drawRoom();
   drawGravityPreview();
   pulses.forEach((pulse) => pulse.draw());
+  droneProjectiles.forEach((projectile) => projectile.draw());
   enemies.forEach((enemy) => enemy.draw());
   player.draw();
   ctx.restore();
