@@ -1402,14 +1402,6 @@ class Player extends Entity {
     ctx.stroke();
 
     ctx.shadowBlur = 0;
-    ctx.save();
-    ctx.translate(pose.torso.x + 1.2, pose.torso.y + 1.7);
-    ctx.rotate(pose.torso.rot);
-    ctx.fillStyle = inner;
-    ctx.beginPath();
-    ctx.roundRect(-pose.torso.rx * 0.24, -pose.torso.ry * 0.42, pose.torso.rx * 0.48, pose.torso.ry * 0.84, pose.torso.rx * 0.22);
-    ctx.fill();
-    ctx.restore();
 
     ctx.restore();
     drawGravityMarker(this);
