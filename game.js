@@ -38,6 +38,13 @@ const ATTACK_RELEASE_TIME = 0.075;
 const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
+const DAMAGE_RECOIL_DURATION = 0.12;
+const DAMAGE_RECOIL_SPEED = 175;
+const DEATH_FLASH_DURATION = 0.1;
+const DEATH_DESTABILIZE_DURATION = 0.16;
+const DEATH_FRAGMENT_DURATION = 0.28;
+const DEATH_FADE_DURATION = 0.2;
+const DEATH_TOTAL_DURATION = DEATH_FLASH_DURATION + DEATH_DESTABILIZE_DURATION + DEATH_FRAGMENT_DURATION + DEATH_FADE_DURATION;
 const FALL_LIMIT = config.fallLimit ?? 640;
 const ROOM_WIDTH = config.roomWidth ?? 1280;
 
@@ -162,9 +169,19 @@ class Player extends Entity {
     this.attackReleaseTimer = 0;
     this.attackPulseQueued = false;
     this.attackFacing = 1;
+    this.recoilTimer = 0;
+    this.recoilDirection = 0;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
   }
 
   update(dt) {
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
+
     const left = keys.has("a") || keys.has("arrowleft");
     const right = keys.has("d") || keys.has("arrowright");
     const crouchHeld = keys.has("s") || keys.has("arrowdown");
@@ -178,6 +195,12 @@ class Player extends Entity {
     // Held crouch has priority over sprinting and uses a slower, careful speed.
     this.isRunning = runHeld && input !== 0 && !this.isCrouching && !wantsGroundCrouch;
     this.vx = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
+    if (this.recoilTimer > 0) {
+      const recoilProgress = clamp(this.recoilTimer / DAMAGE_RECOIL_DURATION, 0, 1);
+      this.vx += this.recoilDirection * DAMAGE_RECOIL_SPEED * recoilProgress;
+      this.recoilTimer -= dt;
+      if (this.recoilTimer <= 0) this.recoilDirection = 0;
+    }
     if (input !== 0) this.facing = input;
     this.animTime += dt;
     if (input !== 0 && !runHeld && this.onSurface && !this.isCrouching) this.walkTime += dt;
@@ -275,7 +298,7 @@ class Player extends Entity {
   }
 
   firePulse() {
-    if (this.pulseTimer > 0) return;
+    if (this.isDying || this.pulseTimer > 0) return;
     this.pulseTimer = PULSE_COOLDOWN;
     this.attackTimer = ATTACK_ANIM_DURATION;
     this.attackReleaseTimer = ATTACK_RELEASE_TIME;
@@ -309,26 +332,105 @@ class Player extends Entity {
     };
   }
 
-  takeDamage(amount) {
-    if (this.damageTimer > 0) return false;
+  takeDamage(amount, source = null) {
+    if (this.isDying || this.damageTimer > 0) return false;
     this.hp -= amount;
 
     if (this.hp <= 0) {
-      this.fullRespawn();
+      this.beginDeath(source);
       return true;
     }
 
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
+    this.startRecoil(source);
     return true;
+  }
+
+  startRecoil(source = null) {
+    let direction = 0;
+    if (source) {
+      const playerCenter = this.x + this.w / 2;
+      const sourceCenter = source.x + source.w / 2;
+      direction = playerCenter < sourceCenter ? -1 : 1;
+    }
+    if (direction === 0) direction = -this.facing || -1;
+
+    this.recoilDirection = direction;
+    this.recoilTimer = DAMAGE_RECOIL_DURATION;
+    // Damage flinch briefly interrupts the firing pose without changing attack rules.
+    this.attackTimer = 0;
+    this.attackPulseQueued = false;
+    this.attackReleaseTimer = 0;
+  }
+
+  beginDeath(source = null) {
+    if (this.isDying) return;
+    this.hp = 0;
+    this.isDying = true;
+    this.deathTimer = 0;
+    this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
+    this.startRecoil(source);
+    this.recoilTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.attackTimer = 0;
+    this.attackPulseQueued = false;
+    this.attackReleaseTimer = 0;
+    this.deathFragments = this.createDeathFragments();
+  }
+
+  updateDeath(dt) {
+    this.deathTimer += dt;
+    if (this.deathTimer >= DEATH_TOTAL_DURATION) this.fullRespawn();
+  }
+
+  createDeathFragments() {
+    const baseX = this.x + this.w / 2;
+    const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
+    const scale = PLAYER_VISUAL_SCALE;
+    const originY = this.gravitySign > 0 ? surfaceY - 50 * scale : surfaceY + 50 * scale;
+    const verticalFlip = this.gravitySign > 0 ? 1 : -1;
+    const anchors = [
+      { x: 0, y: 6, size: 4.8 },
+      { x: 0, y: 21, size: 5.4 },
+      { x: -5, y: 27, size: 3.6 },
+      { x: 6, y: 27, size: 3.6 },
+      { x: -4, y: 39, size: 3.8 },
+      { x: 5, y: 40, size: 3.8 },
+      { x: -8, y: 48, size: 2.9 },
+      { x: 8, y: 48, size: 2.9 },
+      { x: -9, y: 18, size: 2.7 },
+      { x: 10, y: 18, size: 2.7 },
+      { x: -12, y: 31, size: 2.4 },
+      { x: 13, y: 31, size: 2.4 }
+    ];
+
+    return anchors.map((anchor, index) => {
+      const worldX = baseX + anchor.x * scale;
+      const worldY = originY + anchor.y * verticalFlip * scale;
+      const angle = Math.atan2(worldY - (this.y + this.h / 2), worldX - baseX) + (index % 3 - 1) * 0.28;
+      const speed = 28 + (index % 4) * 9;
+      return {
+        x: worldX,
+        y: worldY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: anchor.size,
+        rot: (index * 0.71) % Math.PI,
+        spin: (index % 2 === 0 ? 1 : -1) * (1.8 + index * 0.08),
+        shape: index % 3
+      };
+    });
   }
 
   fallOutOfWorld() {
     // Death-zone recovery must always move the player back into the room, even
     // if contact-damage invulnerability is active while they are falling.
+    if (this.isDying) return;
     if (this.damageTimer <= 0) this.hp -= 1;
 
     if (this.hp <= 0) {
-      this.fullRespawn();
+      this.beginDeath();
       return;
     }
 
@@ -362,10 +464,132 @@ class Player extends Entity {
     this.airTime = 0;
     this.attackTimer = 0;
     this.attackPulseQueued = false;
+    this.attackReleaseTimer = 0;
+    this.recoilTimer = 0;
+    this.recoilDirection = 0;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
     this.onSurface = false;
   }
 
+
+  drawDeath() {
+    const flashEnd = DEATH_FLASH_DURATION;
+    const destabilizeEnd = flashEnd + DEATH_DESTABILIZE_DURATION;
+    const fragmentEnd = destabilizeEnd + DEATH_FRAGMENT_DURATION;
+    const progress = clamp(this.deathTimer / DEATH_TOTAL_DURATION, 0, 1);
+    const baseX = this.x + this.w / 2;
+    const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
+    const verticalFlip = this.gravitySign > 0 ? 1 : -1;
+    const scale = PLAYER_VISUAL_SCALE;
+    const originY = this.gravitySign > 0 ? surfaceY - 50 * scale : surfaceY + 50 * scale;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(174, 244, 255, 0.78)";
+    ctx.shadowBlur = 14;
+
+    if (this.deathTimer < destabilizeEnd) {
+      const flashAlpha = this.deathTimer < flashEnd ? 1 : 0.86;
+      const jitter = this.deathTimer < flashEnd
+        ? 0
+        : Math.sin(this.deathTimer * 95) * 1.7;
+      const glitch = this.deathTimer < flashEnd
+        ? 0
+        : Math.sin(this.deathTimer * 131) * 0.75;
+
+      ctx.translate(baseX + jitter, originY + glitch * verticalFlip);
+      ctx.scale(this.facing * scale, verticalFlip * scale);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.globalAlpha = flashAlpha;
+      ctx.strokeStyle = "rgba(175, 237, 255, 0.95)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
+      ctx.lineWidth = 1.45;
+
+      ctx.beginPath();
+      ctx.ellipse(0, 23, 5.8 + Math.abs(glitch) * 0.35, 12.4, jitter * 0.012, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(glitch * 0.35, 6, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.lineWidth = 2.6;
+      const limbs = [
+        [{ x: -2, y: 30 }, { x: -5.5 + glitch, y: 40 }, { x: -7, y: 50 }],
+        [{ x: 2, y: 30 }, { x: 5.5 - glitch, y: 40 }, { x: 7, y: 50 }],
+        [{ x: -4, y: 19 }, { x: -9 - glitch, y: 25 }, { x: -12, y: 32 }],
+        [{ x: 4, y: 19 }, { x: 9 + glitch, y: 25 }, { x: 12, y: 32 }]
+      ];
+      for (const limb of limbs) {
+        ctx.beginPath();
+        ctx.moveTo(limb[0].x, limb[0].y);
+        ctx.lineTo(limb[1].x, limb[1].y);
+        ctx.lineTo(limb[2].x, limb[2].y);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 0.38 + progress * 0.24;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 0.9;
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(-13, 15 + i * 11 + glitch);
+        ctx.lineTo(13, 15 + i * 11 - glitch);
+        ctx.stroke();
+      }
+    } else {
+      const fragmentProgress = clamp((this.deathTimer - destabilizeEnd) / (fragmentEnd - destabilizeEnd), 0, 1);
+      const fadeProgress = this.deathTimer > fragmentEnd
+        ? clamp((this.deathTimer - fragmentEnd) / DEATH_FADE_DURATION, 0, 1)
+        : 0;
+      const alpha = 1 - fadeProgress;
+      ctx.globalAlpha = alpha;
+
+      for (const fragment of this.deathFragments) {
+        const travel = Math.sin(fragmentProgress * Math.PI * 0.5);
+        const x = fragment.x + fragment.vx * travel * 0.42;
+        const y = fragment.y + fragment.vy * travel * 0.42;
+        const size = fragment.size * (1 - fadeProgress * 0.28);
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
+        ctx.fillStyle = fragment.shape === 0 ? "rgba(255, 255, 255, 0.96)" : "rgba(174, 244, 255, 0.9)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.84)";
+        ctx.lineWidth = 0.8;
+        if (fragment.shape === 0) {
+          ctx.fillRect(-size * 0.5, -size * 0.35, size, size * 0.7);
+          ctx.strokeRect(-size * 0.5, -size * 0.35, size, size * 0.7);
+        } else if (fragment.shape === 1) {
+          ctx.beginPath();
+          ctx.moveTo(0, -size * 0.72);
+          ctx.lineTo(size * 0.72, size * 0.58);
+          ctx.lineTo(-size * 0.62, size * 0.42);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(-size, 0);
+          ctx.lineTo(size, 0);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+  }
+
   draw() {
+    if (this.isDying) {
+      this.drawDeath();
+      return;
+    }
+
     const outline = "#4ea2f2";
     const fill = "rgba(255, 255, 255, 0.96)";
     const inner = "rgba(226, 245, 255, 0.82)";
@@ -860,6 +1084,47 @@ class Player extends Entity {
       pose.nearArm = balanceLandingArm(pose.nearArm, 1);
     }
 
+    if (this.recoilTimer > 0) {
+      const flinch = clamp(this.recoilTimer / DAMAGE_RECOIL_DURATION, 0, 1);
+      const localRecoil = this.recoilDirection * facing;
+      const lean = localRecoil * 0.13 * flinch;
+      const brace = grounded ? flinch : flinch * 0.65;
+
+      pose.torso = {
+        ...pose.torso,
+        x: pose.torso.x + localRecoil * 1.8 * flinch,
+        rot: pose.torso.rot + lean
+      };
+      pose.head = {
+        ...pose.head,
+        x: pose.head.x + localRecoil * 2.5 * flinch,
+        y: pose.head.y + 0.7 * flinch
+      };
+
+      function flinchArm(arm, side) {
+        if (!arm) return arm;
+        return arm.map((point, index) => {
+          if (index === 0) return { x: point.x + localRecoil * 1.1 * flinch, y: point.y + 0.7 * flinch };
+          if (index === 1) return { x: point.x - localRecoil * 0.7 * flinch, y: point.y + 0.5 * flinch };
+          return { x: point.x - localRecoil * (1.8 + side * 0.2) * flinch, y: point.y - 0.6 * flinch };
+        });
+      }
+
+      function flinchLeg(leg, side) {
+        return leg.map((point, index) => {
+          if (index === 0) return { x: point.x + localRecoil * 0.55 * brace, y: point.y + 0.4 * brace };
+          if (index === 1) return { x: point.x - localRecoil * side * 0.9 * brace, y: point.y + 1.0 * brace };
+          if (grounded) return { x: point.x, y: modelFeetY };
+          return { x: point.x - localRecoil * 0.7 * brace, y: point.y + 0.5 * brace };
+        });
+      }
+
+      pose.farArm = flinchArm(pose.farArm, -1);
+      pose.nearArm = flinchArm(pose.nearArm, 1);
+      pose.farLeg = flinchLeg(pose.farLeg, -1);
+      pose.nearLeg = flinchLeg(pose.nearLeg, 1);
+    }
+
     let attackChargePoint = null;
     let attackProgress = 0;
     if (this.attackTimer > 0) {
@@ -1196,8 +1461,8 @@ function toggleGravityField() {
 }
 
 function update(dt) {
-  if (pressedThisFrame.has(" ")) player.firePulse();
-  if (pressedThisFrame.has("e")) toggleGravityField();
+  if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
+  if (!player.isDying && pressedThisFrame.has("e")) toggleGravityField();
 
   player.update(dt);
   enemies.forEach((enemy) => enemy.update(dt));
@@ -1208,10 +1473,10 @@ function update(dt) {
   }
 
   for (const enemy of enemies) {
-    if (enemy.hp > 0 && rectsOverlap(player, enemy)) player.takeDamage(1);
+    if (enemy.hp > 0 && !player.isDying && rectsOverlap(player, enemy)) player.takeDamage(1, enemy);
   }
 
-  if (player.y > FALL_LIMIT || player.y + player.h < -120) player.fallOutOfWorld();
+  if (!player.isDying && (player.y > FALL_LIMIT || player.y + player.h < -120)) player.fallOutOfWorld();
 
   cameraX = clamp(player.x + player.w / 2 - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
   pressedThisFrame.clear();
