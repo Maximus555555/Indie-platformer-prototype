@@ -34,7 +34,7 @@ If a workspace/browser preview still shows an older player or old spikes, hard r
 - Abstract white/light-blue humanoid player silhouette that faces left or right.
 - Crouching visually compresses the player and lowers the collision height.
 - Player health starts at 3 HP.
-- Falling off the room causes 1 damage and respawns at a safe anchor.
+- Falling below the bottom platform area causes 1 damage and respawns at the safe edge of the last solid platform the player touched.
 - Reaching 0 HP resets the player to the checkpoint with 3 HP.
 - **System Pulse** fires a glowing geometric pulse horizontally, deals 1 damage, and has a cooldown.
 - Simple enemy placeholder with 2 HP, contact damage, patrol movement, and collision boxes.

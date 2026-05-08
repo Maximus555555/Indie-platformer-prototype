@@ -53,7 +53,9 @@ const ENEMY_DEATH_DESTABILIZE_DURATION = 0.08;
 const ENEMY_DEATH_FRAGMENT_DURATION = 0.16;
 const ENEMY_DEATH_FADE_DURATION = 0.1;
 const ENEMY_DEATH_TOTAL_DURATION = ENEMY_DEATH_FLASH_DURATION + ENEMY_DEATH_DESTABILIZE_DURATION + ENEMY_DEATH_FRAGMENT_DURATION + ENEMY_DEATH_FADE_DURATION;
-const FALL_LIMIT = config.fallLimit ?? 640;
+const FALL_BOUNDARY_OFFSET = config.fallBoundaryOffset ?? 48;
+const FALL_RESPAWN_GRACE = config.fallRespawnGrace ?? 0.22;
+const EDGE_RESPAWN_INSET = config.edgeRespawnInset ?? 18;
 const ROOM_WIDTH = config.roomWidth ?? 1280;
 const HUD_MARGIN = 20;
 const HP_DIAMOND_SIZE = 14;
@@ -81,6 +83,9 @@ const platforms = [
   { x: 805, y: 385, w: 155, h: 20 },
   { x: 1010, y: 260, w: 155, h: 20 }
 ];
+
+const bottomFallBoundary = config.fallBoundary
+  ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -234,6 +239,10 @@ class Player extends Entity {
     this.isDying = false;
     this.deathTimer = 0;
     this.deathFragments = [];
+    this.lastGroundedPlatform = findPlatformAtSurfacePoint(this.x + this.w / 2, this.y + this.h, 1) ?? platforms[1];
+    this.lastGroundedPosition = { x: this.x, y: this.y };
+    this.lastGroundedEdge = getClosestPlatformEdge(this.lastGroundedPlatform, this.x + this.w / 2);
+    this.fallRespawnGraceTimer = 0;
     this.gravityFlipVisualTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
@@ -283,6 +292,7 @@ class Player extends Entity {
 
     if (this.pulseTimer > 0) this.pulseTimer -= dt;
     if (this.damageTimer > 0) this.damageTimer -= dt;
+    if (this.fallRespawnGraceTimer > 0) this.fallRespawnGraceTimer -= dt;
 
     const wasOnSurface = this.onSurface;
     if (!wasOnSurface) this.airTime += dt;
@@ -380,6 +390,7 @@ class Player extends Entity {
         if (this.gravitySign > 0) this.y = solid.y - this.h;
         else this.y = solid.y + solid.h;
         this.onSurface = true;
+        if (isPlatform) this.recordGroundedPlatform(solid);
       } else if (this.vy < 0) {
         this.y = solid.y + solid.h;
       } else if (this.vy > 0) {
@@ -389,6 +400,20 @@ class Player extends Entity {
       }
       this.vy = 0;
     }
+  }
+
+  recordGroundedPlatform(platform) {
+    // Only real level platforms become fall-recovery anchors; enemies and other
+    // transient solids deliberately never update this remembered contact.
+    if (!platforms.includes(platform)) return;
+
+    const centerX = this.x + this.w / 2;
+    const movingTowardEdge = Math.abs(this.vx) > 1;
+    this.lastGroundedPlatform = platform;
+    this.lastGroundedPosition = { x: this.x, y: this.y };
+    this.lastGroundedEdge = movingTowardEdge
+      ? (this.vx > 0 ? "right" : "left")
+      : getClosestPlatformEdge(platform, centerX);
   }
 
   resolveEnemyOverlaps() {
@@ -598,18 +623,36 @@ class Player extends Entity {
   }
 
   fallOutOfWorld() {
-    // Death-zone recovery must always move the player back into the room, even
-    // if contact-damage invulnerability is active while they are falling.
-    if (this.isDying) return;
-    if (this.damageTimer <= 0) this.hp -= 1;
+    if (this.isDying || this.fallRespawnGraceTimer > 0) return;
 
+    this.hp -= 1;
     if (this.hp <= 0) {
       this.beginDeath();
       return;
     }
 
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
-    this.respawnAtSafeAnchor();
+    this.respawnAtLastGroundedEdge();
+  }
+
+  respawnAtLastGroundedEdge() {
+    // Preserve the existing fall-recovery rule that clears Gravity Field effects,
+    // but recover to the last solid platform edge instead of the checkpoint.
+    resetGravityField(true);
+    this.h = STAND_HEIGHT;
+    const respawnPoint = this.getLastGroundedRespawnPoint();
+    this.placeAt(respawnPoint.x, respawnPoint.y, { resetGravity: false, grounded: true });
+    this.recordGroundedPlatform(respawnPoint.platform);
+    this.fallRespawnGraceTimer = FALL_RESPAWN_GRACE;
+  }
+
+  getLastGroundedRespawnPoint() {
+    const platform = this.lastGroundedPlatform ?? findPlatformAtSurfacePoint(safeAnchor.x + this.w / 2, safeAnchor.y + this.h, 1) ?? platforms[1];
+    const edge = this.lastGroundedEdge ?? getClosestPlatformEdge(platform, this.lastGroundedPosition?.x + this.w / 2 || platform.x + platform.w / 2);
+    const gravitySign = this.gravitySign;
+    const y = gravitySign > 0 ? platform.y - STAND_HEIGHT : platform.y + platform.h;
+    const x = findSafePlatformEdgeX(platform, edge, this.w, STAND_HEIGHT, y);
+    return { x, y, platform };
   }
 
   respawnAtSafeAnchor() {
@@ -624,12 +667,13 @@ class Player extends Entity {
     this.placeAt(checkpoint.x, checkpoint.y);
   }
 
-  placeAt(x, y) {
+  placeAt(x, y, options = {}) {
+    const { resetGravity = true, grounded = false } = options;
     this.x = x;
     this.y = y;
     this.vx = 0;
     this.vy = 0;
-    this.gravitySign = 1;
+    if (resetGravity) this.gravitySign = 1;
     this.lastGravityCastId = 0;
     this.gravityFlipVisualTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
@@ -647,7 +691,7 @@ class Player extends Entity {
     this.isDying = false;
     this.deathTimer = 0;
     this.deathFragments = [];
-    this.onSurface = false;
+    this.onSurface = grounded;
   }
 
 
@@ -2053,6 +2097,41 @@ class SystemPulse {
   }
 }
 
+function getClosestPlatformEdge(platform, playerCenterX) {
+  const distanceToLeft = Math.abs(playerCenterX - platform.x);
+  const distanceToRight = Math.abs(platform.x + platform.w - playerCenterX);
+  return distanceToLeft <= distanceToRight ? "left" : "right";
+}
+
+function findPlatformAtSurfacePoint(x, surfaceY, gravitySign = 1) {
+  return platforms.find((platform) => {
+    const platformSurfaceY = gravitySign > 0 ? platform.y : platform.y + platform.h;
+    return x >= platform.x && x <= platform.x + platform.w && Math.abs(surfaceY - platformSurfaceY) <= 2;
+  }) ?? null;
+}
+
+function findSafePlatformEdgeX(platform, edge, playerWidth, playerHeight, playerY) {
+  const minX = platform.x + EDGE_RESPAWN_INSET;
+  const maxX = platform.x + platform.w - playerWidth - EDGE_RESPAWN_INSET;
+  const fallbackX = clamp(platform.x + platform.w / 2 - playerWidth / 2, platform.x, platform.x + platform.w - playerWidth);
+  const startX = edge === "right" ? maxX : minX;
+  const direction = edge === "right" ? -1 : 1;
+
+  if (minX > maxX) return fallbackX;
+
+  const scanDistance = maxX - minX;
+  for (let step = 0; step <= scanDistance; step += 6) {
+    const candidateX = startX + direction * step;
+    const candidate = { x: candidateX, y: playerY, w: playerWidth, h: playerHeight };
+    if (!getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect))) return candidateX;
+  }
+
+  const fallback = { x: fallbackX, y: playerY, w: playerWidth, h: playerHeight };
+  if (!getSolidEnemyRects().some((enemyRect) => rectsOverlap(fallback, enemyRect))) return fallbackX;
+
+  return startX;
+}
+
 function getSolidEnemyRects() {
   return enemies
     .filter((enemy) => enemy.hp > 0)
@@ -2172,7 +2251,7 @@ function update(dt) {
     }
   }
 
-  if (!player.isDying && (player.y > FALL_LIMIT || player.y + player.h < -120)) player.fallOutOfWorld();
+  if (!player.isDying && (player.y > bottomFallBoundary || player.y + player.h < -120)) player.fallOutOfWorld();
 
   cameraX = clamp(player.x + player.w / 2 - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
   pressedThisFrame.clear();
@@ -2349,6 +2428,7 @@ window.__indiePlatformerDebug = {
   resetGravityField,
   checkpoint,
   safeAnchor,
+  bottomFallBoundary,
   constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT }
 };
 
