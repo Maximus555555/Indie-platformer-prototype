@@ -82,4 +82,24 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 
+const jumper = debug.enemies.find((enemy) => typeof enemy.canStartAttack === "function");
+const jumperPlatform = debug.platforms.find((platform) => platform.x === 1900 && platform.y === 310);
+if (!jumper || !jumperPlatform) throw new Error("Expected jumper enemy and its platform for detection regression.");
+
+// Regression: when the player is flush against a platform edge/wall, their center
+// can sit just outside the jumper's safe landing margin. The jumper should still
+// detect the player because part of the player's body is reachable.
+debug.player.x = jumperPlatform.x + jumperPlatform.w - debug.player.w;
+debug.player.y = jumperPlatform.y - debug.player.h;
+debug.player.gravitySign = 1;
+debug.player.isDying = false;
+jumper.x = 2010;
+jumper.gravitySign = 1;
+jumper.onSurface = true;
+jumper.jumperState = "idle";
+jumper.attachToSurface(jumperPlatform);
+if (!jumper.canStartAttack()) {
+  throw new Error("Jumper failed to detect a player standing flush against a wall.");
+}
+
 console.log("Smoke test passed: game boots, schedules frames, and keeps a valid player state.");

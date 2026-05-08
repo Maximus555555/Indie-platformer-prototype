@@ -2800,10 +2800,12 @@ class Jumper extends Entity {
     // Spike hazards are not active yet, but the AI already routes its launch
     // choice through a landing-safety predicate so future spike-covered surfaces
     // can be rejected without rewriting the attack state machine.
-    return Boolean(this.findSafeLandingSurface(playerCenter.x));
+    // Use the player's footprint as tolerance so standing flush against a wall or
+    // platform side does not make their center point look barely unlandable.
+    return Boolean(this.findSafeLandingSurface(playerCenter.x, player.w));
   }
 
-  findSafeLandingSurface(targetX) {
+  findSafeLandingSurface(targetX, targetWidth = 0) {
     const body = this.getCollisionRect();
     const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
     let bestPlatform = null;
@@ -2813,7 +2815,8 @@ class Jumper extends Entity {
       if (!this.isSafeLandingSurface(platform)) continue;
       const minX = platform.x + this.w * 0.45;
       const maxX = platform.x + platform.w - this.w * 0.45;
-      if (targetX < minX || targetX > maxX) continue;
+      const landingX = clamp(targetX, minX, maxX);
+      if (Math.abs(landingX - targetX) > targetWidth / 2) continue;
 
       const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
       const surfaceDelta = (surfaceY - surfaceEdgeY) * this.gravitySign;
