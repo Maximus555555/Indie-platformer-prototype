@@ -2279,46 +2279,6 @@ function drawGrid() {
   }
 }
 
-function drawPlatformPanelLines(platform) {
-  const targetSectionWidth = 56;
-  const minimumSectionWidth = 40;
-  const maxSectionCount = Math.floor(platform.w / minimumSectionWidth);
-
-  if (maxSectionCount < 2) return;
-
-  const sectionCount = Math.max(
-    2,
-    Math.min(Math.round(platform.w / targetSectionWidth), maxSectionCount)
-  );
-
-  const dividerPadding = clamp(Math.round(platform.h * 0.16), 2, 4);
-  const sectionWidth = platform.w / sectionCount;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(
-    platform.x + 1,
-    platform.y + 1,
-    Math.max(0, platform.w - 2),
-    Math.max(0, platform.h - 2)
-  );
-  ctx.clip();
-
-  ctx.strokeStyle = "rgba(58, 130, 193, 0.24)";
-  ctx.lineWidth = 1;
-  ctx.lineCap = "butt";
-
-  for (let section = 1; section < sectionCount; section += 1) {
-    const crispX = Math.round(platform.x + sectionWidth * section) + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(crispX, platform.y + dividerPadding);
-    ctx.lineTo(crispX, platform.y + platform.h - dividerPadding);
-    ctx.stroke();
-  }
-
-  ctx.restore();
-}
-
 function drawRoom() {
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
   sky.addColorStop(0, "#dff5ff");
@@ -2330,7 +2290,6 @@ function drawRoom() {
   ctx.strokeStyle = "rgba(45, 126, 204, 0.48)";
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
-    drawPlatformPanelLines(platform);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
   }
 }
