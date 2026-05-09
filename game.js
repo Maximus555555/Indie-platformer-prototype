@@ -1751,6 +1751,9 @@ class Enemy extends Entity {
     this.landingRecoveryTimer = 0.1;
     this.groundedPlatform = null;
     this.idleTimer = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
     this.isDying = false;
     this.deathTimer = 0;
     this.deathFragments = [];
@@ -1765,6 +1768,7 @@ class Enemy extends Entity {
 
     this.idleTimer += dt;
     this.updateGravityFlipVisual(dt);
+    this.updateHitReaction(dt);
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
     if (this.isTouchingVerticalWorldEdge()) {
@@ -1779,6 +1783,19 @@ class Enemy extends Entity {
     }
 
     if (!this.isDying && this.isTouchingVerticalWorldEdge()) this.beginDeath();
+  }
+
+  updateHitReaction(dt) {
+    if (this.hitTimer <= 0) {
+      this.hitJoltX = 0;
+      this.hitJoltY = 0;
+      return;
+    }
+
+    this.hitTimer = Math.max(0, this.hitTimer - dt);
+    const progress = this.hitTimer / 0.12;
+    this.hitJoltX = (player.facing || 1) * 2.2 * progress;
+    this.hitJoltY = -this.gravitySign * 1.8 * progress;
   }
 
   isTouchingVerticalWorldEdge() {
@@ -1991,6 +2008,9 @@ class Enemy extends Entity {
   hit(amount) {
     if (this.isDying || this.hp <= 0) return;
     this.hp -= amount;
+    this.hitTimer = 0.12;
+    this.hitJoltX = (player.facing || 1) * 2.2;
+    this.hitJoltY = -this.gravitySign * 1.8;
     if (this.hp <= 0) this.beginDeath();
   }
 
@@ -2001,6 +2021,9 @@ class Enemy extends Entity {
     this.deathTimer = 0;
     this.vx = 0;
     this.vy = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
     this.walkerState = "destroyed";
     this.deathFragments = this.createDeathFragments();
     activeGravityEntities.delete(this);
@@ -2156,6 +2179,7 @@ class Enemy extends Entity {
     // so collision, System Pulse hits, and edge detection stay unchanged. Keep
     // the fluctuation nearly still so the Walker reads as a controlled hover.
     const hoverBob = Math.sin(this.idleTimer * 2.35) * 1 * (this.gravitySign > 0 ? -1 : 1);
+    const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.12 : 0;
 
     function tracePolygon(points) {
       ctx.beginPath();
@@ -2178,7 +2202,7 @@ class Enemy extends Entity {
     }
 
     ctx.save();
-    ctx.translate(cx, cy + hoverBob);
+    ctx.translate(cx + this.hitJoltX, cy + hoverBob + this.hitJoltY);
     ctx.scale(WALKER_VISUAL_SCALE, (this.gravitySign > 0 ? 1 : -1) * WALKER_VISUAL_SCALE);
     const gravityFlipVisual = this.getGravityFlipVisualTransform();
     if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
@@ -2188,8 +2212,8 @@ class Enemy extends Entity {
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#49c7f4";
-    ctx.fillStyle = "rgba(77, 199, 244, 0.16)";
+    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : "#49c7f4";
+    ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : "rgba(77, 199, 244, 0.16)";
     ctx.lineWidth = 1.8;
 
     const leftPlate = [
@@ -2230,8 +2254,8 @@ class Enemy extends Entity {
     strokeLine({ x: -17.5, y: 10 }, { x: -13.8, y: -5 });
     strokeLine({ x: 17.5, y: 10 }, { x: 13.8, y: -5 });
 
-    ctx.strokeStyle = "#2fb6ec";
-    ctx.fillStyle = "rgba(67, 188, 234, 0.18)";
+    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : "#2fb6ec";
+    ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.46)" : "rgba(67, 188, 234, 0.18)";
     ctx.lineWidth = 1.8;
     drawPolygon(core);
 
@@ -2240,13 +2264,13 @@ class Enemy extends Entity {
     ctx.lineWidth = 1;
     drawPolygon(innerCore);
 
-    ctx.fillStyle = "rgba(151, 244, 255, 0.32)";
-    ctx.strokeStyle = "rgba(206, 253, 255, 0.92)";
+    ctx.fillStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.76)" : "rgba(151, 244, 255, 0.32)";
+    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.98)" : "rgba(206, 253, 255, 0.92)";
     ctx.lineWidth = 0.8;
     drawPolygon(centerGlow);
 
     ctx.restore();
-    const walkerVisualTopY = cy + hoverBob - 24 * WALKER_VISUAL_SCALE;
+    const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
     drawGravityMarker(this, walkerVisualTopY);
   }
 }
