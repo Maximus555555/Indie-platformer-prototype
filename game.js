@@ -828,10 +828,58 @@ class Player extends Entity {
   takeSpikeDamage(spike) {
     if (this.isDying || this.fallRespawnGraceTimer > 0) return;
 
-    const damaged = this.takeDamage(1, spikeStripBounds(spike));
+    const spikeBounds = spikeStripBounds(spike);
+    const damaged = this.takeDamage(1, spikeBounds);
     if (!damaged || this.isDying) return;
 
-    this.respawnAtLastGroundedEdge();
+    this.recoverFromSpikeDamage(spike, spikeBounds);
+  }
+
+  recoverFromSpikeDamage(spike, spikeBounds) {
+    // Spike recovery is a knockback, not a fall respawn: preserve reversed
+    // gravity so ceiling-side hazards do not flip the player back to the floor.
+    this.h = STAND_HEIGHT;
+    const recoveryPoint = this.getSpikeRecoveryPoint(spike, spikeBounds);
+    this.x = recoveryPoint.x;
+    this.y = recoveryPoint.y;
+    this.onSurface = false;
+    this.vx = recoveryPoint.direction * DAMAGE_RECOIL_SPEED;
+    this.vy = -this.gravitySign * DAMAGE_RECOIL_BUMP_SPEED;
+    this.recoilDirection = recoveryPoint.direction;
+    this.recoilTimer = DAMAGE_RECOIL_DURATION;
+  }
+
+  getSpikeRecoveryPoint(spike, spikeBounds) {
+    const platform = spike.platform;
+    const centerX = this.x + this.w / 2;
+    const spikeCenterX = spikeBounds.x + spikeBounds.w / 2;
+    const preferredDirection = centerX < spikeCenterX ? -1 : 1;
+    const y = this.gravitySign > 0 ? platform.y - STAND_HEIGHT : platform.y + platform.h;
+    const margin = 6;
+    const minX = platform.x + EDGE_RESPAWN_INSET;
+    const maxX = platform.x + platform.w - this.w - EDGE_RESPAWN_INSET;
+
+    const scanDirection = (direction) => {
+      const startX = direction < 0
+        ? spikeBounds.x - this.w - margin
+        : spikeBounds.x + spikeBounds.w + margin;
+
+      for (let distance = 0; distance <= platform.w; distance += 6) {
+        const x = clamp(startX + direction * distance, minX, maxX);
+        const candidate = { x, y, w: this.w, h: STAND_HEIGHT };
+        const blockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect));
+        if (!blockedByEnemy && !rectTouchesSpikes(candidate)) return x;
+        if (x === minX || x === maxX) break;
+      }
+
+      return null;
+    };
+
+    const x = scanDirection(preferredDirection)
+      ?? scanDirection(-preferredDirection)
+      ?? findSafePlatformEdgeX(platform, getClosestPlatformEdge(platform, centerX), this.w, STAND_HEIGHT, y);
+
+    return { x, y, direction: preferredDirection };
   }
 
   respawnAtLastGroundedEdge() {
