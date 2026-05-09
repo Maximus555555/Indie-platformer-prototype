@@ -3,7 +3,7 @@
   // collision, and level-tuning changes do not create large game.js conflicts.
   window.IndiePlatformerConfig = Object.freeze({
     gravity: 1200,
-    jumpVelocity: -460,
+    jumpVelocity: -480,
     maxFallSpeed: 900,
     walkSpeed: 230,
     runSpeed: 340,
