@@ -20,8 +20,11 @@ const context = new Proxy({
   canvas: null,
   calls: [],
   arc: recordCanvasCall("arc"),
+  fill: recordCanvasCall("fill"),
+  fillRect: recordCanvasCall("fillRect"),
   lineTo: recordCanvasCall("lineTo"),
   moveTo: recordCanvasCall("moveTo"),
+  stroke: recordCanvasCall("stroke"),
   createLinearGradient: () => ({ addColorStop: noop }),
   createRadialGradient: () => ({ addColorStop: noop }),
   measureText: (text) => ({ width: String(text).length * 8 })
@@ -383,6 +386,15 @@ debug.player.damageTimer = 0;
 debug.update(16 / 1000);
 if (debug.player.hp !== 3) {
   throw new Error("Phased player took enemy contact damage.");
+}
+context.calls = [];
+debug.player.gravitySign = 1;
+debug.player.draw();
+if (context.calls.some((call) => call.name === "fill" || call.name === "fillRect")) {
+  throw new Error("Phased player drew filled character details instead of outline only.");
+}
+if (!context.calls.some((call) => call.name === "stroke")) {
+  throw new Error("Phased player did not draw an outline stroke.");
 }
 if (!debug.activateSelectedAbility() || debug.isPlayerPhased()) {
   throw new Error("Phase Shift did not manually cancel when selected and tapped again.");
