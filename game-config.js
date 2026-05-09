@@ -22,6 +22,7 @@
     droneWindup: 0.34,
     droneProjectileSpeed: 360,
     droneProjectileSize: 10,
+    jumperLeapImpulse: 520,
     pulseCooldown: 0.35,
     pulseDamage: 1,
     pulseThickness: 5,
