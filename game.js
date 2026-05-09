@@ -5154,37 +5154,65 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.arc(0, 0, size * 0.035, 0, Math.PI * 2);
     ctx.fill();
   } else if (ability.id === "pulse") {
-    // Match the in-world Force Pulse: a clean red fan with a narrow origin
-    // and one rounded outer arc, with no internal/radial detail.
-    const originX = -size * 0.27;
+    // Force Pulse reads as a hot emitter blasting nested shockwave arcs forward.
+    // The layered wedges keep the icon recognizable at both HUD and wheel sizes.
+    const originX = -size * 0.28;
     const originY = 0;
-    const range = size * 0.56;
-    const halfAngle = 0.5;
+    const range = size * 0.58;
+    const halfAngle = 0.54;
     const upperAngle = -halfAngle;
     const lowerAngle = halfAngle;
 
-    const tracePulseFan = (extraRange = 0) => {
-      const drawRange = range + extraRange;
+    const tracePulseFan = (fanRange, insetAngle = 0) => {
+      const startAngle = upperAngle + insetAngle;
+      const endAngle = lowerAngle - insetAngle;
       ctx.beginPath();
       ctx.moveTo(originX, originY);
-      ctx.lineTo(originX + Math.cos(upperAngle) * drawRange, originY + Math.sin(upperAngle) * drawRange);
-      ctx.arc(originX, originY, drawRange, upperAngle, lowerAngle);
+      ctx.lineTo(originX + Math.cos(startAngle) * fanRange, originY + Math.sin(startAngle) * fanRange);
+      ctx.arc(originX, originY, fanRange, startAngle, endAngle);
       ctx.lineTo(originX, originY);
       ctx.closePath();
     };
 
-    ctx.shadowColor = "rgba(255, 50, 76, 0.38)";
-    ctx.shadowBlur = size * 0.18;
-    ctx.fillStyle = "rgba(255, 36, 64, 0.34)";
-    tracePulseFan(size * 0.015);
+    const strokePulseArc = (arcRange, insetAngle, width, color) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.arc(originX, originY, arcRange, upperAngle + insetAngle, lowerAngle - insetAngle);
+      ctx.stroke();
+    };
+
+    ctx.shadowColor = "rgba(255, 40, 78, 0.62)";
+    ctx.shadowBlur = size * 0.22;
+    ctx.fillStyle = "rgba(255, 31, 69, 0.24)";
+    tracePulseFan(range + size * 0.018);
     ctx.fill();
 
-    ctx.shadowColor = "rgba(255, 89, 114, 0.35)";
-    ctx.shadowBlur = size * 0.09;
-    ctx.strokeStyle = "rgba(255, 142, 158, 0.96)";
-    ctx.lineWidth = Math.max(1.6, size * 0.06);
-    tracePulseFan();
+    ctx.fillStyle = "rgba(255, 91, 111, 0.28)";
+    tracePulseFan(range * 0.72, 0.08);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255, 174, 184, 0.94)";
+    ctx.lineWidth = Math.max(1.5, size * 0.05);
+    tracePulseFan(range, 0.02);
     ctx.stroke();
+
+    ctx.shadowBlur = size * 0.1;
+    strokePulseArc(range * 0.4, 0.24, Math.max(1, size * 0.028), "rgba(255, 218, 223, 0.78)");
+    strokePulseArc(range * 0.62, 0.16, Math.max(1.1, size * 0.032), "rgba(255, 186, 197, 0.86)");
+    strokePulseArc(range * 0.84, 0.08, Math.max(1.2, size * 0.036), "rgba(255, 135, 154, 0.82)");
+
+    ctx.shadowColor = "rgba(255, 235, 239, 0.72)";
+    ctx.shadowBlur = size * 0.13;
+    ctx.fillStyle = "rgba(255, 235, 239, 0.96)";
+    ctx.beginPath();
+    ctx.moveTo(originX - size * 0.08, originY);
+    ctx.lineTo(originX, originY - size * 0.1);
+    ctx.lineTo(originX + size * 0.14, originY);
+    ctx.lineTo(originX, originY + size * 0.1);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.shadowBlur = 0;
   } else if (ability.id === "anchor") {
     ctx.strokeRect(-r * 0.82, -r * 0.05, r * 1.64, r * 1.05);
