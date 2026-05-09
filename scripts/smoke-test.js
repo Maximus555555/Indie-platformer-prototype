@@ -83,6 +83,48 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 
+function dispatch(type, event) {
+  const listeners = eventListeners.get(type) ?? [];
+  for (const listener of listeners) listener(event);
+}
+
+function keyEvent(key) {
+  return { key, preventDefault: noop };
+}
+
+// Ability UI/input regression: tapping E activates the selected Gravity Field
+// through the ability system, starts cooldown, and blocks immediate re-use.
+const gravityAbility = debug.abilities.find((ability) => ability.id === "gravity");
+if (!gravityAbility || !gravityAbility.unlocked) throw new Error("Expected unlocked Gravity Field ability.");
+gravityAbility.cooldownRemaining = 0;
+dispatch("keydown", keyEvent("e"));
+dispatch("keyup", keyEvent("e"));
+debug.update(16 / 1000);
+if (gravityAbility.cooldownRemaining <= 0) {
+  throw new Error("E tap did not start the selected ability cooldown.");
+}
+const cooldownAfterTap = gravityAbility.cooldownRemaining;
+if (debug.activateSelectedAbility()) {
+  throw new Error("Ability activation bypassed cooldown.");
+}
+if (gravityAbility.cooldownRemaining > cooldownAfterTap) {
+  throw new Error("Blocked ability activation unexpectedly reset cooldown.");
+}
+debug.resetGravityField(true);
+gravityAbility.cooldownRemaining = 0;
+
+// Holding E opens the selection wheel; releasing from the wheel selects without
+// also activating/cooling down the selected ability.
+dispatch("keydown", keyEvent("e"));
+for (let frame = 0; frame < 9; frame += 1) tick(33);
+if (!debug.abilityWheel.open) throw new Error("Holding E did not open the ability wheel.");
+dispatch("keyup", keyEvent("e"));
+debug.update(16 / 1000);
+if (debug.abilityWheel.open) throw new Error("Releasing E did not close the ability wheel.");
+if (gravityAbility.cooldownRemaining > 0) {
+  throw new Error("Releasing the ability wheel also activated the selected ability.");
+}
+
 const jumper = debug.enemies.find((enemy) => typeof enemy.canStartAttack === "function");
 const jumperPlatform = debug.platforms.find((platform) => platform.x === 1900 && platform.y === 310);
 if (!jumper || !jumperPlatform) throw new Error("Expected jumper enemy and its platform for detection regression.");
