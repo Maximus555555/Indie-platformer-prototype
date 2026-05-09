@@ -286,7 +286,7 @@ debug.player.x = 520;
 debug.player.y = 420;
 debug.player.facing = 1;
 debug.player.gravitySign = 1;
-anchorWalker.x = debug.player.x + 190;
+anchorWalker.x = debug.player.x + 110;
 anchorWalker.y = 435;
 anchorWalker.hp = 2;
 anchorWalker.isDying = false;
@@ -299,6 +299,16 @@ debug.setSelectedAbility("anchor");
 if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not activate when selected and ready.");
 if (anchorAbility.cooldownRemaining > 0 || anchorAbility.activeRemaining <= 0) {
   throw new Error("Anchor Field cooldown started before its active duration ended.");
+}
+const anchorPlayerCenter = {
+  x: debug.player.x + debug.player.w / 2,
+  y: debug.player.y + debug.player.h / 2
+};
+if (!debug.isPointInsideAnchorField(anchorPlayerCenter)) {
+  throw new Error("Anchor Field did not include the player center on activation.");
+}
+if (debug.isPointInsideAnchorField({ x: anchorPlayerCenter.x + 200, y: anchorPlayerCenter.y })) {
+  throw new Error("Anchor Field was still projected forward instead of centered around the player.");
 }
 debug.update(16 / 1000);
 if (!anchorWalker.anchorLocked) throw new Error("Anchor Field did not lock a Walker inside its radius.");
@@ -327,8 +337,8 @@ const anchoredProjectile = debug.droneProjectiles.at(-1);
 if (!anchoredProjectile || debug.droneProjectiles.length !== projectileCountBeforeAnchorShot + 1) {
   throw new Error("Expected a new Drone projectile for Anchor Field regression.");
 }
-anchoredProjectile.x = debug.player.x + debug.player.w / 2 + 200;
-anchoredProjectile.y = debug.player.y + debug.player.h * 0.42;
+anchoredProjectile.x = debug.player.x + debug.player.w / 2 + 120;
+anchoredProjectile.y = debug.player.y + debug.player.h / 2;
 anchoredProjectile.vx = -120;
 anchoredProjectile.vy = 20;
 debug.update(16 / 1000);
