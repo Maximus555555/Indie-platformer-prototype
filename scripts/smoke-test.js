@@ -147,6 +147,22 @@ if (forcePulseAbility.cooldownRemaining <= 0) throw new Error("Force Pulse activ
 if (pulseWalker.vx <= 300 || pulseWalker.forcePulseStunTimer <= 0) {
   throw new Error("Force Pulse did not knock back and briefly stun the Walker in front of the player.");
 }
+const latestForcePulseVisual = debug.forcePulseVisuals.at(-1);
+if (!latestForcePulseVisual || typeof latestForcePulseVisual.getOrigin !== "function") {
+  throw new Error("Force Pulse visual did not expose its hand-anchored origin.");
+}
+const castHandOrigin = debug.player.getForwardHandPoint(1);
+const visualOrigin = latestForcePulseVisual.getOrigin();
+if (Math.abs(visualOrigin.x - castHandOrigin.x) > 0.01 || Math.abs(visualOrigin.y - castHandOrigin.y) > 0.01) {
+  throw new Error("Force Pulse visual origin did not match the player's forward hand point.");
+}
+const visualOriginBeforeMove = latestForcePulseVisual.getOrigin();
+debug.player.x += 5;
+const visualOriginAfterMove = latestForcePulseVisual.getOrigin();
+if (visualOriginAfterMove.x - visualOriginBeforeMove.x < 4.9) {
+  throw new Error("Force Pulse visual origin did not stay attached to the moving hand.");
+}
+debug.player.x -= 5;
 const forcePulseCooldownAfterCast = forcePulseAbility.cooldownRemaining;
 const forcePulseVisualCount = debug.forcePulseVisuals.length;
 if (debug.activateSelectedAbility()) throw new Error("Force Pulse activation bypassed cooldown.");
@@ -161,8 +177,9 @@ debug.setSelectedAbility("gravity");
 debug.player.x = 120;
 debug.player.y = 420;
 
-// Holding E opens the selection wheel; releasing from the wheel selects without
-// also activating/cooling down the selected ability.
+// Holding E opens the selection wheel; keyboard navigation skips locked slots,
+// releasing confirms the highlighted unlocked ability, and that release does
+// not also activate the newly selected ability.
 dispatch("keydown", keyEvent("e"));
 for (let frame = 0; frame < 9; frame += 1) tick(33);
 if (!debug.abilityWheel.open) throw new Error("Holding E did not open the ability wheel.");
@@ -176,13 +193,31 @@ if (gravityAbility.cooldownRemaining !== cooldownWhileWheelOpen) {
 if (debug.player.x !== playerXWhileWheelOpen) {
   throw new Error("Player simulation advanced while the ability wheel was open.");
 }
+dispatch("keydown", keyEvent("ArrowRight"));
+debug.update(16 / 1000);
+dispatch("keyup", keyEvent("ArrowRight"));
+if (debug.abilities[debug.abilityWheel.hoveredIndex]?.id !== "pulse") {
+  throw new Error("Ability wheel keyboard navigation did not skip locked slots to Force Pulse.");
+}
+forcePulseAbility.cooldownRemaining = 0;
 dispatch("keyup", keyEvent("e"));
 debug.update(16 / 1000);
 if (debug.abilityWheel.open) throw new Error("Releasing E did not close the ability wheel.");
-if (gravityAbility.cooldownRemaining <= 0) {
-  throw new Error("Releasing the ability wheel also activated the selected ability.");
+if (debug.getSelectedAbility().id !== "pulse") {
+  throw new Error("Releasing the ability wheel did not select Force Pulse.");
+}
+if (forcePulseAbility.cooldownRemaining > 0 || gravityAbility.cooldownRemaining > cooldownWhileWheelOpen) {
+  throw new Error("Releasing the ability wheel activated an ability or reset a cooldown.");
+}
+forcePulseAbility.cooldownRemaining = 0;
+dispatch("keydown", keyEvent("e"));
+dispatch("keyup", keyEvent("e"));
+debug.update(16 / 1000);
+if (forcePulseAbility.cooldownRemaining <= 0) {
+  throw new Error("Tapping E after wheel selection did not activate Force Pulse.");
 }
 gravityAbility.cooldownRemaining = 0;
+forcePulseAbility.cooldownRemaining = 0;
 
 const jumper = debug.enemies.find((enemy) => typeof enemy.canStartAttack === "function");
 const jumperPlatform = debug.platforms.find((platform) => platform.x === 1900 && platform.y === 310);

@@ -81,6 +81,7 @@ const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 520;
 const FORCE_PULSE_MIN_FORCE_SCALE = 0.6;
 const FORCE_PULSE_STUN = config.forcePulseStun ?? 0.12;
 const FORCE_PULSE_VISUAL_DURATION = config.forcePulseVisualDuration ?? 0.12;
+const FORCE_PULSE_DRONE_RECOVERY = config.forcePulseDroneRecovery ?? 0.28;
 const FORCE_PULSE_COOLDOWN = config.forcePulseCooldown ?? 4.0;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
 const DAMAGE_RECOIL_DURATION = 0.15;
@@ -452,7 +453,14 @@ class Entity {
     if (this.lastForcePulseCastId === castId || this.isDying || this.hp <= 0) return false;
     this.lastForcePulseCastId = castId;
     this.forcePulseStunTimer = Math.max(this.forcePulseStunTimer ?? 0, stunDuration);
-    this.vx = direction * speed;
+
+    // Treat the pulse as a short impulse: preserve useful existing momentum,
+    // then add a small lift so grounded enemies visibly break from AI control.
+    const existingAwaySpeed = Math.max(0, this.vx * direction);
+    const impulseSpeed = Math.max(speed, existingAwaySpeed + speed * 0.62);
+    this.vx = direction * impulseSpeed;
+    this.vy -= this.gravitySign * speed * 0.18;
+
     this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
     this.hitJoltX = direction * 2.6;
     this.hitJoltY = -this.gravitySign * 1.6;
@@ -1735,9 +1743,11 @@ class Player extends Entity {
       const crouchTightness = this.isCrouching ? 1 : 0;
       const chestX = pose.torso.x + Math.cos(pose.torso.rot) * mix(7.8, 6.2, crouchTightness);
       const chestY = pose.torso.y - mix(1.5, 0.7, crouchTightness);
-      const reachX = chestX + mix(13.2, 10.2, crouchTightness) + pushAmount * 3.4;
-      const handY = chestY + mix(2.4, 1.8, crouchTightness);
-      const elbowX = chestX + mix(5.6, 4.2, crouchTightness) + pushAmount * 1.7;
+      const handSocketX = mix(18.7, 20.5, crouchTightness);
+      const handSocketY = mix(22.8, 32.8, crouchTightness);
+      const reachX = handSocketX - 1.2 + pushAmount * 1.1;
+      const handY = handSocketY + 0.4;
+      const elbowX = mix(chestX + 5.6, reachX - 6.2, 0.45) + pushAmount * 0.8;
       pose.torso = { ...pose.torso, rot: pose.torso.rot + pushAmount * 0.035 };
       pose.farArm = blendLimb(baseFarArm, [baseFarArm[0], { x: elbowX - 1.8, y: handY + 3.4 }, { x: reachX - 0.6, y: handY + 1.2 }], 0.88);
       pose.nearArm = blendLimb(baseNearArm, [baseNearArm[0], { x: elbowX + 1.2, y: handY + 4.1 }, { x: reachX + 1.2, y: handY - 0.4 }], 0.94);
@@ -2407,6 +2417,7 @@ class Drone extends Entity {
     this.deathTimer = 0;
     this.deathFragments = [];
     this.droneState = "hovering";
+    this.forcePulseRecoveryTimer = 0;
     this.orbitSlots = Array.from({ length: DRONE_ORBIT_SLOT_COUNT }, (_, index) => ({
       // Orbit phase remains continuous; firing hides this matching body diamond
       // briefly so the spawned projectile reads as the diamond detaching.
@@ -2444,11 +2455,6 @@ class Drone extends Entity {
       this.fireCooldown = Math.max(this.fireCooldown, 0.35);
       this.applyGravity(dt);
       this.moveAndCollide(dt);
-      if (this.forcePulseStunTimer <= 0) {
-        this.droneState = "hovering";
-        this.vx = 0;
-        this.vy = 0;
-      }
     } else if (this.droneState === "hovering") {
       this.vx = 0;
       this.vy = 0;
@@ -2456,9 +2462,23 @@ class Drone extends Entity {
     } else {
       this.windupTimer = 0;
       this.fireCooldown = Math.max(this.fireCooldown, 0.35);
+      this.forcePulseRecoveryTimer = Math.max(0, this.forcePulseRecoveryTimer - dt);
       this.applyGravity(dt);
       this.moveAndCollide(dt);
+
+      // After hitstun, keep a short damped drift instead of snapping back to
+      // hover immediately so Force Pulse reads as real displacement.
+      const horizontalDrag = Math.max(0, 1 - dt * 3.6);
+      const verticalDrag = Math.max(0, 1 - dt * 1.4);
+      this.vx *= horizontalDrag;
+      this.vy *= verticalDrag;
+
       if (this.onSurface) this.beginHoveringOnSurface();
+      else if (this.droneState === "displaced" && this.forcePulseRecoveryTimer <= 0) {
+        this.droneState = "hovering";
+        this.vx = 0;
+        this.vy = 0;
+      }
     }
   }
 
@@ -2743,6 +2763,7 @@ class Drone extends Entity {
   receiveForcePulse(direction, speed, stunDuration, castId) {
     if (!super.receiveForcePulse(direction, speed, stunDuration, castId)) return false;
     this.droneState = "displaced";
+    this.forcePulseRecoveryTimer = FORCE_PULSE_DRONE_RECOVERY;
     this.windupTimer = 0;
     this.fireCooldown = Math.max(this.fireCooldown, 0.35);
     return true;
@@ -3789,11 +3810,16 @@ class SystemPulse {
 }
 
 class ForcePulseVisual {
-  constructor(origin, direction) {
+  constructor(caster, direction, origin) {
+    this.caster = caster;
     this.origin = origin;
     this.direction = direction;
     this.age = 0;
     this.active = true;
+  }
+
+  getOrigin() {
+    return this.caster?.getForwardHandPoint?.(this.direction) ?? this.origin;
   }
 
   update(dt) {
@@ -3806,9 +3832,10 @@ class ForcePulseVisual {
     const alpha = Math.max(0, 1 - progress);
     if (alpha <= 0) return;
 
+    const origin = this.getOrigin();
     const range = FORCE_PULSE_RANGE;
     const halfWidth = Math.tan(FORCE_PULSE_HALF_ANGLE) * range;
-    const tipX = this.origin.x + this.direction * range;
+    const tipX = origin.x + this.direction * range;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -3820,9 +3847,9 @@ class ForcePulseVisual {
     ctx.strokeStyle = "rgba(255, 54, 76, 0.92)";
     ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.moveTo(this.origin.x, this.origin.y);
-    ctx.lineTo(tipX, this.origin.y - halfWidth);
-    ctx.lineTo(tipX, this.origin.y + halfWidth);
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(tipX, origin.y - halfWidth);
+    ctx.lineTo(tipX, origin.y + halfWidth);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -3834,8 +3861,8 @@ class ForcePulseVisual {
     ctx.lineWidth = 1.1;
     for (const offsetScale of [-0.42, 0.42]) {
       ctx.beginPath();
-      ctx.moveTo(this.origin.x + this.direction * 12, this.origin.y);
-      ctx.lineTo(tipX - this.direction * 18, this.origin.y + halfWidth * offsetScale);
+      ctx.moveTo(origin.x + this.direction * 12, origin.y);
+      ctx.lineTo(tipX - this.direction * 18, origin.y + halfWidth * offsetScale);
       ctx.stroke();
     }
 
@@ -4025,10 +4052,10 @@ function getForcePulseHitPoint(origin, rect, direction) {
 
 function castForcePulse() {
   const direction = player.facing || 1;
+  player.startForcePulsePose(direction);
   const origin = player.getForwardHandPoint(direction);
   forcePulseCastId += 1;
-  player.startForcePulsePose(direction);
-  forcePulseVisuals.push(new ForcePulseVisual(origin, direction));
+  forcePulseVisuals.push(new ForcePulseVisual(player, direction, origin));
 
   for (const enemy of enemies) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
@@ -4164,6 +4191,13 @@ function closeAbilityWheel(confirmSelection = true) {
   abilityWheel.open = false;
 }
 
+function stepAbilityWheelHover(delta) {
+  for (let step = 0; step < abilities.length; step += 1) {
+    abilityWheel.hoveredIndex = (abilityWheel.hoveredIndex + delta + abilities.length) % abilities.length;
+    if (abilities[abilityWheel.hoveredIndex]?.unlocked) return;
+  }
+}
+
 function updateAbilityWheelHover() {
   if (!abilityWheel.open) return;
   const dx = pointerScreen.x - abilityWheel.centerX;
@@ -4187,10 +4221,10 @@ function updateAbilityInput(dt) {
   if (abilityWheel.open) {
     updateAbilityWheelHover();
     if (pressedThisFrame.has("arrowright") || pressedThisFrame.has("d")) {
-      abilityWheel.hoveredIndex = (abilityWheel.hoveredIndex + 1) % abilities.length;
+      stepAbilityWheelHover(1);
     }
     if (pressedThisFrame.has("arrowleft") || pressedThisFrame.has("a")) {
-      abilityWheel.hoveredIndex = (abilityWheel.hoveredIndex - 1 + abilities.length) % abilities.length;
+      stepAbilityWheelHover(-1);
     }
   }
 
@@ -4700,6 +4734,7 @@ window.__indiePlatformerDebug = {
   castForcePulse,
   forcePulseVisuals,
   abilityWheel,
+  getSelectedAbility,
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
