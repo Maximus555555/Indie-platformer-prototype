@@ -5438,10 +5438,9 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     const halfAngle = 0.54;
     const upperAngle = -halfAngle;
     const lowerAngle = halfAngle;
-    const shoulder = { x: -size * 0.43, y: size * 0.17 };
-    const elbow = { x: -size * 0.34, y: size * 0.02 };
-    const wrist = { x: originX - size * 0.055, y: originY + size * 0.005 };
-    const handRadius = size * 0.055;
+    const shoulder = { x: -size * 0.43, y: -size * 0.17 };
+    const elbow = { x: -size * 0.34, y: -size * 0.02 };
+    const wrist = { x: originX, y: originY };
 
     const drawPulseArm = () => {
       ctx.save();
@@ -5464,20 +5463,6 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
       ctx.moveTo(shoulder.x, shoulder.y);
       ctx.lineTo(elbow.x, elbow.y);
       ctx.lineTo(wrist.x, wrist.y);
-      ctx.stroke();
-      ctx.restore();
-    };
-
-    const drawPulseHand = () => {
-      ctx.save();
-      ctx.shadowColor = "rgba(82, 166, 240, 0.42)";
-      ctx.shadowBlur = size * 0.06;
-      ctx.fillStyle = "rgba(246, 253, 255, 0.96)";
-      ctx.strokeStyle = "rgba(46, 122, 207, 0.98)";
-      ctx.lineWidth = Math.max(0.85, size * 0.026);
-      ctx.beginPath();
-      ctx.arc(originX, originY, handRadius, 0, Math.PI * 2);
-      ctx.fill();
       ctx.stroke();
       ctx.restore();
     };
@@ -5522,10 +5507,6 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     strokePulseArc(range * 0.4, 0.24, Math.max(1, size * 0.028), "rgba(255, 218, 223, 0.78)");
     strokePulseArc(range * 0.62, 0.16, Math.max(1.1, size * 0.032), "rgba(255, 186, 197, 0.86)");
     strokePulseArc(range * 0.84, 0.08, Math.max(1.2, size * 0.036), "rgba(255, 135, 154, 0.82)");
-
-    // Redraw the palm above the shockwave so the pulse visibly originates from
-    // the player character's hand rather than a detached icon emitter.
-    drawPulseHand();
 
     ctx.shadowBlur = 0;
   } else if (ability.id === "anchor") {
