@@ -6412,17 +6412,10 @@ function drawEnergyLinks() {
   if (energyLink?.active) drawEnergyLinkInstance(energyLink, 1);
 }
 
-function drawEnergyLinkTargeting() {
-  for (const previewTarget of getEnergyLinkPreviewTargets()) {
-    drawEnergyLinkMarker(previewTarget, 0.72, false);
-  }
-}
-
 function drawEnergyLinkMarkers() {
   if (energyLink?.active) {
     for (const target of getActiveEnergyLinkTargets()) drawEnergyLinkMarker(target, 0.8, false);
   }
-  drawEnergyLinkTargeting();
 }
 
 function drawSelectedAbilityRangePreview() {
