@@ -103,4 +103,18 @@ if (!jumper.canStartAttack()) {
   throw new Error("Jumper failed to detect a player standing flush against a wall.");
 }
 
+// Regression: if only the jumper's visible edge is on a platform edge, it
+// should still treat that lip as support instead of getting stuck airborne.
+debug.player.x = 120;
+debug.player.y = 420;
+jumper.x = jumperPlatform.x + jumperPlatform.w - 2;
+jumper.gravitySign = 1;
+jumper.jumperState = "idle";
+jumper.recoveryDelayTimer = 1;
+jumper.attachToSurface(jumperPlatform);
+jumper.update(16 / 1000);
+if (!jumper.onSurface || jumper.jumperState === "airborne" || jumper.groundedPlatform !== jumperPlatform) {
+  throw new Error("Jumper got stuck airborne while balanced on a platform edge.");
+}
+
 console.log("Smoke test passed: game boots, schedules frames, and keeps a valid player state.");
