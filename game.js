@@ -469,6 +469,7 @@ class Entity {
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
     this.forcePulseStunTimer = 0;
+    this.forcePulseDirection = 0;
     this.lastForcePulseCastId = 0;
     this.verticalEdgeKillTimer = 0;
     this.anchorLocked = false;
@@ -616,6 +617,7 @@ class Entity {
   receiveForcePulse(direction, speed, stunDuration, castId) {
     if (this.lastForcePulseCastId === castId || this.isDying || this.hp <= 0) return false;
     this.lastForcePulseCastId = castId;
+    this.forcePulseDirection = direction;
     this.forcePulseStunTimer = Math.max(this.forcePulseStunTimer ?? 0, stunDuration);
     this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
     this.hitJoltX = direction * 2.6;
@@ -655,8 +657,12 @@ class Entity {
   }
 
   updateForcePulseStun(dt) {
-    if ((this.forcePulseStunTimer ?? 0) <= 0) return false;
+    if ((this.forcePulseStunTimer ?? 0) <= 0) {
+      this.forcePulseDirection = 0;
+      return false;
+    }
     this.forcePulseStunTimer = Math.max(0, this.forcePulseStunTimer - dt);
+    if (this.forcePulseStunTimer <= 0) this.forcePulseDirection = 0;
     return true;
   }
 
@@ -4771,6 +4777,18 @@ function castForcePulse() {
     transferEnergyLinkForce(hit.enemy, direction, hit.speed, FORCE_PULSE_STUN, forcePulseCastId, directHitEnemies);
   }
 
+  flushChain();
+}
+
+function castForcePulse() {
+  const direction = player.facing || 1;
+  player.startForcePulsePose(direction);
+  const origin = player.getForcePulseHandPoint(direction);
+  forcePulseCastId += 1;
+  forcePulseVisuals.push(new ForcePulseVisual(player, direction, origin));
+
+  applyForcePulseHits(buildForcePulseHitEntries(origin, direction), direction, forcePulseCastId);
+
   return true;
 }
 
@@ -5554,6 +5572,31 @@ function updateAbilityInput(dt) {
   eReleasedThisFrame = false;
 }
 
+function getEnemyUpdateOrder() {
+  return enemies
+    .map((enemy, index) => ({ enemy, index }))
+    .sort((a, b) => {
+      const aDirection = (a.enemy.forcePulseStunTimer ?? 0) > 0 ? a.enemy.forcePulseDirection || 0 : 0;
+      const bDirection = (b.enemy.forcePulseStunTimer ?? 0) > 0 ? b.enemy.forcePulseDirection || 0 : 0;
+
+      if (aDirection && bDirection) {
+        if (aDirection === bDirection) {
+          const aRect = a.enemy.getCollisionRect();
+          const bRect = b.enemy.getCollisionRect();
+          return bDirection > 0
+            ? (bRect.x + bRect.w) - (aRect.x + aRect.w)
+            : aRect.x - bRect.x;
+        }
+        return a.index - b.index;
+      }
+
+      if (aDirection) return -1;
+      if (bDirection) return 1;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.enemy);
+}
+
 function update(dt) {
   updateSystemMessages(dt);
   if (isSystemMessageBlocking()) {
@@ -5578,7 +5621,7 @@ function update(dt) {
 
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
 
-  enemies.forEach((enemy) => enemy.update(dt));
+  getEnemyUpdateOrder().forEach((enemy) => enemy.update(dt));
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
   forcePulseVisuals.forEach((visual) => visual.update(dt));
