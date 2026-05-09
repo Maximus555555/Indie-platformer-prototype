@@ -27,7 +27,7 @@
     pulseDamage: 1,
     pulseThickness: 5,
     pulseLifetime: 0.13,
-    gravityFieldRadius: 260,
+    gravityFieldRadius: 190,
     gravityFlipDamping: 0.45,
     contactDamageCooldown: 0.8,
     fallBoundaryOffset: 48,
