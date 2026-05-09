@@ -3942,17 +3942,19 @@ class Jumper extends Entity {
     ctx.closePath();
   }
 
-  drawSidePlate(side, pose, stretch, deathFlash = false) {
+  drawSidePlate(side, pose, airShift, deathFlash = false) {
     const points = [
       { x: side * pose.plateOuterX, y: pose.plateTopY },
       { x: side * pose.plateInnerX, y: pose.plateTopY + 0.3 },
       { x: side * pose.plateInnerLowX, y: pose.plateInnerLowY },
-      { x: side * pose.plateTipX, y: pose.plateTipY + stretch * 2.4 },
+      { x: side * pose.plateTipX, y: pose.plateTipY },
       { x: side * pose.plateFootX, y: pose.plateFootY }
     ];
 
     ctx.save();
-    ctx.rotate(side * pose.plateTilt + side * stretch * 0.05);
+    // Airborne motion now reads as rigid plate lag instead of organic squash.
+    ctx.translate(0, airShift * 1.3);
+    ctx.rotate(side * pose.plateTilt + side * airShift * 0.05);
     this.tracePolygon(points);
     const gradient = ctx.createLinearGradient(side * 6, pose.plateTopY, side * 21, pose.plateTipY);
     gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
@@ -3984,40 +3986,42 @@ class Jumper extends Entity {
     ctx.restore();
   }
 
-  drawJumperBody(blend, deathFlash = false, stretch = 0, sideLag = 0) {
+  drawJumperBody(blend, deathFlash = false, airShift = 0, sideLag = 0) {
     const pose = this.getPose(blend);
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
 
     ctx.save();
-    ctx.translate(0, -stretch * 1.7);
-    ctx.scale(1 - stretch * 0.04, 1 + stretch * 0.08);
+    // Keep the jumper rigid: shift armor pieces around the core rather than
+    // scaling the whole body, which made the leap read as squishy.
+    ctx.translate(0, -airShift * 1.8);
 
-    this.drawSidePlate(-1, pose, stretch + sideLag, deathFlash);
-    this.drawSidePlate(1, pose, stretch + sideLag, deathFlash);
+    this.drawSidePlate(-1, pose, airShift + sideLag, deathFlash);
+    this.drawSidePlate(1, pose, airShift + sideLag, deathFlash);
 
-    const coreRy = pose.coreRy + stretch * 0.9;
-    const coreGradient = ctx.createLinearGradient(0, pose.coreY - coreRy, 0, pose.coreY + coreRy);
+    const coreY = pose.coreY - airShift * 1.4;
+    const coreRy = pose.coreRy;
+    const coreGradient = ctx.createLinearGradient(0, coreY - coreRy, 0, coreY + coreRy);
     coreGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(121, 178, 255, 0.97)");
     coreGradient.addColorStop(0.5, deathFlash ? "rgba(214, 236, 255, 0.96)" : "rgba(88, 90, 226, 0.97)");
     coreGradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(48, 36, 160, 0.96)");
-    this.traceDiamond(0, pose.coreY, pose.coreRx, coreRy);
+    this.traceDiamond(0, coreY, pose.coreRx, coreRy);
     ctx.fillStyle = coreGradient;
     ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(27, 24, 96, 0.96)";
     ctx.lineWidth = 1.5;
     ctx.fill();
     ctx.stroke();
 
-    this.traceDiamond(0, pose.coreY, pose.coreRx, coreRy);
+    this.traceDiamond(0, coreY, pose.coreRx, coreRy);
     ctx.save();
     ctx.clip();
-    const coreGlow = ctx.createRadialGradient(0, pose.coreY, 0.5, 0, pose.coreY, coreRy * 0.8);
+    const coreGlow = ctx.createRadialGradient(0, coreY, 0.5, 0, coreY, coreRy * 0.8);
     coreGlow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.48)" : "rgba(184, 113, 255, 0.42)");
     coreGlow.addColorStop(0.58, deathFlash ? "rgba(215, 230, 255, 0.18)" : "rgba(91, 80, 255, 0.22)");
     coreGlow.addColorStop(1, "rgba(91, 80, 255, 0)");
     ctx.fillStyle = coreGlow;
-    ctx.fillRect(-pose.coreRx, pose.coreY - coreRy, pose.coreRx * 2, coreRy * 2);
+    ctx.fillRect(-pose.coreRx, coreY - coreRy, pose.coreRx * 2, coreRy * 2);
     ctx.restore();
     ctx.restore();
   }
@@ -4035,7 +4039,9 @@ class Jumper extends Entity {
       ? Math.sin(this.hoverTimer * 2.8) * 1.2 * (this.gravitySign > 0 ? -1 : 1)
       : 0;
     const airborne = this.jumperState === "jumping" || this.jumperState === "airborne";
-    const stretch = airborne ? clamp(Math.abs(this.vy) / JUMPER_LEAP_IMPULSE, 0, 1) * 0.18 : 0;
+    const airShift = airborne
+      ? clamp((-this.vy * this.gravitySign) / JUMPER_LEAP_IMPULSE, -0.45, 1)
+      : 0;
     const sideLag = airborne ? 0.12 : 0;
     const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.14 : 0;
 
@@ -4047,7 +4053,7 @@ class Jumper extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
-    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, stretch, sideLag);
+    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag);
     ctx.restore();
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
