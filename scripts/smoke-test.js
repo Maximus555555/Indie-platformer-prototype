@@ -202,6 +202,38 @@ if (debug.forcePulseVisuals.length !== forcePulseVisualCount) {
 if (forcePulseAbility.cooldownRemaining > forcePulseCooldownAfterCast) {
   throw new Error("Force Pulse cooldown was reset by a denied cast.");
 }
+
+// Regression: when two enemies are touching in the pulse direction, the rear
+// enemy should not spend its shove colliding into the front enemy's old body.
+const pulseChainFrontWalker = debug.enemies[2];
+if (!pulseChainFrontWalker) throw new Error("Expected a second Walker for Force Pulse chain regression.");
+debug.player.x = 580;
+debug.player.y = 420;
+debug.player.facing = 1;
+for (const enemy of [pulseWalker, pulseChainFrontWalker]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.forcePulseStunTimer = 0;
+  enemy.forcePulseDirection = 0;
+  enemy.lastForcePulseCastId = 0;
+  enemy.anchorLocked = false;
+  enemy.vx = 0;
+  enemy.vy = 0;
+}
+pulseWalker.x = 660;
+pulseWalker.y = 435;
+pulseChainFrontWalker.x = pulseWalker.x + pulseWalker.w - 4;
+pulseChainFrontWalker.y = pulseWalker.y;
+const pulseChainRearStartX = pulseWalker.x;
+const pulseChainFrontStartX = pulseChainFrontWalker.x;
+forcePulseAbility.cooldownRemaining = 0;
+if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate for adjacent enemy chain regression.");
+debug.update(1 / 30);
+if (pulseWalker.x <= pulseChainRearStartX + 8 || pulseChainFrontWalker.x <= pulseChainFrontStartX + 8) {
+  throw new Error("Force Pulse did not carry both adjacent enemies forward as a chain.");
+}
+
 forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("gravity");
 debug.player.x = 120;
