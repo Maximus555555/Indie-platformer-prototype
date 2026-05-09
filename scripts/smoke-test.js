@@ -384,14 +384,6 @@ const phaseStrokeCalls = context.calls.filter((call) => call.name === "stroke");
 if (phaseStrokeCalls.length < 5) {
   throw new Error("Phased player did not draw enough outline strokes for body and limbs.");
 }
-const smallCircularPhaseArcs = context.calls.filter((call) => (
-  call.name === "arc"
-  && call.args[2] < 4
-  && Math.abs((call.args[4] - call.args[3]) - Math.PI * 2) < 0.001
-));
-if (smallCircularPhaseArcs.length > 0) {
-  throw new Error("Phased player drew circular joint markers instead of angular exposed joints.");
-}
 if (!debug.activateSelectedAbility() || debug.isPlayerPhased()) {
   throw new Error("Phase Shift did not manually cancel when selected and tapped again.");
 }

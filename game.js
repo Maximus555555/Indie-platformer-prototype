@@ -1395,13 +1395,11 @@ class Player extends Entity {
         ctx.moveTo(outerB[0].x, outerB[0].y);
         for (let i = 1; i < outerB.length; i += 1) ctx.lineTo(outerB[i].x, outerB[i].y);
 
-        // Phase limbs use hard, angled end bridges instead of round caps so
-        // exposed connection points never read as circular joints.
-        ctx.moveTo(outerA[0].x, outerA[0].y);
-        ctx.lineTo(outerB[0].x, outerB[0].y);
-        const last = outerA.length - 1;
-        ctx.moveTo(outerA[last].x, outerA[last].y);
-        ctx.lineTo(outerB[last].x, outerB[last].y);
+        // Round end caps complete the limb outline without painting its center.
+        for (const point of [points[0], points[points.length - 1]]) {
+          ctx.moveTo(point.x + outerRadius, point.y);
+          ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
+        }
         ctx.stroke();
       }
 
@@ -1445,92 +1443,6 @@ class Player extends Entity {
       ctx.closePath();
       if (!phased) ctx.fill();
       ctx.stroke();
-      ctx.restore();
-    }
-
-    function traceTorsoInterior(torso, padding = 0) {
-      const rx = torso.rx + padding;
-      const ry = torso.ry + padding;
-      const sideHalf = Math.max(ry - rx, ry * 0.42);
-      ctx.save();
-      ctx.translate(torso.x, torso.y);
-      ctx.rotate(torso.rot);
-      ctx.moveTo(-rx, -sideHalf);
-      ctx.lineTo(-rx, sideHalf);
-      ctx.quadraticCurveTo(-rx, ry, 0, ry);
-      ctx.quadraticCurveTo(rx, ry, rx, sideHalf);
-      ctx.lineTo(rx, -sideHalf);
-      ctx.quadraticCurveTo(rx, -ry, 0, -ry);
-      ctx.quadraticCurveTo(-rx, -ry, -rx, -sideHalf);
-      ctx.closePath();
-      ctx.restore();
-    }
-
-    function traceHeadInterior(head, padding = 0) {
-      ctx.moveTo(head.x + head.r + padding, head.y);
-      ctx.arc(head.x, head.y, head.r + padding, 0, Math.PI * 2);
-    }
-
-    function drawPhaseJointMarks(limbs, torso, head) {
-      if (!phased) return;
-
-      function pointNormal(points, index) {
-        const previous = points[Math.max(0, index - 1)];
-        const point = points[index];
-        const next = points[Math.min(points.length - 1, index + 1)];
-        const dx = next.x - previous.x;
-        const dy = next.y - previous.y;
-        const length = Math.hypot(dx, dy) || 1;
-        return { x: -dy / length, y: dx / length };
-      }
-
-      ctx.save();
-      // Clip the angular joint ticks to the hollow space outside the head and
-      // torso interiors. Shoulder and hip ticks can cross those shapes during
-      // animation, and only the exposed portions should remain visible.
-      ctx.beginPath();
-      ctx.rect(-80, -40, 160, 130);
-      traceTorsoInterior(torso, characterOutlineWidth * 0.7);
-      traceHeadInterior(head, characterOutlineWidth * 0.7);
-      ctx.clip("evenodd");
-
-      ctx.strokeStyle = "rgba(169, 244, 255, 0.9)";
-      ctx.lineWidth = characterOutlineWidth * 0.8;
-      ctx.lineCap = "butt";
-      ctx.lineJoin = "miter";
-
-      for (const limb of limbs) {
-        if (!limb) continue;
-        for (let i = 0; i < limb.length; i += 1) {
-          const point = limb[i];
-          const normal = pointNormal(limb, i);
-          const tangent = { x: -normal.y, y: normal.x };
-          const baseOffset = i === 1 ? 2.55 : 2.15;
-          const tickLength = i === 1 ? 2.25 : 1.75;
-
-          // Draw paired chevrons just outside the hollow limb tube. Their centers
-          // stay off the limb interior, which keeps phase joints visible without
-          // introducing circular hinge dots.
-          for (const side of [-1, 1]) {
-            const center = {
-              x: point.x + normal.x * baseOffset * side,
-              y: point.y + normal.y * baseOffset * side
-            };
-            ctx.beginPath();
-            ctx.moveTo(
-              center.x - tangent.x * tickLength + normal.x * side * 0.35,
-              center.y - tangent.y * tickLength + normal.y * side * 0.35
-            );
-            ctx.lineTo(center.x, center.y);
-            ctx.lineTo(
-              center.x + tangent.x * tickLength + normal.x * side * 0.35,
-              center.y + tangent.y * tickLength + normal.y * side * 0.35
-            );
-            ctx.stroke();
-          }
-        }
-      }
-
       ctx.restore();
     }
 
@@ -2169,7 +2081,6 @@ class Player extends Entity {
       ctx.restore();
     }
     if (pose.nearArm) strokeLimb(pose.nearArm, 2.7);
-    drawPhaseJointMarks([pose.farLeg, pose.farArm, pose.nearLeg, pose.nearArm], pose.torso, pose.head);
 
     ctx.fillStyle = fill;
     ctx.strokeStyle = outline;
