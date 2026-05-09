@@ -351,6 +351,48 @@ if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || link
 linkAbility.cooldownRemaining = 0;
 linkAbility.activeRemaining = 0;
 
+// Environmental Energy Link regression: a linked enemy killed by spikes should
+// shatter every other non-boss enemy in the active link immediately.
+for (const enemy of [linkA, linkB, linkC]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.forcePulseStunTimer = 0;
+  enemy.lastForcePulseCastId = 0;
+}
+debug.player.x = 500;
+debug.player.y = 420;
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 710;
+linkB.y = 435;
+linkC.x = 760;
+linkC.y = 435;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not activate for environmental death regression.");
+const linkedFloorSpike = debug.spikes.find((spike) => spike.side === "top");
+if (!linkedFloorSpike) throw new Error("Expected a floor spike for Energy Link environmental death regression.");
+linkA.x = linkedFloorSpike.x + 12;
+linkA.y = linkedFloorSpike.platform.y - linkA.h + 8;
+debug.update(1 / 60);
+if (!linkA.isDying || !linkB.isDying || !linkC.isDying) {
+  throw new Error("A linked spike death did not kill all linked enemies.");
+}
+if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || linkAbility.cooldownRemaining <= 0) {
+  throw new Error("Energy Link did not end and start cooldown after environmental linked deaths.");
+}
+for (const enemy of [linkA, linkB, linkC]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.deathFragments = [];
+  enemy.vx = 0;
+  enemy.vy = 0;
+}
+linkAbility.cooldownRemaining = 0;
+linkAbility.activeRemaining = 0;
+
 debug.setSelectedAbility("gravity");
 debug.player.x = 120;
 debug.player.y = 420;
