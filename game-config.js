@@ -44,7 +44,7 @@
     forcePulseCooldown: 4.0,
     energyLinkRange: 320,
     energyLinkPendingTimeout: 2.5,
-    energyLinkDuration: 4.0,
+    energyLinkDuration: 4.5,
     energyLinkCooldown: 8.0,
     energyLinkDamageTransfer: 1.0,
     energyLinkForceTransfer: 1.0,
