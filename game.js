@@ -963,7 +963,7 @@ class Player extends Entity {
   }
 
   firePulse() {
-    if (this.isDying || isPlayerPhased() || this.pulseTimer > 0) return;
+    if (this.isDying || anchorFieldActive || isPlayerPhased() || this.pulseTimer > 0) return;
     this.pulseTimer = PULSE_COOLDOWN;
     this.attackTimer = ATTACK_ANIM_DURATION;
     this.attackReleaseTimer = ATTACK_RELEASE_TIME;
@@ -4651,6 +4651,11 @@ function activateEnergyLink() {
   const ability = getAbilityById("link");
   if (!ability) return false;
 
+  if (anchorFieldActive) {
+    ability.unavailableTimer = 0.16;
+    return false;
+  }
+
   if (energyLink?.active) return endEnergyLink(true);
 
   if (!isAbilityReady(ability)) {
@@ -4776,6 +4781,8 @@ function applyForcePulseHits({ hits, directHitEnemies }, direction, castId) {
 }
 
 function castForcePulse() {
+  if (anchorFieldActive) return false;
+
   const direction = player.facing || 1;
   player.startForcePulsePose(direction);
   const origin = player.getForcePulseHandPoint(direction);
@@ -5132,7 +5139,7 @@ function exposeEnemiesToPhaseShift() {
 
 function activatePhaseShift() {
   const ability = getAbilityById("phase");
-  if (!ability || phaseShiftActive) return false;
+  if (!ability || phaseShiftActive || anchorFieldActive) return false;
   phaseCastId += 1;
   currentPhaseExposure = new Set();
   phaseShiftActive = true;
@@ -5211,7 +5218,7 @@ function resetGravityField(resetAll = false, startCooldown = false) {
 
 function activateGravityField() {
   const ability = getAbilityById("gravity");
-  if (!ability || gravityFieldActive) return false;
+  if (!ability || gravityFieldActive || anchorFieldActive) return false;
 
   gravityCastId += 1;
   gravityFieldActive = true;
@@ -5270,9 +5277,25 @@ function getAnchorFieldOrigin() {
   return centerOf(player);
 }
 
+function suppressAbilitiesForAnchorField() {
+  // Anchor Field is a null zone: any player ability already in effect is
+  // immediately ended before the anchor snapshot is taken, and non-anchor
+  // activations are denied while the field remains active.
+  if (gravityFieldActive) resetGravityField(false, true);
+  if (timeSlowActive) endTimeSlow(true);
+  if (phaseShiftActive) forceEndPhaseShift(true);
+  if (energyLink?.active) endEnergyLink(true);
+
+  player.attackPulseQueued = false;
+  player.attackReleaseTimer = 0;
+  player.attackTimer = 0;
+  forcePulseVisuals.length = 0;
+}
+
 function activateAnchorField() {
   const ability = getAbilityById("anchor");
   if (!ability || anchorFieldActive) return false;
+  suppressAbilitiesForAnchorField();
   const origin = getAnchorFieldOrigin();
   anchorField = {
     x: origin.x,
@@ -5348,7 +5371,7 @@ function updateAnchorField(dt) {
 
 function activateTimeSlow() {
   const ability = getAbilityById("time");
-  if (!ability || timeSlowActive) return false;
+  if (!ability || timeSlowActive || anchorFieldActive) return false;
   timeSlowActive = true;
   timeSlowFadeTimer = 0;
   startTimedAbility(ability);
@@ -5432,6 +5455,11 @@ function selectAbility(ability) {
 
 function activateSelectedAbility() {
   const ability = getSelectedAbility();
+  if (anchorFieldActive && ability.id !== "anchor") {
+    ability.unavailableTimer = 0.16;
+    return false;
+  }
+
   if (player.isDying) {
     ability.unavailableTimer = 0.16;
     return false;
