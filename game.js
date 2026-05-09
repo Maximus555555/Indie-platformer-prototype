@@ -106,6 +106,7 @@ const FALL_BOUNDARY_OFFSET = config.fallBoundaryOffset ?? 48;
 const FALL_RESPAWN_GRACE = config.fallRespawnGrace ?? 0.22;
 const EDGE_RESPAWN_INSET = config.edgeRespawnInset ?? 18;
 const ROOM_WIDTH = config.roomWidth ?? 2200;
+const ENEMY_VERTICAL_EDGE_KILL_TOLERANCE = config.enemyVerticalEdgeKillTolerance ?? 4;
 const HUD_MARGIN = 20;
 const HP_DIAMOND_SIZE = 14;
 const HP_DIAMOND_SPACING = 8;
@@ -365,6 +366,12 @@ function intersectionDepth(a, b) {
 
 function centerOf(entity) {
   return { x: entity.x + entity.w / 2, y: entity.y + entity.h / 2 };
+}
+
+function enemyTouchesVerticalWorldEdge(enemy) {
+  const left = enemy.x;
+  const right = enemy.x + enemy.w;
+  return left <= ENEMY_VERTICAL_EDGE_KILL_TOLERANCE || right >= ROOM_WIDTH - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE;
 }
 
 function distance(a, b) {
@@ -1918,7 +1925,7 @@ class Enemy extends Entity {
     this.updateHitReaction(dt);
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
-    if (this.isTouchingVerticalWorldEdge()) {
+    if (this.isTouchingVerticalWorldEdge() || this.isOutsideVerticalWorldBounds()) {
       this.beginDeath();
       return;
     }
@@ -1932,7 +1939,7 @@ class Enemy extends Entity {
       this.updateAirbornePhysics(dt);
     }
 
-    if (!this.isDying && this.isTouchingVerticalWorldEdge()) this.beginDeath();
+    if (!this.isDying && (this.isTouchingVerticalWorldEdge() || this.isOutsideVerticalWorldBounds())) this.beginDeath();
   }
 
   updateHitReaction(dt) {
@@ -1949,6 +1956,10 @@ class Enemy extends Entity {
   }
 
   isTouchingVerticalWorldEdge() {
+    return enemyTouchesVerticalWorldEdge(this);
+  }
+
+  isOutsideVerticalWorldBounds() {
     const body = this.getCollisionRect();
     // Match the player fall envelope so Walkers shatter instead of persisting
     // forever once gravity or a platform gap pushes them off the playable area.
@@ -2474,7 +2485,7 @@ class Drone extends Entity {
     this.updateHitReaction(dt);
     this.updateOrbitDetachVisuals(dt);
 
-    if (this.isTouchingVerticalWorldEdge()) {
+    if (this.isTouchingVerticalWorldEdge() || this.isOutsideVerticalWorldBounds()) {
       this.beginDeath();
       return;
     }
@@ -2711,6 +2722,10 @@ class Drone extends Entity {
   }
 
   isTouchingVerticalWorldEdge() {
+    return enemyTouchesVerticalWorldEdge(this);
+  }
+
+  isOutsideVerticalWorldBounds() {
     const body = this.getCollisionRect();
     return body.y + body.h >= bottomFallBoundary || body.y <= -120;
   }
@@ -3367,7 +3382,7 @@ class Jumper extends Entity {
 
   isOutsideWorld() {
     const body = this.getCollisionRect();
-    return body.y + body.h >= bottomFallBoundary || body.y <= -120 || body.x + body.w < -20 || body.x > ROOM_WIDTH + 20;
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120 || enemyTouchesVerticalWorldEdge(this);
   }
 
   getCollisionRect() {
@@ -3893,14 +3908,8 @@ class ForcePulseVisual {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // Layered translucent fills and soft shadows make the pulse read as clean
-    // red energy without adding interior segment/radial detail to the cone.
-    ctx.shadowColor = "rgba(255, 58, 84, 0.48)";
-    ctx.shadowBlur = 28;
-    ctx.fillStyle = "rgba(255, 36, 64, 0.13)";
-    traceCone.call(this, 12);
-    ctx.fill();
-
+    // A single translucent fill with a soft shadow keeps the rounded cone
+    // clean, with no duplicate cap/burst at the far edge.
     ctx.shadowColor = "rgba(255, 65, 95, 0.58)";
     ctx.shadowBlur = 18;
     ctx.fillStyle = "rgba(255, 24, 52, 0.2)";
@@ -4183,6 +4192,17 @@ function startAbilityCooldown(ability) {
   ability.readyPulseTimer = 0;
 }
 
+function selectAbility(ability) {
+  if (!ability?.unlocked || ability.id === selectedAbilityId) return false;
+
+  if (gravityFieldActive && ability.id !== "gravity") {
+    resetGravityField();
+  }
+
+  selectedAbilityId = ability.id;
+  return true;
+}
+
 function activateSelectedAbility() {
   const ability = getSelectedAbility();
   if (player.isDying) {
@@ -4232,10 +4252,7 @@ function openAbilityWheel() {
 }
 
 function closeAbilityWheel(confirmSelection = true) {
-  if (confirmSelection) {
-    const ability = abilities[abilityWheel.hoveredIndex];
-    if (ability?.unlocked) selectedAbilityId = ability.id;
-  }
+  if (confirmSelection) selectAbility(abilities[abilityWheel.hoveredIndex]);
   abilityWheel.open = false;
 }
 
@@ -4777,7 +4794,7 @@ window.__indiePlatformerDebug = {
   activateSelectedAbility,
   setSelectedAbility: (id) => {
     const ability = abilities.find((candidate) => candidate.id === id);
-    if (ability?.unlocked) selectedAbilityId = ability.id;
+    return selectAbility(ability);
   },
   castForcePulse,
   forcePulseVisuals,
