@@ -5430,14 +5430,57 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.arc(0, 0, size * 0.035, 0, Math.PI * 2);
     ctx.fill();
   } else if (ability.id === "pulse") {
-    // Force Pulse reads as a hot emitter blasting nested shockwave arcs forward.
-    // The layered wedges keep the icon recognizable at both HUD and wheel sizes.
-    const originX = -size * 0.28;
+    // Force Pulse reads as the player thrusting a hand forward while nested
+    // shockwave arcs burst from the palm, matching the in-game casting pose.
+    const originX = -size * 0.18;
     const originY = 0;
-    const range = size * 0.58;
+    const range = size * 0.48;
     const halfAngle = 0.54;
     const upperAngle = -halfAngle;
     const lowerAngle = halfAngle;
+    const shoulder = { x: -size * 0.43, y: size * 0.17 };
+    const elbow = { x: -size * 0.34, y: size * 0.02 };
+    const wrist = { x: originX - size * 0.055, y: originY + size * 0.005 };
+    const handRadius = size * 0.055;
+
+    const drawPulseArm = () => {
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = "rgba(82, 166, 240, 0.42)";
+      ctx.shadowBlur = size * 0.08;
+      ctx.strokeStyle = "rgba(46, 122, 207, 0.96)";
+      ctx.lineWidth = Math.max(2.3, size * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(shoulder.x, shoulder.y);
+      ctx.lineTo(elbow.x, elbow.y);
+      ctx.lineTo(wrist.x, wrist.y);
+      ctx.stroke();
+
+      ctx.shadowBlur = size * 0.045;
+      ctx.strokeStyle = "rgba(246, 253, 255, 0.96)";
+      ctx.lineWidth = Math.max(1.2, size * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(shoulder.x, shoulder.y);
+      ctx.lineTo(elbow.x, elbow.y);
+      ctx.lineTo(wrist.x, wrist.y);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawPulseHand = () => {
+      ctx.save();
+      ctx.shadowColor = "rgba(82, 166, 240, 0.42)";
+      ctx.shadowBlur = size * 0.06;
+      ctx.fillStyle = "rgba(246, 253, 255, 0.96)";
+      ctx.strokeStyle = "rgba(46, 122, 207, 0.98)";
+      ctx.lineWidth = Math.max(0.85, size * 0.026);
+      ctx.beginPath();
+      ctx.arc(originX, originY, handRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    };
 
     const tracePulseFan = (fanRange, insetAngle = 0) => {
       const startAngle = upperAngle + insetAngle;
@@ -5458,6 +5501,8 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
       ctx.stroke();
     };
 
+    drawPulseArm();
+
     ctx.shadowColor = "rgba(255, 40, 78, 0.62)";
     ctx.shadowBlur = size * 0.22;
     ctx.fillStyle = "rgba(255, 31, 69, 0.24)";
@@ -5477,6 +5522,10 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     strokePulseArc(range * 0.4, 0.24, Math.max(1, size * 0.028), "rgba(255, 218, 223, 0.78)");
     strokePulseArc(range * 0.62, 0.16, Math.max(1.1, size * 0.032), "rgba(255, 186, 197, 0.86)");
     strokePulseArc(range * 0.84, 0.08, Math.max(1.2, size * 0.036), "rgba(255, 135, 154, 0.82)");
+
+    // Redraw the palm above the shockwave so the pulse visibly originates from
+    // the player character's hand rather than a detached icon emitter.
+    drawPulseHand();
 
     ctx.shadowBlur = 0;
   } else if (ability.id === "anchor") {
