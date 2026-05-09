@@ -97,7 +97,6 @@ const PHASE_SHIFT_COOLDOWN = config.phaseShiftCooldown ?? 6.0;
 const PHASE_SHIFT_FLICKER_DURATION = 0.16;
 const PHASE_SHIFT_EXPOSURE_RADIUS = 96;
 const ANCHOR_FIELD_RADIUS = config.anchorFieldRadius ?? 160;
-const ANCHOR_FIELD_PLACEMENT_DISTANCE = config.anchorFieldPlacementDistance ?? 200;
 const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
 const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
 const ANCHOR_FIELD_FADE_DURATION = 0.16;
@@ -5006,40 +5005,24 @@ function isTargetInsideAnchorField(target) {
   return isPointInsideAnchorField(centerOf(target));
 }
 
-function findAnchorPlacementPoint() {
-  const direction = player.facing || 1;
-  const origin = {
-    x: player.x + player.w / 2,
-    y: player.y + player.h * 0.42
-  };
-  const target = {
-    x: clamp(origin.x + direction * ANCHOR_FIELD_PLACEMENT_DISTANCE, ANCHOR_FIELD_RADIUS * 0.35, ROOM_WIDTH - ANCHOR_FIELD_RADIUS * 0.35),
-    y: clamp(origin.y, 36, bottomFallBoundary - 36)
-  };
+function getAnchorFieldOrigin() {
+  return centerOf(player);
+}
 
-  let best = { ...origin };
-  const travel = Math.abs(target.x - origin.x);
-  const steps = Math.max(1, Math.ceil(travel / 8));
-  for (let step = 1; step <= steps; step += 1) {
-    const t = step / steps;
-    const candidate = {
-      x: origin.x + (target.x - origin.x) * t,
-      y: origin.y + (target.y - origin.y) * t
-    };
-    if (platforms.some((platform) => pointInRect(candidate, platform))) break;
-    best = candidate;
-  }
-
-  return best;
+function syncAnchorFieldToPlayer() {
+  if (!anchorField) return;
+  const origin = getAnchorFieldOrigin();
+  anchorField.x = origin.x;
+  anchorField.y = origin.y;
 }
 
 function activateAnchorField() {
   const ability = getAbilityById("anchor");
   if (!ability || anchorFieldActive) return false;
-  const placement = findAnchorPlacementPoint();
+  const origin = getAnchorFieldOrigin();
   anchorField = {
-    x: placement.x,
-    y: placement.y,
+    x: origin.x,
+    y: origin.y,
     radius: ANCHOR_FIELD_RADIUS,
     age: 0
   };
@@ -5087,6 +5070,7 @@ function refreshAnchorFieldEffects() {
 
 function updateAnchorField(dt) {
   if (anchorFieldActive && anchorField) {
+    syncAnchorFieldToPlayer();
     anchorField.age += dt;
     refreshAnchorFieldEffects();
   }
@@ -6139,7 +6123,7 @@ function drawSelectedAbilityRangePreview() {
     ctx.fill();
     ctx.stroke();
   } else if (ability.id === "anchor") {
-    const origin = findAnchorPlacementPoint();
+    const origin = getAnchorFieldOrigin();
     ctx.strokeStyle = "rgba(220, 248, 255, 0.86)";
     ctx.fillStyle = "rgba(176, 224, 255, 0.06)";
     ctx.shadowColor = "rgba(190, 238, 255, 0.38)";
