@@ -1394,8 +1394,12 @@ class Player extends Entity {
         for (let i = 1; i < outerA.length; i += 1) ctx.lineTo(outerA[i].x, outerA[i].y);
         ctx.moveTo(outerB[0].x, outerB[0].y);
         for (let i = 1; i < outerB.length; i += 1) ctx.lineTo(outerB[i].x, outerB[i].y);
-        // Keep phase limbs open-ended so shoulders, hips, hands, and feet do
-        // not gain extra joint rings while the player is phased.
+
+        // Round end caps complete the limb outline without painting its center.
+        for (const point of [points[0], points[points.length - 1]]) {
+          ctx.moveTo(point.x + outerRadius, point.y);
+          ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
+        }
         ctx.stroke();
       }
 
