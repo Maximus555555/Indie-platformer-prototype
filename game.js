@@ -101,8 +101,6 @@ const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
 const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
 const ANCHOR_FIELD_FADE_DURATION = 0.16;
 const ANCHOR_SILVER_FILL = "rgba(192, 192, 192, 0.14)";
-const ANCHOR_DARK_FILL = "rgba(20, 24, 31, 0.46)";
-const ANCHOR_FLASH_FILL = "rgba(245, 245, 245, 0.34)";
 const ANCHOR_SILVER_STROKE = "rgba(224, 224, 224, 0.92)";
 const ANCHOR_SILVER_CORE = "rgba(245, 245, 245, 0.96)";
 const ANCHOR_SILVER_SHADOW = "rgba(192, 192, 192, 0.72)";
@@ -4840,40 +4838,23 @@ function drawAnchorTargetGlow(rx = 28, ry = 28) {
   ctx.save();
   ctx.lineJoin = "miter";
   ctx.lineCap = "round";
-
-  const pulse = (Math.sin(lastTime * 0.018) + 1) / 2;
-  const flashAlpha = 0.2 + pulse * 0.22;
-
-  // Use a darker full-body diamond behind the silver flash so anchored targets
-  // read clearly against both bright enemy cores and dark room backgrounds.
   ctx.shadowColor = ANCHOR_SILVER_SHADOW;
-  ctx.shadowBlur = 24 + pulse * 10;
+  ctx.shadowBlur = 16;
   ctx.strokeStyle = ANCHOR_SILVER_STROKE;
-  ctx.fillStyle = ANCHOR_DARK_FILL;
-  ctx.lineWidth = 2.1;
+  ctx.fillStyle = ANCHOR_SILVER_FILL;
+  ctx.lineWidth = 1.5;
 
   ctx.beginPath();
-  ctx.moveTo(0, -ry * 1.08);
-  ctx.lineTo(rx * 1.08, 0);
-  ctx.lineTo(0, ry * 1.08);
-  ctx.lineTo(-rx * 1.08, 0);
+  ctx.moveTo(0, -ry);
+  ctx.lineTo(rx, 0);
+  ctx.lineTo(0, ry);
+  ctx.lineTo(-rx, 0);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
-  ctx.globalAlpha *= flashAlpha;
-  ctx.fillStyle = ANCHOR_FLASH_FILL;
-  ctx.beginPath();
-  ctx.moveTo(0, -ry * 0.86);
-  ctx.lineTo(rx * 0.86, 0);
-  ctx.lineTo(0, ry * 0.86);
-  ctx.lineTo(-rx * 0.86, 0);
-  ctx.closePath();
-  ctx.fill();
-  ctx.globalAlpha /= flashAlpha;
-
   ctx.strokeStyle = ANCHOR_SILVER_CORE;
-  ctx.lineWidth = 1.25;
+  ctx.lineWidth = 1;
   const tickStartX = rx * 0.54;
   const tickEndX = rx * 0.82;
   const tickStartY = ry * 0.54;
@@ -6066,16 +6047,15 @@ function drawAnchorFieldInstance(field, alpha = 1) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.shadowColor = ANCHOR_SILVER_SHADOW;
-  ctx.shadowBlur = 22;
+  ctx.shadowBlur = 14;
 
-  const activationFlash = clamp((field.fadeRemaining ?? 0) / ANCHOR_FIELD_FADE_DURATION, 0, 1);
   const fill = ctx.createRadialGradient(field.x, field.y, radius * 0.08, field.x, field.y, radius);
-  fill.addColorStop(0, `rgba(245, 245, 245, ${0.13 + activationFlash * 0.16})`);
-  fill.addColorStop(0.58, `rgba(192, 192, 192, ${0.07 + activationFlash * 0.12})`);
-  fill.addColorStop(1, "rgba(28, 32, 40, 0.04)");
+  fill.addColorStop(0, "rgba(245, 245, 245, 0.08)");
+  fill.addColorStop(0.72, "rgba(192, 192, 192, 0.04)");
+  fill.addColorStop(1, "rgba(192, 192, 192, 0.01)");
   ctx.fillStyle = fill;
-  ctx.strokeStyle = `rgba(224, 224, 224, ${Math.min(1, hum + activationFlash * 0.12)})`;
-  ctx.lineWidth = 2 + activationFlash * 1.2;
+  ctx.strokeStyle = `rgba(224, 224, 224, ${hum})`;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.arc(field.x, field.y, radius, 0, Math.PI * 2);
   ctx.fill();
