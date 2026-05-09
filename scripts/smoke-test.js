@@ -123,6 +123,20 @@ if (debug.activateSelectedAbility()) {
 debug.resetGravityField(true);
 gravityAbility.cooldownRemaining = 0;
 
+// Switching away from Gravity Field through the same selection path used by the
+// wheel must immediately run the normal gravity reset instead of leaving the
+// player or affected enemies inverted under another selected ability.
+debug.setSelectedAbility("gravity");
+if (!debug.activateSelectedAbility()) throw new Error("Gravity Field did not reactivate for ability-switch reset regression.");
+if (debug.player.gravitySign !== -1) throw new Error("Gravity Field setup did not invert the player before switching abilities.");
+debug.setSelectedAbility("pulse");
+if (debug.getSelectedAbility().id !== "pulse") throw new Error("Switching away from Gravity Field did not select Force Pulse.");
+if (debug.player.gravitySign !== 1) throw new Error("Switching away from Gravity Field did not reset player gravity.");
+if (debug.enemies.some((enemy) => enemy.gravitySign !== 1)) {
+  throw new Error("Switching away from Gravity Field left an enemy in reversed gravity.");
+}
+gravityAbility.cooldownRemaining = 0;
+
 // Force Pulse regression: the ability is unlocked, selected independently from
 // Gravity Field, starts its own cooldown, and pushes an enemy inside the cone.
 const forcePulseAbility = debug.abilities.find((ability) => ability.id === "pulse");
@@ -255,6 +269,19 @@ if (!jumper.onSurface || jumper.jumperState === "airborne" || jumper.groundedPla
 
 if (!Array.isArray(debug.spikes) || debug.spikes.length < 2) {
   throw new Error("Expected platform-attached spike strips to exist.");
+}
+
+// Regression: enemies that touch the left or right room boundary should enter
+// their existing dissolve death state instead of sticking to the world edge.
+for (const enemy of debug.enemies) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.x = 0;
+  enemy.update(16 / 1000);
+  if (enemy.hp !== 0 || !enemy.isDying) {
+    throw new Error(`${enemy.constructor.name} did not die after touching the left room edge.`);
+  }
 }
 
 // Regression: spike hazards deal one player damage, knock the player clear,
