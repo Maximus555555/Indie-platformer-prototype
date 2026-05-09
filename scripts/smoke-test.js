@@ -93,7 +93,8 @@ function keyEvent(key) {
 }
 
 // Ability UI/input regression: tapping E activates the selected Gravity Field
-// through the ability system, starts cooldown, and blocks immediate re-use.
+// through the ability system, starts cooldown, and still allows deactivation
+// before the cooldown has refreshed.
 const gravityAbility = debug.abilities.find((ability) => ability.id === "gravity");
 if (!gravityAbility || !gravityAbility.unlocked) throw new Error("Expected unlocked Gravity Field ability.");
 gravityAbility.cooldownRemaining = 0;
@@ -103,12 +104,21 @@ debug.update(16 / 1000);
 if (gravityAbility.cooldownRemaining <= 0) {
   throw new Error("E tap did not start the selected ability cooldown.");
 }
+if (debug.player.gravitySign !== -1) {
+  throw new Error("E tap did not activate Gravity Field.");
+}
 const cooldownAfterTap = gravityAbility.cooldownRemaining;
-if (debug.activateSelectedAbility()) {
-  throw new Error("Ability activation bypassed cooldown.");
+if (!debug.activateSelectedAbility()) {
+  throw new Error("Gravity Field could not be deactivated during cooldown.");
+}
+if (debug.player.gravitySign !== 1) {
+  throw new Error("Gravity Field deactivation did not restore player gravity.");
 }
 if (gravityAbility.cooldownRemaining > cooldownAfterTap) {
-  throw new Error("Blocked ability activation unexpectedly reset cooldown.");
+  throw new Error("Gravity Field deactivation unexpectedly reset cooldown.");
+}
+if (debug.activateSelectedAbility()) {
+  throw new Error("Inactive Gravity Field activation bypassed cooldown.");
 }
 debug.resetGravityField(true);
 gravityAbility.cooldownRemaining = 0;
@@ -118,12 +128,23 @@ gravityAbility.cooldownRemaining = 0;
 dispatch("keydown", keyEvent("e"));
 for (let frame = 0; frame < 9; frame += 1) tick(33);
 if (!debug.abilityWheel.open) throw new Error("Holding E did not open the ability wheel.");
+gravityAbility.cooldownRemaining = 2;
+const cooldownWhileWheelOpen = gravityAbility.cooldownRemaining;
+const playerXWhileWheelOpen = debug.player.x;
+debug.update(1);
+if (gravityAbility.cooldownRemaining !== cooldownWhileWheelOpen) {
+  throw new Error("Ability cooldown advanced while the ability wheel was open.");
+}
+if (debug.player.x !== playerXWhileWheelOpen) {
+  throw new Error("Player simulation advanced while the ability wheel was open.");
+}
 dispatch("keyup", keyEvent("e"));
 debug.update(16 / 1000);
 if (debug.abilityWheel.open) throw new Error("Releasing E did not close the ability wheel.");
-if (gravityAbility.cooldownRemaining > 0) {
+if (gravityAbility.cooldownRemaining <= 0) {
   throw new Error("Releasing the ability wheel also activated the selected ability.");
 }
+gravityAbility.cooldownRemaining = 0;
 
 const jumper = debug.enemies.find((enemy) => typeof enemy.canStartAttack === "function");
 const jumperPlatform = debug.platforms.find((platform) => platform.x === 1900 && platform.y === 310);
