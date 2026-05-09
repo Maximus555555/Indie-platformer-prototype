@@ -140,6 +140,23 @@ if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpik
   throw new Error("Player recovered inside the floor spike strip.");
 }
 
+// Regression: damage invulnerability should stop repeated HP loss, but never
+// let the player phase through or remain inside a spike strip.
+debug.player.x = 942;
+debug.player.y = 420;
+debug.player.hp = 2;
+debug.player.gravitySign = 1;
+debug.player.damageTimer = 0.5;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.update(16 / 1000);
+if (debug.player.hp !== 2) {
+  throw new Error(`Expected invulnerable spike contact to preserve HP, got ${debug.player.hp}.`);
+}
+if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpike.x + floorSpike.w) {
+  throw new Error("Invulnerable player was allowed to remain inside the floor spike strip.");
+}
+
 // Regression: inverted-gravity spike damage should knock the player away from
 // underside spikes without resetting gravity or placing them on top of the platform.
 const undersideSpike = debug.spikes.find((spike) => spike.side === "bottom");
