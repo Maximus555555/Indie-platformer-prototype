@@ -1315,8 +1315,8 @@ class Player extends Entity {
     if (phased) {
       // Phase Shift removes the character interior entirely; keep only a
       // readable spectral outline so the active state feels hollow.
-      outline = "rgba(137, 235, 255, 0.95)";
-      glow = "rgba(8, 46, 125, 0.34)";
+      outline = "rgba(5, 37, 105, 0.96)";
+      glow = "rgba(5, 30, 92, 0.38)";
       ctx.globalAlpha *= 0.62 + phaseEdgePulse * 0.08;
     } else if (phaseSnap > 0) ctx.globalAlpha *= 0.82 + phaseEdgePulse * 0.06;
     ctx.translate(baseX, originY);
@@ -1334,7 +1334,7 @@ class Player extends Entity {
     }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = phased ? "rgba(137, 235, 255, 0.46)" : glow;
+    ctx.shadowColor = phased ? "rgba(5, 37, 105, 0.5)" : glow;
     ctx.shadowBlur = phased ? 12 : 10;
 
     if (!phased && phaseSnap > 0) {
