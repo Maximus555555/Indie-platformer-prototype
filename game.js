@@ -145,6 +145,9 @@ const ABILITY_ICON_MARGIN = 24;
 const ABILITY_WHEEL_RADIUS = 118;
 const ABILITY_WHEEL_INNER_RADIUS = 34;
 const ABILITY_READY_PULSE_DURATION = 0.22;
+const SYSTEM_TEXT_SPEED = 48;
+const SYSTEM_AMBIENT_DURATION = 3.2;
+const SYSTEM_AMBIENT_FADE = 0.45;
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -4498,6 +4501,267 @@ function castForcePulse() {
 const player = new Player();
 const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Enemy(1590, 435), new Jumper(2010, 265)];
 
+const systemDialogue = {
+  activeBlocking: null,
+  blockingQueue: [],
+  activeAmbient: null,
+  ambientQueue: []
+};
+
+const systemMessageTriggers = [
+  {
+    id: "start-movement-confirmed",
+    x: 145,
+    y: 320,
+    w: 120,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Movement confirmed.", "Press Enter to continue."],
+    blocking: true
+  },
+  {
+    id: "first-gap-scan",
+    x: 330,
+    y: 280,
+    w: 180,
+    h: 210,
+    repeat: false,
+    fired: false,
+    messages: ["Gap detected. Maintain momentum."],
+    blocking: false
+  },
+  {
+    id: "drone-contact",
+    x: 980,
+    y: 180,
+    w: 260,
+    h: 310,
+    repeat: false,
+    fired: false,
+    messages: ["Hostile signal acquired.", "Abilities remain available after this prompt."],
+    blocking: true
+  },
+  {
+    id: "far-sector-noise",
+    x: 1510,
+    y: 250,
+    w: 230,
+    h: 240,
+    repeat: false,
+    fired: false,
+    messages: ["Signal drift increasing."],
+    blocking: false
+  }
+];
+
+function normalizeSystemLines(messages) {
+  const lines = Array.isArray(messages) ? messages : [messages];
+  return lines.map((line) => String(line ?? "").trim()).filter(Boolean);
+}
+
+function createBlockingSystemMessage(messages) {
+  return {
+    lines: normalizeSystemLines(messages),
+    lineIndex: 0,
+    visibleChars: 0
+  };
+}
+
+function createAmbientSystemMessage(messages, duration = SYSTEM_AMBIENT_DURATION) {
+  const lines = normalizeSystemLines(messages);
+  return {
+    text: lines.join(" "),
+    duration,
+    age: 0,
+    visibleChars: 0
+  };
+}
+
+function enqueueSystemMessage(messages, options = {}) {
+  const blocking = options.blocking ?? true;
+  if (blocking) {
+    const message = createBlockingSystemMessage(messages);
+    if (message.lines.length <= 0) return false;
+    systemDialogue.blockingQueue.push(message);
+    startNextBlockingSystemMessage();
+    return true;
+  }
+
+  const message = createAmbientSystemMessage(messages, options.duration ?? SYSTEM_AMBIENT_DURATION);
+  if (!message.text) return false;
+
+  // Blocking system output owns the interface. Ambient messages wait until the
+  // blocking queue clears so flavor text never covers required prompts.
+  if (isSystemMessageBlocking()) systemDialogue.ambientQueue.push(message);
+  else systemDialogue.activeAmbient = message;
+  return true;
+}
+
+function startNextBlockingSystemMessage() {
+  if (systemDialogue.activeBlocking || systemDialogue.blockingQueue.length <= 0) return;
+  systemDialogue.activeAmbient = null;
+  systemDialogue.activeBlocking = systemDialogue.blockingQueue.shift();
+}
+
+function isSystemMessageBlocking() {
+  return Boolean(systemDialogue.activeBlocking || systemDialogue.blockingQueue.length > 0);
+}
+
+function isCurrentSystemLineComplete() {
+  const message = systemDialogue.activeBlocking;
+  if (!message) return true;
+  return message.visibleChars >= message.lines[message.lineIndex].length;
+}
+
+function advanceBlockingSystemMessage() {
+  const message = systemDialogue.activeBlocking;
+  if (!message) return;
+
+  const line = message.lines[message.lineIndex];
+  if (message.visibleChars < line.length) {
+    message.visibleChars = line.length;
+    return;
+  }
+
+  if (message.lineIndex < message.lines.length - 1) {
+    message.lineIndex += 1;
+    message.visibleChars = 0;
+    return;
+  }
+
+  systemDialogue.activeBlocking = null;
+  startNextBlockingSystemMessage();
+}
+
+function updateSystemMessages(dt) {
+  startNextBlockingSystemMessage();
+
+  const blocking = systemDialogue.activeBlocking;
+  if (blocking) {
+    const line = blocking.lines[blocking.lineIndex];
+    blocking.visibleChars = Math.min(line.length, blocking.visibleChars + SYSTEM_TEXT_SPEED * dt);
+    if (pressedThisFrame.has("enter")) advanceBlockingSystemMessage();
+    return;
+  }
+
+  if (!systemDialogue.activeAmbient && systemDialogue.ambientQueue.length > 0) {
+    systemDialogue.activeAmbient = systemDialogue.ambientQueue.shift();
+  }
+
+  const ambient = systemDialogue.activeAmbient;
+  if (!ambient) return;
+  ambient.age += dt;
+  ambient.visibleChars = Math.min(ambient.text.length, ambient.visibleChars + SYSTEM_TEXT_SPEED * dt);
+  if (ambient.age >= ambient.duration) {
+    systemDialogue.activeAmbient = systemDialogue.ambientQueue.shift() ?? null;
+  }
+}
+
+function updateSystemMessageTriggers() {
+  const playerRect = { x: player.x, y: player.y, w: player.w, h: player.h };
+  for (const trigger of systemMessageTriggers) {
+    if (trigger.fired && !trigger.repeat) continue;
+    if (!rectsOverlap(playerRect, trigger)) continue;
+    enqueueSystemMessage(trigger.messages, { blocking: trigger.blocking, duration: trigger.duration });
+    trigger.fired = true;
+  }
+}
+
+function wrapSystemText(text, maxWidth) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+
+  if (line) lines.push(line);
+  return lines.length > 0 ? lines : [""];
+}
+
+function drawSystemMessageBox({ x, y, w, labelY, text, alpha, prompt = "" }) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(4, 13, 28, 0.82)";
+  ctx.strokeStyle = "rgba(150, 228, 255, 0.78)";
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = "rgba(59, 194, 255, 0.22)";
+  ctx.shadowBlur = 16;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, 94, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.font = "11px monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(155, 229, 255, 0.95)";
+  ctx.fillText("[ SYSTEM ]", x + 18, labelY);
+
+  ctx.font = "17px monospace";
+  ctx.fillStyle = "rgba(235, 250, 255, 0.96)";
+  const wrapped = wrapSystemText(text, w - 36).slice(0, 3);
+  wrapped.forEach((line, index) => ctx.fillText(line, x + 18, y + 34 + index * 20));
+
+  if (prompt) {
+    ctx.font = "12px monospace";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(155, 229, 255, 0.78)";
+    ctx.fillText(prompt, x + w - 18, y + 70);
+  }
+  ctx.restore();
+}
+
+function drawSystemMessages() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  const blocking = systemDialogue.activeBlocking;
+  if (blocking) {
+    const line = blocking.lines[blocking.lineIndex];
+    const text = line.slice(0, Math.floor(blocking.visibleChars));
+    const prompt = isCurrentSystemLineComplete() ? "ENTER" : "ENTER: COMPLETE";
+    const boxWidth = Math.min(620, canvas.width - 64);
+    const x = (canvas.width - boxWidth) / 2;
+    drawSystemMessageBox({
+      x,
+      y: canvas.height - 132,
+      w: boxWidth,
+      labelY: canvas.height - 154,
+      text,
+      alpha: 1,
+      prompt
+    });
+  } else if (systemDialogue.activeAmbient) {
+    const ambient = systemDialogue.activeAmbient;
+    const fadeIn = clamp(ambient.age / SYSTEM_AMBIENT_FADE, 0, 1);
+    const fadeOut = clamp((ambient.duration - ambient.age) / SYSTEM_AMBIENT_FADE, 0, 1);
+    const alpha = Math.min(fadeIn, fadeOut);
+    const text = ambient.text.slice(0, Math.floor(ambient.visibleChars));
+    const boxWidth = Math.min(470, canvas.width - 72);
+    drawSystemMessageBox({
+      x: (canvas.width - boxWidth) / 2,
+      y: 28,
+      w: boxWidth,
+      labelY: 40,
+      text,
+      alpha,
+      prompt: ""
+    });
+  }
+
+  ctx.restore();
+}
+
 function drawGravityMarker(entity, visualTopY = entity.y) {
   if (entity.gravitySign === 1) return;
   const cx = entity.x + entity.w / 2;
@@ -4856,6 +5120,16 @@ function updateAbilityInput(dt) {
 }
 
 function update(dt) {
+  updateSystemMessages(dt);
+  if (isSystemMessageBlocking()) {
+    if (abilityWheel.open) closeAbilityWheel(false);
+    eHoldTimer = 0;
+    eWheelOpenedThisHold = false;
+    eReleasedThisFrame = false;
+    pressedThisFrame.clear();
+    return;
+  }
+
   updateAbilityInput(dt);
   if (abilityWheel.open) {
     // The ability menu is an intentional pause state: keep hover/selection
@@ -4865,6 +5139,8 @@ function update(dt) {
   }
 
   updateAbilityCooldowns(dt);
+  updateSystemMessageTriggers();
+
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
 
   enemies.forEach((enemy) => enemy.update(dt));
@@ -5567,6 +5843,7 @@ function draw() {
   drawHud();
   drawSelectedAbilityIcon();
   drawAbilityWheel();
+  drawSystemMessages();
 }
 
 function gameLoop(now) {
@@ -5579,7 +5856,7 @@ function gameLoop(now) {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
-  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "e", "q"].includes(key)) event.preventDefault();
+  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q"].includes(key)) event.preventDefault();
   if (!keys.has(key)) pressedThisFrame.add(key);
   keys.add(key);
 });
@@ -5601,7 +5878,7 @@ canvas.addEventListener("pointermove", (event) => {
 });
 
 canvas.addEventListener("pointerdown", () => {
-  if (!abilityWheel.open) player.firePulse();
+  if (!abilityWheel.open && !isSystemMessageBlocking()) player.firePulse();
 });
 
 window.__indiePlatformerDebug = {
@@ -5629,6 +5906,9 @@ window.__indiePlatformerDebug = {
   forcePulseVisuals,
   droneProjectiles,
   abilityWheel,
+  systemDialogue,
+  systemMessageTriggers,
+  enqueueSystemMessage,
   getSelectedAbility,
   checkpoint,
   safeAnchor,
