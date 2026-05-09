@@ -6245,13 +6245,7 @@ function drawAbilityWheel() {
   ctx.lineWidth = 1.4;
   ctx.stroke();
 
-  ctx.font = "10px monospace";
-  ctx.fillStyle = "rgba(236, 250, 255, 0.86)";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("E", centerX, centerY - 5);
-  ctx.fillStyle = "rgba(158, 214, 247, 0.72)";
-  ctx.fillText("release", centerX, centerY + 8);
+  // Keep the wheel center as a quiet visual anchor without input prompt text.
   ctx.restore();
 }
 
