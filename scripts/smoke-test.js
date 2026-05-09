@@ -337,13 +337,12 @@ for (const enemy of debug.enemies) {
 
 // Phase Shift regression: the ability is unlocked, duration-based, can be
 // cancelled manually into cooldown, ignores enemy body blocking while active,
-// and lets the player pass through the phase-marked test barrier only while phased.
+// and no longer depends on a phase-marked barrier test setup.
 const phaseAbility = debug.abilities.find((ability) => ability.id === "phase");
 if (!phaseAbility || !phaseAbility.unlocked) throw new Error("Expected unlocked Phase Shift ability.");
-if (!Array.isArray(debug.phaseBarriers) || debug.phaseBarriers.length !== 1) {
-  throw new Error("Expected one phase-marked barrier test setup.");
+if (!Array.isArray(debug.phaseBarriers) || debug.phaseBarriers.length !== 0) {
+  throw new Error("Expected phase-marked barriers to be removed from the level.");
 }
-const phaseBarrier = debug.phaseBarriers[0];
 debug.setSelectedAbility("phase");
 phaseAbility.cooldownRemaining = 0;
 phaseAbility.activeRemaining = 0;
@@ -351,27 +350,15 @@ debug.player.hp = 3;
 debug.player.isDying = false;
 debug.player.gravitySign = 1;
 debug.player.h = debug.constants.STAND_HEIGHT;
-debug.player.x = phaseBarrier.x - debug.player.w - 2;
-debug.player.y = phaseBarrier.y + phaseBarrier.h - debug.player.h;
-debug.player.vx = 220;
+debug.player.x = 520;
+debug.player.y = 402;
+debug.player.vx = 0;
 debug.player.vy = 0;
-debug.player.moveAndCollide(0.1);
-if (debug.player.x > phaseBarrier.x - debug.player.w + 0.001) {
-  throw new Error("Unphased player passed through the phase barrier.");
-}
 if (!debug.activateSelectedAbility() || !debug.isPlayerPhased()) {
   throw new Error("Phase Shift did not activate through the selected ability system.");
 }
 if (phaseAbility.cooldownRemaining > 0 || phaseAbility.activeRemaining <= 0) {
   throw new Error("Phase Shift cooldown/timer state was incorrect immediately after activation.");
-}
-debug.player.x = phaseBarrier.x - debug.player.w - 2;
-debug.player.y = phaseBarrier.y + phaseBarrier.h - debug.player.h;
-debug.player.vx = 260;
-debug.player.vy = 0;
-debug.player.moveAndCollide(0.25);
-if (debug.player.x + debug.player.w <= phaseBarrier.x + phaseBarrier.w) {
-  throw new Error("Phased player did not pass through the phase barrier.");
 }
 const phaseEnemy = debug.enemies[0];
 if (!phaseEnemy) throw new Error("Expected an enemy for Phase Shift contact regression.");
@@ -390,8 +377,11 @@ if (debug.player.hp !== 3) {
 context.calls = [];
 debug.player.gravitySign = 1;
 debug.player.draw();
-if (context.calls.some((call) => call.name === "fill" || call.name === "fillRect")) {
-  throw new Error("Phased player drew filled character details instead of outline only.");
+if (!context.calls.some((call) => call.name === "fill")) {
+  throw new Error("Phased player did not draw a filled dark-blue body.");
+}
+if (!String(context.fillStyle).includes("7, 45, 124")) {
+  throw new Error("Phased player fill was not switched to the dark-blue phase color.");
 }
 if (!context.calls.some((call) => call.name === "stroke")) {
   throw new Error("Phased player did not draw an outline stroke.");
@@ -429,9 +419,30 @@ if (debug.player.hp !== 2) {
 }
 const floorSpike = debug.spikes.find((spike) => spike.side === "top");
 if (!floorSpike) throw new Error("Expected a floor spike strip for damage regression.");
+
 if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpike.x + floorSpike.w) {
   throw new Error("Player recovered inside the floor spike strip.");
 }
+
+phaseAbility.cooldownRemaining = 0;
+phaseAbility.activeRemaining = 0;
+debug.player.x = 942;
+debug.player.y = 420;
+debug.player.hp = 3;
+debug.player.gravitySign = 1;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.player.vx = 0;
+debug.player.vy = 0;
+if (!debug.activatePhaseShift()) throw new Error("Phase Shift did not activate for spike immunity regression.");
+debug.update(16 / 1000);
+if (debug.player.hp !== 3 || debug.player.damageTimer > 0) {
+  throw new Error("Phased player took spike damage or recoil while crossing spikes.");
+}
+if (!debug.endPhaseShift(false)) throw new Error("Phase Shift did not end after spike immunity regression.");
+phaseAbility.cooldownRemaining = 0;
+phaseAbility.activeRemaining = 0;
 
 // Regression: damage invulnerability should stop repeated HP loss, but never
 // let the player phase through or remain inside a spike strip.
