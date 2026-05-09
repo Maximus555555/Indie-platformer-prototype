@@ -96,6 +96,7 @@ const PHASE_SHIFT_DURATION = config.phaseShiftDuration ?? 1.75;
 const PHASE_SHIFT_COOLDOWN = config.phaseShiftCooldown ?? 6.0;
 const PHASE_SHIFT_FLICKER_DURATION = 0.16;
 const PHASE_SHIFT_EXPOSURE_RADIUS = 96;
+const PHASE_SHIFT_AURA_RADIUS = 58;
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
 const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
@@ -4872,6 +4873,70 @@ function drawTimeSlowField() {
   ctx.restore();
 }
 
+function drawPhaseShiftField() {
+  const ability = getAbilityById("phase");
+  const activeProgress = getTimedAbilityProgress(ability);
+  if (!phaseShiftActive || activeProgress <= 0) return;
+
+  const centerX = player.x + player.w / 2;
+  const centerY = player.y + player.h / 2;
+  const elapsed = ability.activeDuration - ability.activeRemaining;
+  const ripple = (elapsed * 2.9) % 1;
+  const pulse = 0.5 + Math.sin(elapsed * 16) * 0.5;
+  const radius = PHASE_SHIFT_AURA_RADIUS + pulse * 5;
+
+  ctx.save();
+  ctx.globalAlpha = 0.94;
+  ctx.shadowColor = "rgba(126, 236, 255, 0.7)";
+  ctx.shadowBlur = 24;
+
+  const gradient = ctx.createRadialGradient(centerX, centerY, 4, centerX, centerY, radius);
+  gradient.addColorStop(0, "rgba(218, 253, 255, 0.18)");
+  gradient.addColorStop(0.48, "rgba(116, 226, 255, 0.14)");
+  gradient.addColorStop(1, "rgba(116, 91, 255, 0.04)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = 2.8;
+  ctx.strokeStyle = "rgba(154, 246, 255, 0.88)";
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.setLineDash([12, 7]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgba(157, 126, 255, 0.74)";
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius * (0.34 + ripple * 0.58), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Bright split line and scan bands mirror the half-solid/half-transparent icon
+  // so the player can identify Phase Shift instantly during motion.
+  ctx.strokeStyle = "rgba(235, 254, 255, 0.86)";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY - radius * 0.86);
+  ctx.lineTo(centerX, centerY + radius * 0.86);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(208, 252, 255, 0.42)";
+  for (let i = -2; i <= 2; i += 1) {
+    const y = centerY + i * 16 + Math.sin(elapsed * 18 + i) * 2;
+    ctx.fillRect(centerX + 6, y, 34 - Math.abs(i) * 4, 2);
+  }
+
+  ctx.strokeStyle = "rgba(241, 254, 255, 0.9)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * activeProgress);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
   ctx.save();
   ctx.translate(x, y);
@@ -5003,52 +5068,86 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.arc(0, -r * 0.05, r * 0.58, Math.PI, 0);
     ctx.stroke();
   } else if (ability.id === "phase") {
-    const headR = size * 0.11;
-    const bodyTop = -size * 0.12;
-    const bodyBottom = size * 0.28;
-    const bodyW = size * 0.18;
-    const limbY = size * 0.06;
+    const headR = size * 0.12;
+    const headY = -size * 0.29;
+    const torsoTop = -size * 0.13;
+    const torsoBottom = size * 0.22;
+    const torsoW = size * 0.16;
+    const armY = size * 0.02;
+    const footY = size * 0.43;
 
-    ctx.shadowColor = "rgba(137, 235, 255, 0.46)";
-    ctx.shadowBlur = size * 0.14;
-    ctx.fillStyle = "rgba(155, 236, 255, 0.95)";
-    ctx.strokeStyle = "rgba(132, 103, 255, 0.92)";
-    ctx.lineWidth = Math.max(1.2, size * 0.042);
+    function tracePlayerGlyph() {
+      ctx.beginPath();
+      ctx.arc(0, headY, headR, 0, Math.PI * 2);
+      ctx.moveTo(-torsoW, torsoTop);
+      ctx.lineTo(-torsoW, torsoBottom);
+      ctx.quadraticCurveTo(-torsoW * 0.86, torsoBottom + size * 0.08, 0, torsoBottom + size * 0.08);
+      ctx.quadraticCurveTo(torsoW * 0.86, torsoBottom + size * 0.08, torsoW, torsoBottom);
+      ctx.lineTo(torsoW, torsoTop);
+      ctx.quadraticCurveTo(torsoW * 0.9, torsoTop - size * 0.08, 0, torsoTop - size * 0.08);
+      ctx.quadraticCurveTo(-torsoW * 0.9, torsoTop - size * 0.08, -torsoW, torsoTop);
+      ctx.closePath();
+    }
 
+    function traceLimbs() {
+      ctx.beginPath();
+      ctx.moveTo(-torsoW * 0.88, armY);
+      ctx.lineTo(-size * 0.33, armY + size * 0.03);
+      ctx.moveTo(torsoW * 0.88, armY);
+      ctx.lineTo(size * 0.33, armY - size * 0.03);
+      ctx.moveTo(-torsoW * 0.45, torsoBottom + size * 0.06);
+      ctx.lineTo(-size * 0.16, footY);
+      ctx.moveTo(torsoW * 0.45, torsoBottom + size * 0.06);
+      ctx.lineTo(size * 0.16, footY);
+    }
+
+    ctx.shadowColor = "rgba(137, 235, 255, 0.5)";
+    ctx.shadowBlur = size * 0.16;
+    ctx.lineWidth = Math.max(1.15, size * 0.04);
+
+    ctx.save();
     ctx.beginPath();
-    ctx.rect(-bodyW, bodyTop, bodyW, bodyBottom - bodyTop);
-    ctx.arc(-headR * 0.5, -size * 0.31, headR, Math.PI / 2, Math.PI * 1.5);
-    ctx.lineTo(0, -size * 0.31 - headR);
-    ctx.lineTo(0, bodyBottom);
-    ctx.closePath();
+    ctx.rect(-size * 0.42, -size * 0.48, size * 0.42, size * 0.96);
+    ctx.clip();
+    ctx.fillStyle = "rgba(159, 239, 255, 0.97)";
+    ctx.strokeStyle = "rgba(47, 72, 151, 0.95)";
+    tracePlayerGlyph();
     ctx.fill();
     ctx.stroke();
+    ctx.strokeStyle = "rgba(159, 239, 255, 0.97)";
+    ctx.lineWidth = Math.max(1.9, size * 0.07);
+    traceLimbs();
+    ctx.stroke();
+    ctx.restore();
 
-    ctx.globalAlpha *= 0.58;
-    ctx.fillStyle = "rgba(113, 98, 255, 0.78)";
-    ctx.strokeStyle = "rgba(205, 251, 255, 0.75)";
-    ctx.setLineDash([size * 0.085, size * 0.055]);
+    ctx.save();
     ctx.beginPath();
-    ctx.rect(0, bodyTop + size * 0.01, bodyW, bodyBottom - bodyTop);
-    ctx.arc(headR * 0.5, -size * 0.31, headR, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(0, bodyBottom);
-    ctx.closePath();
+    ctx.rect(0, -size * 0.48, size * 0.42, size * 0.96);
+    ctx.clip();
+    ctx.globalAlpha *= 0.56;
+    ctx.fillStyle = "rgba(136, 104, 255, 0.16)";
+    ctx.strokeStyle = "rgba(216, 252, 255, 0.92)";
+    ctx.setLineDash([size * 0.075, size * 0.055]);
+    tracePlayerGlyph();
     ctx.fill();
+    ctx.stroke();
+    ctx.lineWidth = Math.max(1.55, size * 0.055);
+    traceLimbs();
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
 
-    ctx.lineWidth = Math.max(1.1, size * 0.038);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(246, 254, 255, 0.95)";
+    ctx.lineWidth = Math.max(1.1, size * 0.036);
     ctx.beginPath();
-    ctx.moveTo(0, limbY);
-    ctx.lineTo(size * 0.23, limbY - size * 0.03);
-    ctx.moveTo(0, bodyBottom);
-    ctx.lineTo(size * 0.18, size * 0.47);
+    ctx.moveTo(0, -size * 0.44);
+    ctx.lineTo(0, size * 0.46);
     ctx.stroke();
 
-    ctx.globalAlpha *= 0.72;
-    ctx.fillStyle = "rgba(194, 250, 255, 0.9)";
-    ctx.fillRect(size * 0.13, -size * 0.2, size * 0.2, size * 0.035);
-    ctx.fillRect(size * 0.06, size * 0.18, size * 0.23, size * 0.035);
+    ctx.fillStyle = "rgba(196, 250, 255, 0.82)";
+    ctx.fillRect(size * 0.08, -size * 0.17, size * 0.22, size * 0.035);
+    ctx.fillRect(size * 0.05, size * 0.13, size * 0.25, size * 0.035);
   } else if (ability.id === "link") {
     ctx.beginPath();
     ctx.moveTo(-r * 0.78, r * 0.52);
@@ -5333,6 +5432,7 @@ function draw() {
   drawRoom();
   drawSelectedAbilityRangePreview();
   drawTimeSlowField();
+  drawPhaseShiftField();
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
