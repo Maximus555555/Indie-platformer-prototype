@@ -4788,11 +4788,26 @@ function drawSelectedAbilityRangePreview() {
 
   if (ability.id === "gravity") {
     const origin = centerOf(player);
+    const interiorGlow = ctx.createRadialGradient(
+      origin.x,
+      origin.y,
+      GRAVITY_FIELD_RADIUS * 0.18,
+      origin.x,
+      origin.y,
+      GRAVITY_FIELD_RADIUS,
+    );
+
+    interiorGlow.addColorStop(0, "rgba(135, 255, 198, 0.18)");
+    interiorGlow.addColorStop(0.65, "rgba(86, 255, 167, 0.10)");
+    interiorGlow.addColorStop(1, "rgba(86, 255, 167, 0.02)");
+
+    ctx.fillStyle = interiorGlow;
     ctx.strokeStyle = "rgba(135, 255, 198, 0.85)";
     ctx.shadowColor = "rgba(135, 255, 198, 0.45)";
     ctx.shadowBlur = 15;
     ctx.beginPath();
     ctx.arc(origin.x, origin.y, GRAVITY_FIELD_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
   } else if (ability.id === "pulse") {
     const direction = player.facing || 1;
