@@ -1312,8 +1312,11 @@ class Player extends Entity {
 
     ctx.save();
     if (this.damageTimer > 0 && Math.floor(this.damageTimer * 18) % 2 === 0) ctx.globalAlpha = 0.62;
-    if (isPlayerPhased()) ctx.globalAlpha *= 0.68 + Math.sin(this.animTime * 42) * 0.05;
-    else if (this.phaseFlickerTimer > 0 && Math.floor(this.phaseFlickerTimer * 44) % 2 === 0) ctx.globalAlpha *= 0.78;
+    const phased = isPlayerPhased();
+    const phaseSnap = clamp(this.phaseFlickerTimer / PHASE_SHIFT_FLICKER_DURATION, 0, 1);
+    const phaseEdgePulse = 0.5 + 0.5 * Math.sin(this.animTime * 18);
+    if (phased) ctx.globalAlpha *= 0.62 + phaseEdgePulse * 0.08;
+    else if (phaseSnap > 0) ctx.globalAlpha *= 0.82 + phaseEdgePulse * 0.06;
     ctx.translate(baseX, originY);
     ctx.scale(facing * visualScale, verticalFlip * scaleY);
     const gravityFlipVisual = this.getGravityFlipVisualTransform();
@@ -1329,21 +1332,22 @@ class Player extends Entity {
     }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = isPlayerPhased() ? "rgba(137, 235, 255, 0.55)" : glow;
-    ctx.shadowBlur = isPlayerPhased() ? 14 : 10;
+    ctx.shadowColor = phased ? "rgba(137, 235, 255, 0.46)" : glow;
+    ctx.shadowBlur = phased ? 12 : 10;
 
-    if (isPlayerPhased() || this.phaseFlickerTimer > 0) {
-      const flicker = this.phaseFlickerTimer > 0 ? this.phaseFlickerTimer / PHASE_SHIFT_FLICKER_DURATION : 0.35;
+    if (phased || phaseSnap > 0) {
+      const snapBoost = phaseSnap * phaseSnap;
       ctx.save();
-      ctx.globalAlpha *= 0.28 + flicker * 0.22;
-      ctx.strokeStyle = "rgba(134, 236, 255, 0.9)";
-      ctx.lineWidth = 1.1;
-      for (let i = 0; i < 5; i += 1) {
-        const y = 8 + i * 8 + Math.sin(this.animTime * 18 + i) * 1.2;
-        const offset = (i % 2 === 0 ? 1 : -1) * (1.8 + flicker * 2.2);
+      ctx.globalAlpha *= 0.18 + snapBoost * 0.18;
+      ctx.strokeStyle = "rgba(190, 248, 255, 0.86)";
+      ctx.lineWidth = 0.9;
+      // Three calm scanline fragments suggest desynchronization without noise.
+      for (let i = 0; i < 3; i += 1) {
+        const y = 11 + i * 13 + Math.sin(this.animTime * 8 + i) * 0.45;
+        const offset = (i % 2 === 0 ? 1 : -1) * (1.1 + snapBoost * 1.7);
         ctx.beginPath();
-        ctx.moveTo(-8 + offset, y);
-        ctx.lineTo(8 + offset * 0.4, y + (i % 2 === 0 ? 0.9 : -0.9));
+        ctx.moveTo(-7.5 + offset, y);
+        ctx.lineTo(7.5 + offset * 0.45, y + (i % 2 === 0 ? 0.45 : -0.45));
         ctx.stroke();
       }
       ctx.restore();
@@ -1944,6 +1948,62 @@ class Player extends Entity {
       };
     }
 
+    function drawPhaseGhostSilhouette(offsetX, color, alpha) {
+      ctx.save();
+      ctx.translate(offsetX, 0);
+      ctx.globalAlpha *= alpha;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 5;
+
+      function ghostLimb(points, width) {
+        if (!points) return;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+        ctx.stroke();
+      }
+
+      function ghostTorso(torso) {
+        const sideHalf = Math.max(torso.ry - torso.rx, torso.ry * 0.42);
+        ctx.save();
+        ctx.translate(torso.x, torso.y);
+        ctx.rotate(torso.rot);
+        ctx.beginPath();
+        ctx.moveTo(-torso.rx, -sideHalf);
+        ctx.lineTo(-torso.rx, sideHalf);
+        ctx.quadraticCurveTo(-torso.rx, torso.ry, 0, torso.ry);
+        ctx.quadraticCurveTo(torso.rx, torso.ry, torso.rx, sideHalf);
+        ctx.lineTo(torso.rx, -sideHalf);
+        ctx.quadraticCurveTo(torso.rx, -torso.ry, 0, -torso.ry);
+        ctx.quadraticCurveTo(-torso.rx, -torso.ry, -torso.rx, -sideHalf);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ghostLimb(pose.farLeg, 2.8);
+      ghostLimb(pose.farArm, 2.4);
+      ghostTorso(pose.torso);
+      ghostLimb(pose.nearLeg, 3.2);
+      ghostLimb(pose.nearArm, 2.7);
+      ctx.beginPath();
+      ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (phased || phaseSnap > 0) {
+      const snapBoost = phaseSnap * phaseSnap;
+      const pulseOffset = Math.sin(this.animTime * 10) * 0.35;
+      const cyanOffset = 2.4 + pulseOffset + snapBoost * 2.2;
+      const violetOffset = -2.1 + pulseOffset * 0.5 - snapBoost * 1.7;
+      drawPhaseGhostSilhouette(cyanOffset, "rgba(169, 244, 255, 0.92)", phased ? 0.2 + snapBoost * 0.1 : 0.22 * snapBoost);
+      drawPhaseGhostSilhouette(violetOffset, "rgba(137, 111, 255, 0.88)", phased ? 0.14 + snapBoost * 0.08 : 0.18 * snapBoost);
+    }
+
     strokeLimb(pose.farLeg, 2.8);
     if (pose.farArm) strokeLimb(pose.farArm, 2.4);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
@@ -1976,20 +2036,29 @@ class Player extends Entity {
     ctx.fill();
     ctx.stroke();
 
-    if (isPlayerPhased()) {
+    if (phased || phaseSnap > 0) {
       ctx.save();
-      ctx.globalAlpha *= 0.42;
-      ctx.strokeStyle = "rgba(128, 99, 255, 0.9)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 4]);
+      const snapBoost = phaseSnap * phaseSnap;
+      ctx.globalAlpha *= phased ? 0.28 + snapBoost * 0.14 : snapBoost * 0.28;
+      ctx.strokeStyle = "rgba(202, 251, 255, 0.78)";
+      ctx.lineWidth = 0.9;
       ctx.beginPath();
-      ctx.moveTo(1.5, -1);
-      ctx.lineTo(1.5, 50);
+      ctx.moveTo(-6.7 + snapBoost * 1.2, pose.head.y - pose.head.r * 0.4);
+      ctx.lineTo(-4.8 + snapBoost * 1.2, pose.torso.y + pose.torso.ry * 0.9);
+      ctx.moveTo(6.4 - snapBoost, pose.head.y - pose.head.r * 0.2);
+      ctx.lineTo(4.9 - snapBoost, pose.torso.y + pose.torso.ry);
       ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(202, 251, 255, 0.82)";
-      ctx.fillRect(5.5, 10 + Math.sin(this.animTime * 30) * 1.4, 8, 1.5);
-      ctx.fillRect(4.5, 31 + Math.cos(this.animTime * 28) * 1.1, 7, 1.5);
+
+      ctx.fillStyle = "rgba(190, 248, 255, 0.82)";
+      const fragments = [
+        { y: 9.5, w: 7.4, h: 1.1, dx: 2.4 + snapBoost * 1.8 },
+        { y: 22.5, w: 9.2, h: 1.25, dx: -1.4 - snapBoost * 1.1 },
+        { y: 35.5, w: 8.0, h: 1.1, dx: 1.5 + snapBoost * 0.8 }
+      ];
+      for (const fragment of fragments) {
+        const drift = Math.sin(this.animTime * 7 + fragment.y) * 0.35;
+        ctx.fillRect(fragment.dx + drift, fragment.y, fragment.w, fragment.h);
+      }
       ctx.restore();
     }
 
@@ -5003,52 +5072,65 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.arc(0, -r * 0.05, r * 0.58, Math.PI, 0);
     ctx.stroke();
   } else if (ability.id === "phase") {
-    const headR = size * 0.11;
-    const bodyTop = -size * 0.12;
-    const bodyBottom = size * 0.28;
-    const bodyW = size * 0.18;
-    const limbY = size * 0.06;
+    const capsuleTop = -size * 0.34;
+    const capsuleBottom = size * 0.36;
+    const capsuleW = size * 0.27;
+    const capsuleR = capsuleW / 2;
+    const centerY = (capsuleTop + capsuleBottom) / 2;
+    const capsuleH = capsuleBottom - capsuleTop;
 
-    ctx.shadowColor = "rgba(137, 235, 255, 0.46)";
-    ctx.shadowBlur = size * 0.14;
-    ctx.fillStyle = "rgba(155, 236, 255, 0.95)";
-    ctx.strokeStyle = "rgba(132, 103, 255, 0.92)";
-    ctx.lineWidth = Math.max(1.2, size * 0.042);
+    function tracePhaseCapsule(offsetX = 0) {
+      ctx.beginPath();
+      ctx.moveTo(offsetX - capsuleR, capsuleTop + capsuleR);
+      ctx.lineTo(offsetX - capsuleR, capsuleBottom - capsuleR);
+      ctx.quadraticCurveTo(offsetX - capsuleR, capsuleBottom, offsetX, capsuleBottom);
+      ctx.quadraticCurveTo(offsetX + capsuleR, capsuleBottom, offsetX + capsuleR, capsuleBottom - capsuleR);
+      ctx.lineTo(offsetX + capsuleR, capsuleTop + capsuleR);
+      ctx.quadraticCurveTo(offsetX + capsuleR, capsuleTop, offsetX, capsuleTop);
+      ctx.quadraticCurveTo(offsetX - capsuleR, capsuleTop, offsetX - capsuleR, capsuleTop + capsuleR);
+      ctx.closePath();
+    }
 
-    ctx.beginPath();
-    ctx.rect(-bodyW, bodyTop, bodyW, bodyBottom - bodyTop);
-    ctx.arc(-headR * 0.5, -size * 0.31, headR, Math.PI / 2, Math.PI * 1.5);
-    ctx.lineTo(0, -size * 0.31 - headR);
-    ctx.lineTo(0, bodyBottom);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    ctx.shadowColor = "rgba(151, 238, 255, 0.5)";
+    ctx.shadowBlur = size * 0.13;
 
-    ctx.globalAlpha *= 0.58;
-    ctx.fillStyle = "rgba(113, 98, 255, 0.78)";
-    ctx.strokeStyle = "rgba(205, 251, 255, 0.75)";
-    ctx.setLineDash([size * 0.085, size * 0.055]);
-    ctx.beginPath();
-    ctx.rect(0, bodyTop + size * 0.01, bodyW, bodyBottom - bodyTop);
-    ctx.arc(headR * 0.5, -size * 0.31, headR, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(0, bodyBottom);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.lineWidth = Math.max(1.1, size * 0.038);
-    ctx.beginPath();
-    ctx.moveTo(0, limbY);
-    ctx.lineTo(size * 0.23, limbY - size * 0.03);
-    ctx.moveTo(0, bodyBottom);
-    ctx.lineTo(size * 0.18, size * 0.47);
-    ctx.stroke();
+    // Phase Shift is intentionally just a split capsule/body: solid left half,
+    // lightly offset right fragments, so it stays readable in small HUD tiles.
+    ctx.save();
+    tracePhaseCapsule();
+    ctx.clip();
+    ctx.fillStyle = "rgba(162, 239, 255, 0.96)";
+    ctx.fillRect(-capsuleR, capsuleTop, capsuleR, capsuleH);
+    ctx.restore();
 
     ctx.globalAlpha *= 0.72;
-    ctx.fillStyle = "rgba(194, 250, 255, 0.9)";
-    ctx.fillRect(size * 0.13, -size * 0.2, size * 0.2, size * 0.035);
-    ctx.fillRect(size * 0.06, size * 0.18, size * 0.23, size * 0.035);
+    ctx.fillStyle = "rgba(139, 112, 255, 0.76)";
+    const fragments = [
+      { y: capsuleTop + size * 0.08, h: size * 0.14, dx: size * 0.045 },
+      { y: centerY - size * 0.05, h: size * 0.16, dx: size * 0.1 },
+      { y: capsuleBottom - size * 0.18, h: size * 0.11, dx: size * 0.055 }
+    ];
+    for (const fragment of fragments) {
+      ctx.save();
+      tracePhaseCapsule(fragment.dx);
+      ctx.clip();
+      ctx.fillRect(fragment.dx, fragment.y, capsuleR + size * 0.02, fragment.h);
+      ctx.restore();
+    }
+
+    ctx.globalAlpha /= 0.72;
+    ctx.strokeStyle = "rgba(215, 253, 255, 0.86)";
+    ctx.lineWidth = Math.max(1.1, size * 0.038);
+    tracePhaseCapsule();
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(132, 103, 255, 0.82)";
+    ctx.lineWidth = Math.max(1, size * 0.032);
+    ctx.beginPath();
+    ctx.moveTo(0, capsuleTop + size * 0.06);
+    ctx.lineTo(0, capsuleBottom - size * 0.06);
+    ctx.stroke();
+
   } else if (ability.id === "link") {
     ctx.beginPath();
     ctx.moveTo(-r * 0.78, r * 0.52);
