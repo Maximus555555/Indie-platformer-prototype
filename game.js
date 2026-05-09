@@ -3951,49 +3951,88 @@ class ForcePulseVisual {
   }
 
   draw() {
+    const lifeProgress = clamp(this.age / FORCE_PULSE_VISUAL_DURATION, 0, 1);
     const expansionProgress = clamp(this.age / FORCE_PULSE_EXPAND_DURATION, 0, 1);
     const easedExpansion = expansionProgress * expansionProgress * (3 - 2 * expansionProgress);
     const fadeProgress = FORCE_PULSE_VISUAL_DURATION <= FORCE_PULSE_EXPAND_DURATION
       ? expansionProgress
       : clamp((this.age - FORCE_PULSE_EXPAND_DURATION) / (FORCE_PULSE_VISUAL_DURATION - FORCE_PULSE_EXPAND_DURATION), 0, 1);
-    const alpha = expansionProgress < 1 ? 0.9 : Math.max(0, 0.9 * (1 - fadeProgress));
+    const alpha = expansionProgress < 1 ? 0.92 : Math.max(0, 0.92 * (1 - fadeProgress));
     if (alpha <= 0) return;
 
     const origin = this.getOrigin();
-    const range = Math.max(6, FORCE_PULSE_RANGE * easedExpansion);
+    const range = Math.max(8, FORCE_PULSE_RANGE * easedExpansion);
     const centerAngle = this.direction > 0 ? 0 : Math.PI;
     const upperAngle = centerAngle - FORCE_PULSE_HALF_ANGLE * this.direction;
     const lowerAngle = centerAngle + FORCE_PULSE_HALF_ANGLE * this.direction;
-    function traceCone(extraRange = 0) {
-      const drawRange = range + extraRange;
+    const anticlockwise = this.direction < 0;
+
+    function traceCone(drawRange) {
       const drawUpperX = origin.x + Math.cos(upperAngle) * drawRange;
       const drawUpperY = origin.y + Math.sin(upperAngle) * drawRange;
       ctx.beginPath();
       ctx.moveTo(origin.x, origin.y);
       ctx.lineTo(drawUpperX, drawUpperY);
-      ctx.arc(origin.x, origin.y, drawRange, upperAngle, lowerAngle, this.direction < 0);
+      ctx.arc(origin.x, origin.y, drawRange, upperAngle, lowerAngle, anticlockwise);
       ctx.lineTo(origin.x, origin.y);
       ctx.closePath();
     }
 
+    function strokeRippleArc(drawRange, width, strokeAlpha) {
+      if (drawRange <= 2 || strokeAlpha <= 0) return;
+      ctx.globalAlpha = alpha * strokeAlpha;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.arc(origin.x, origin.y, drawRange, upperAngle, lowerAngle, anticlockwise);
+      ctx.stroke();
+    }
+
     ctx.save();
-    ctx.globalAlpha = alpha;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // A single translucent fill with a soft shadow keeps the rounded cone
-    // clean, with no duplicate cap/burst at the far edge.
-    ctx.shadowColor = "rgba(255, 65, 95, 0.58)";
-    ctx.shadowBlur = 18;
-    ctx.fillStyle = "rgba(255, 24, 52, 0.2)";
-    traceCone.call(this, 0);
+    // Layered, expanding arc bands make the ability read as a force wave
+    // rippling through the cone instead of a flat area flash.
+    ctx.globalAlpha = alpha * 0.38;
+    ctx.shadowColor = "rgba(255, 65, 95, 0.52)";
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = "rgba(255, 24, 52, 0.16)";
+    traceCone(range);
     ctx.fill();
 
-    ctx.shadowColor = "rgba(255, 98, 124, 0.42)";
-    ctx.shadowBlur = 12;
-    ctx.strokeStyle = "rgba(255, 142, 158, 0.96)";
-    ctx.lineWidth = 2.2;
-    traceCone.call(this, 0);
+    ctx.strokeStyle = "rgba(255, 177, 190, 0.96)";
+    ctx.shadowColor = "rgba(255, 98, 124, 0.62)";
+    ctx.shadowBlur = 16;
+    strokeRippleArc(range, 3.2, 0.95);
+
+    ctx.shadowBlur = 10;
+    for (let i = 1; i <= 3; i += 1) {
+      const delay = i * 0.14;
+      const rawRippleProgress = lifeProgress * 1.35 - delay;
+      if (rawRippleProgress <= 0) continue;
+      const rippleProgress = clamp(rawRippleProgress, 0, 1);
+      const rippleEase = rippleProgress * rippleProgress * (3 - 2 * rippleProgress);
+      const rippleRadius = FORCE_PULSE_RANGE * (0.2 + rippleEase * 0.8);
+      const rippleAlpha = (1 - rippleProgress) * (0.55 - i * 0.08);
+      strokeRippleArc(rippleRadius, 2.6 - i * 0.35, rippleAlpha);
+    }
+
+    ctx.globalAlpha = alpha * 0.62;
+    ctx.strokeStyle = "rgba(255, 116, 142, 0.64)";
+    ctx.lineWidth = 1.35;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(origin.x + Math.cos(upperAngle) * range, origin.y + Math.sin(upperAngle) * range);
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(origin.x + Math.cos(lowerAngle) * range, origin.y + Math.sin(lowerAngle) * range);
+    ctx.stroke();
+
+    ctx.globalAlpha = alpha * (1 - lifeProgress * 0.65);
+    ctx.strokeStyle = "rgba(255, 219, 224, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, 9 + lifeProgress * 18, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.restore();
