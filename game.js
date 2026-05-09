@@ -47,6 +47,7 @@ const JUMPER_RECOVERY_DELAY = config.jumperRecoveryDelay ?? 0.34;
 const JUMPER_LEAP_MIN_SPEED = config.jumperLeapMinSpeed ?? 130;
 const JUMPER_LEAP_MAX_SPEED = config.jumperLeapMaxSpeed ?? 180;
 const JUMPER_LEAP_IMPULSE = config.jumperLeapImpulse ?? 430;
+const JUMPER_EDGE_SUPPORT_TOLERANCE = config.jumperEdgeSupportTolerance ?? 4;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -2907,7 +2908,34 @@ class Jumper extends Entity {
   }
 
   getDirectSurfacePlatformAt(probeX = this.x + this.w / 2) {
-    return this.getSurfacePlatformAt(probeX, this.getGroundContactRange());
+    return this.getSurfacePlatformAt(probeX, this.getGroundContactRange())
+      ?? this.getSurfacePlatformUnderFootprint(this.getGroundContactRange());
+  }
+
+  getSurfacePlatformUnderFootprint(maxDistance = this.getGroundContactRange()) {
+    const body = this.getCollisionRect();
+    const surfaceEdgeY = this.gravitySign > 0 ? body.y + body.h : body.y;
+    let bestPlatform = null;
+    let bestDistance = Infinity;
+
+    for (const platform of platforms) {
+      // A jumper can visually balance with only its edge on a ledge. Treat a
+      // small amount of horizontal edge contact as support so it does not get
+      // stuck in the airborne state while visibly standing on a platform lip.
+      const overlapsFootprint = body.x < platform.x + platform.w + JUMPER_EDGE_SUPPORT_TOLERANCE
+        && body.x + body.w > platform.x - JUMPER_EDGE_SUPPORT_TOLERANCE;
+      if (!overlapsFootprint) continue;
+
+      const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+      const distanceToSurface = (surfaceY - surfaceEdgeY) * this.gravitySign;
+      if (distanceToSurface < -0.5 || distanceToSurface > maxDistance) continue;
+      if (distanceToSurface < bestDistance) {
+        bestPlatform = platform;
+        bestDistance = distanceToSurface;
+      }
+    }
+
+    return bestPlatform;
   }
 
   isOutsideWorld() {
