@@ -75,6 +75,12 @@ const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
 const GRAVITY_FLIP_VISUAL_DURATION = 0.18;
 const GRAVITY_FIELD_COOLDOWN = config.gravityFieldCooldown ?? 3.0;
+const GRAVITY_FIELD_DURATION = config.gravityFieldDuration ?? 3.5;
+const TIME_SLOW_RADIUS = config.timeSlowRadius ?? 260;
+const TIME_SLOW_DURATION = config.timeSlowDuration ?? 2.75;
+const TIME_SLOW_COOLDOWN = config.timeSlowCooldown ?? 7.0;
+const TIME_SLOW_MULTIPLIER = config.timeSlowMultiplier ?? 0.4;
+const TIME_SLOW_FADE_DURATION = 0.22;
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
 const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
@@ -142,6 +148,8 @@ let gravityCastId = 0;
 let forcePulseCastId = 0;
 let gravityFieldActive = false;
 let activeGravityEntities = new Set();
+let timeSlowActive = false;
+let timeSlowFadeTimer = 0;
 let cameraX = 0;
 
 const platforms = [
@@ -177,7 +185,7 @@ const spikes = [
 const bottomFallBoundary = config.fallBoundary
   ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
 
-function createAbility(id, name, label, unlocked, cooldownDuration) {
+function createAbility(id, name, label, unlocked, cooldownDuration, activeDuration = 0) {
   return {
     id,
     name,
@@ -185,14 +193,16 @@ function createAbility(id, name, label, unlocked, cooldownDuration) {
     unlocked,
     cooldownDuration,
     cooldownRemaining: 0,
+    activeDuration,
+    activeRemaining: 0,
     readyPulseTimer: 0,
     unavailableTimer: 0
   };
 }
 
 const abilities = [
-  createAbility("gravity", "Gravity Field", "Gravity", true, GRAVITY_FIELD_COOLDOWN),
-  createAbility("time", "Time Slow", "Time", false, 6.0),
+  createAbility("gravity", "Gravity Field", "Gravity", true, GRAVITY_FIELD_COOLDOWN, GRAVITY_FIELD_DURATION),
+  createAbility("time", "Time Slow", "Time", true, TIME_SLOW_COOLDOWN, TIME_SLOW_DURATION),
   createAbility("pulse", "Force Pulse", "Pulse", true, FORCE_PULSE_COOLDOWN),
   createAbility("anchor", "Anchor Field", "Anchor", false, 7.0),
   createAbility("phase", "Phase Shift", "Phase", false, 5.0),
@@ -211,8 +221,13 @@ function getSelectedAbility() {
 }
 
 function isAbilityReady(ability) {
-  return ability.unlocked && ability.cooldownRemaining <= 0;
+  return ability.unlocked && ability.cooldownRemaining <= 0 && ability.activeRemaining <= 0;
 }
+
+function getAbilityById(id) {
+  return abilities.find((ability) => ability.id === id);
+}
+
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -1946,12 +1961,15 @@ class Enemy extends Entity {
     }
     if (this.hp <= 0) return;
 
-    this.idleTimer += dt;
-    this.updateGravityFlipVisual(dt);
-    this.updateHitReaction(dt);
-    this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
+    const timeScale = getTimeSlowScaleForTarget(this);
+    const simDt = dt * timeScale;
 
-    this.updateVerticalEdgeKillTimer(dt);
+    this.idleTimer += simDt;
+    this.updateGravityFlipVisual(simDt);
+    this.updateHitReaction(simDt);
+    this.reverseCooldown = Math.max(0, this.reverseCooldown - simDt);
+
+    this.updateVerticalEdgeKillTimer(simDt);
 
     if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
       this.beginDeath();
@@ -1959,12 +1977,12 @@ class Enemy extends Entity {
     }
 
     if (this.forcePulseStunTimer > 0) {
-      this.updateForcePulseStun(dt);
-      this.updateAirbornePhysics(dt);
+      this.updateForcePulseStun(simDt);
+      this.updateAirbornePhysics(simDt);
     } else if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
-      this.updateGroundedPatrol(dt);
+      this.updateGroundedPatrol(simDt);
     } else {
-      this.updateAirbornePhysics(dt);
+      this.updateAirbornePhysics(simDt);
     }
 
     if (!this.isDying && (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds())) this.beginDeath();
@@ -2511,12 +2529,15 @@ class Drone extends Entity {
     }
     if (this.hp <= 0) return;
 
-    this.hoverTimer += dt;
-    this.updateGravityFlipVisual(dt);
-    this.updateHitReaction(dt);
-    this.updateOrbitDetachVisuals(dt);
+    const timeScale = getTimeSlowScaleForTarget(this);
+    const simDt = dt * timeScale;
 
-    this.updateVerticalEdgeKillTimer(dt);
+    this.hoverTimer += simDt;
+    this.updateGravityFlipVisual(simDt);
+    this.updateHitReaction(simDt);
+    this.updateOrbitDetachVisuals(simDt);
+
+    this.updateVerticalEdgeKillTimer(simDt);
 
     if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
       this.beginDeath();
@@ -2524,26 +2545,26 @@ class Drone extends Entity {
     }
 
     if (this.forcePulseStunTimer > 0) {
-      this.updateForcePulseStun(dt);
+      this.updateForcePulseStun(simDt);
       this.windupTimer = 0;
       this.fireCooldown = Math.max(this.fireCooldown, 0.35);
-      this.applyGravity(dt);
-      this.moveAndCollide(dt);
+      this.applyGravity(simDt);
+      this.moveAndCollide(simDt);
     } else if (this.droneState === "hovering") {
       this.vx = 0;
       this.vy = 0;
-      this.updateShooting(dt);
+      this.updateShooting(simDt);
     } else {
       this.windupTimer = 0;
       this.fireCooldown = Math.max(this.fireCooldown, 0.35);
-      this.forcePulseRecoveryTimer = Math.max(0, this.forcePulseRecoveryTimer - dt);
-      this.applyGravity(dt);
-      this.moveAndCollide(dt);
+      this.forcePulseRecoveryTimer = Math.max(0, this.forcePulseRecoveryTimer - simDt);
+      this.applyGravity(simDt);
+      this.moveAndCollide(simDt);
 
       // After hitstun, keep a short damped drift instead of snapping back to
       // hover immediately so Force Pulse reads as real displacement.
-      const horizontalDrag = Math.max(0, 1 - dt * 3.6);
-      const verticalDrag = Math.max(0, 1 - dt * 1.4);
+      const horizontalDrag = Math.max(0, 1 - simDt * 3.6);
+      const verticalDrag = Math.max(0, 1 - simDt * 1.4);
       this.vx *= horizontalDrag;
       this.vy *= verticalDrag;
 
@@ -3141,11 +3162,14 @@ class Jumper extends Entity {
     }
     if (this.hp <= 0) return;
 
-    this.hoverTimer += dt;
-    this.updateGravityFlipVisual(dt);
-    this.updateHitReaction(dt);
+    const timeScale = getTimeSlowScaleForTarget(this);
+    const simDt = dt * timeScale;
 
-    this.updateVerticalEdgeKillTimer(dt);
+    this.hoverTimer += simDt;
+    this.updateGravityFlipVisual(simDt);
+    this.updateHitReaction(simDt);
+
+    this.updateVerticalEdgeKillTimer(simDt);
 
     if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideWorld()) {
       this.beginDeath();
@@ -3153,14 +3177,14 @@ class Jumper extends Entity {
     }
 
     if (this.forcePulseStunTimer > 0) {
-      this.updateForcePulseStun(dt);
+      this.updateForcePulseStun(simDt);
       this.enterAirborneState();
-      this.updateAirborne(dt);
+      this.updateAirborne(simDt);
       return;
     }
 
     if (this.jumperState === "jumping" || this.jumperState === "airborne") {
-      this.updateAirborne(dt);
+      this.updateAirborne(simDt);
       return;
     }
 
@@ -3175,10 +3199,10 @@ class Jumper extends Entity {
     this.attachToSurface(platform);
     this.facePlayerIfNearby();
 
-    if (this.jumperState === "idle") this.updateIdle(dt);
-    else if (this.jumperState === "charging") this.updateCharging(dt);
-    else if (this.jumperState === "crouch-hold") this.updateCrouchHold(dt);
-    else if (this.jumperState === "recovering") this.updateRecovery(dt);
+    if (this.jumperState === "idle") this.updateIdle(simDt);
+    else if (this.jumperState === "charging") this.updateCharging(simDt);
+    else if (this.jumperState === "crouch-hold") this.updateCrouchHold(simDt);
+    else if (this.jumperState === "recovering") this.updateRecovery(simDt);
   }
 
   updateHitReaction(dt) {
@@ -3769,9 +3793,10 @@ class DroneProjectile {
 
   update(dt) {
     if (!this.active) return;
+    const simDt = dt * getTimeSlowScaleForPoint(this.x, this.y);
     this.age += dt;
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
+    this.x += this.vx * simDt;
+    this.y += this.vy * simDt;
 
     const rect = this.getRect();
     if (this.x < -40 || this.x > ROOM_WIDTH + 40 || this.y < -80 || this.y > bottomFallBoundary + 80
@@ -4185,22 +4210,39 @@ function drawGravityMarker(entity, visualTopY = entity.y) {
   ctx.restore();
 }
 
-function resetGravityField(resetAll = false) {
+function getTimedAbilityProgress(ability) {
+  if (!ability?.activeDuration || ability.activeRemaining <= 0) return 0;
+  return clamp(ability.activeRemaining / ability.activeDuration, 0, 1);
+}
+
+function startTimedAbility(ability) {
+  ability.cooldownRemaining = 0;
+  ability.activeRemaining = Math.max(0, ability.activeDuration);
+  ability.readyPulseTimer = 0;
+}
+
+
+function resetGravityField(resetAll = false, startCooldown = false) {
   const entitiesToReset = resetAll ? [player, ...enemies] : activeGravityEntities;
   for (const entity of entitiesToReset) entity.resetGravity();
   activeGravityEntities.clear();
   gravityFieldActive = false;
+
+  const ability = getAbilityById("gravity");
+  if (ability) {
+    ability.activeRemaining = 0;
+    if (startCooldown) startAbilityCooldown(ability);
+  }
 }
 
-function toggleGravityField() {
-  if (gravityFieldActive) {
-    resetGravityField();
-    return;
-  }
+function activateGravityField() {
+  const ability = getAbilityById("gravity");
+  if (!ability || gravityFieldActive) return false;
 
   gravityCastId += 1;
   gravityFieldActive = true;
   activeGravityEntities.clear();
+  startTimedAbility(ability);
 
   const origin = centerOf(player);
   const candidates = [player, ...enemies.filter((enemy) => enemy.hp > 0)];
@@ -4210,6 +4252,54 @@ function toggleGravityField() {
       activeGravityEntities.add(entity);
     }
   }
+  return true;
+}
+
+function toggleGravityField() {
+  if (gravityFieldActive) {
+    resetGravityField(false, true);
+    return true;
+  }
+  return activateGravityField();
+}
+
+function getTimeSlowOrigin() {
+  return centerOf(player);
+}
+
+function isPointInsideTimeSlow(point) {
+  if (!timeSlowActive) return false;
+  return distance(getTimeSlowOrigin(), point) <= TIME_SLOW_RADIUS;
+}
+
+function getTimeSlowScaleForTarget(target) {
+  if (!timeSlowActive || !target) return 1;
+  return isPointInsideTimeSlow(centerOf(target)) ? TIME_SLOW_MULTIPLIER : 1;
+}
+
+function getTimeSlowScaleForPoint(x, y) {
+  return isPointInsideTimeSlow({ x, y }) ? TIME_SLOW_MULTIPLIER : 1;
+}
+
+function activateTimeSlow() {
+  const ability = getAbilityById("time");
+  if (!ability || timeSlowActive) return false;
+  timeSlowActive = true;
+  timeSlowFadeTimer = 0;
+  startTimedAbility(ability);
+  return true;
+}
+
+function endTimeSlow(startCooldown = true) {
+  const ability = getAbilityById("time");
+  if (!timeSlowActive && (ability?.activeRemaining ?? 0) <= 0) return false;
+  timeSlowActive = false;
+  timeSlowFadeTimer = TIME_SLOW_FADE_DURATION;
+  if (ability) {
+    ability.activeRemaining = 0;
+    if (startCooldown) startAbilityCooldown(ability);
+  }
+  return true;
 }
 
 function updateAbilityCooldowns(dt) {
@@ -4222,6 +4312,20 @@ function updateAbilityCooldowns(dt) {
       ability.readyPulseTimer = ABILITY_READY_PULSE_DURATION;
     }
   }
+
+  const gravityAbility = getAbilityById("gravity");
+  if (gravityFieldActive && gravityAbility?.activeRemaining > 0) {
+    gravityAbility.activeRemaining = Math.max(0, gravityAbility.activeRemaining - dt);
+    if (gravityAbility.activeRemaining <= 0) resetGravityField(false, true);
+  }
+
+  const timeAbility = getAbilityById("time");
+  if (timeSlowActive && timeAbility?.activeRemaining > 0) {
+    timeAbility.activeRemaining = Math.max(0, timeAbility.activeRemaining - dt);
+    if (timeAbility.activeRemaining <= 0) endTimeSlow(true);
+  }
+
+  timeSlowFadeTimer = Math.max(0, timeSlowFadeTimer - dt);
 }
 
 function startAbilityCooldown(ability) {
@@ -4232,10 +4336,8 @@ function startAbilityCooldown(ability) {
 function selectAbility(ability) {
   if (!ability?.unlocked || ability.id === selectedAbilityId) return false;
 
-  if (gravityFieldActive && ability.id !== "gravity") {
-    resetGravityField();
-  }
-
+  // Timed abilities continue independently while the wheel changes only which
+  // ability a tap of E will activate or cancel next.
   selectedAbilityId = ability.id;
   return true;
 }
@@ -4248,10 +4350,8 @@ function activateSelectedAbility() {
   }
 
   if (ability.id === "gravity") {
-    // Turning Gravity Field off should remain responsive even while the
-    // activation cooldown is still recovering from the original cast.
     if (gravityFieldActive) {
-      resetGravityField();
+      resetGravityField(false, true);
       return true;
     }
 
@@ -4260,9 +4360,18 @@ function activateSelectedAbility() {
       return false;
     }
 
-    toggleGravityField();
-    startAbilityCooldown(ability);
-    return true;
+    return activateGravityField();
+  }
+
+  if (ability.id === "time") {
+    if (timeSlowActive) return endTimeSlow(true);
+
+    if (!isAbilityReady(ability)) {
+      ability.unavailableTimer = 0.16;
+      return false;
+    }
+
+    return activateTimeSlow();
   }
 
   if (!isAbilityReady(ability)) {
@@ -4479,6 +4588,51 @@ function drawDiamond(x, y, size, filled) {
   ctx.stroke();
 }
 
+
+function drawTimeSlowField() {
+  const ability = getAbilityById("time");
+  const activeProgress = getTimedAbilityProgress(ability);
+  const fadeProgress = timeSlowFadeTimer > 0 ? timeSlowFadeTimer / TIME_SLOW_FADE_DURATION : 0;
+  if (!timeSlowActive && fadeProgress <= 0) return;
+
+  const origin = getTimeSlowOrigin();
+  const activeElapsed = ability?.activeDuration ? ability.activeDuration - (ability.activeRemaining ?? 0) : 0;
+  const activationEase = timeSlowActive ? clamp(activeElapsed / 0.22, 0, 1) : 1;
+  const radius = TIME_SLOW_RADIUS * (0.82 + 0.18 * activationEase);
+  const alpha = timeSlowActive ? 0.72 : 0.72 * fadeProgress;
+  const ripplePhase = (activeElapsed * 2.6) % 1;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(60, 210, 255, 0.09)";
+  ctx.strokeStyle = "rgba(139, 236, 255, 0.88)";
+  ctx.lineWidth = 2;
+  ctx.shadowColor = "rgba(60, 210, 255, 0.4)";
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.arc(origin.x, origin.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.setLineDash([16, 10]);
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = "rgba(154, 244, 255, 0.42)";
+  ctx.beginPath();
+  ctx.arc(origin.x, origin.y, radius * (0.35 + ripplePhase * 0.55), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (timeSlowActive && activeProgress > 0) {
+    ctx.strokeStyle = "rgba(232, 253, 255, 0.84)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, radius + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * activeProgress);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
   ctx.save();
   ctx.translate(x, y);
@@ -4534,15 +4688,27 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     drawFilledArrowKey((arrowHeight + gap) / 2, 1);
     ctx.shadowBlur = 0;
   } else if (ability.id === "time") {
+    ctx.strokeStyle = "rgba(132, 239, 255, 0.96)";
+    ctx.fillStyle = "rgba(132, 239, 255, 0.92)";
+    ctx.shadowColor = "rgba(77, 218, 255, 0.72)";
+    ctx.shadowBlur = size * 0.16;
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.arc(0, 0, r * 1.08, 0, Math.PI * 2);
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(0, -r * 0.72);
+    ctx.lineTo(0, -r * 0.74);
     ctx.moveTo(0, 0);
-    ctx.lineTo(r * 0.62, r * 0.32);
+    ctx.lineTo(r * 0.55, r * 0.26);
     ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = Math.max(1.2, size * 0.045);
+    for (const x of [-r * 0.46, r * 0.46]) {
+      ctx.beginPath();
+      ctx.moveTo(x, r * 0.42);
+      ctx.lineTo(x, r * 0.82);
+      ctx.stroke();
+    }
   } else if (ability.id === "pulse") {
     // Match the in-world Force Pulse: a clean red fan with a narrow origin
     // and one rounded outer arc, with no internal/radial detail.
@@ -4606,9 +4772,13 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
 }
 
 function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
-  const progress = ability.cooldownDuration > 0
-    ? 1 - clamp(ability.cooldownRemaining / ability.cooldownDuration, 0, 1)
-    : 1;
+  const activeProgress = getTimedAbilityProgress(ability);
+  const coolingDown = ability.cooldownRemaining > 0;
+  const progress = activeProgress > 0
+    ? activeProgress
+    : ability.cooldownDuration > 0
+      ? 1 - clamp(ability.cooldownRemaining / ability.cooldownDuration, 0, 1)
+      : 1;
   const locked = !ability.unlocked;
   const selected = options.selected ?? false;
   const highlighted = options.highlighted ?? false;
@@ -4633,9 +4803,22 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
     ctx.beginPath();
     ctx.roundRect(-size / 2 + 2, -size / 2 + 2, size - 4, size - 4, 6);
     ctx.clip();
-    ctx.fillStyle = "rgba(83, 184, 255, 0.32)";
-    ctx.fillRect(-size / 2 + 2, size / 2 - 2 - fillHeight, size - 4, fillHeight);
+    ctx.fillStyle = activeProgress > 0 ? "rgba(139, 245, 255, 0.22)" : "rgba(83, 184, 255, 0.32)";
+    if (activeProgress > 0) ctx.fillRect(-size / 2 + 2, -size / 2 + 2, size - 4, fillHeight);
+    else ctx.fillRect(-size / 2 + 2, size / 2 - 2 - fillHeight, size - 4, fillHeight);
+    if (coolingDown) {
+      ctx.fillStyle = "rgba(2, 10, 24, 0.34)";
+      ctx.fillRect(-size / 2 + 2, -size / 2 + 2, size - 4, size - 4 - fillHeight);
+    }
     ctx.restore();
+  }
+
+  if (activeProgress > 0) {
+    ctx.strokeStyle = "rgba(151, 248, 255, 0.9)";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.47, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * activeProgress);
+    ctx.stroke();
   }
 
   if (pulse > 0) {
@@ -4809,6 +4992,16 @@ function drawSelectedAbilityRangePreview() {
     ctx.arc(origin.x, origin.y, GRAVITY_FIELD_RADIUS, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  } else if (ability.id === "time") {
+    const origin = centerOf(player);
+    ctx.strokeStyle = "rgba(126, 233, 255, 0.86)";
+    ctx.fillStyle = "rgba(47, 203, 255, 0.07)";
+    ctx.shadowColor = "rgba(74, 218, 255, 0.38)";
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, TIME_SLOW_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   } else if (ability.id === "pulse") {
     const direction = player.facing || 1;
     const origin = player.getForcePulseHandPoint(direction);
@@ -4839,6 +5032,7 @@ function draw() {
   ctx.translate(-cameraX, 0);
   drawRoom();
   drawSelectedAbilityRangePreview();
+  drawTimeSlowField();
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
@@ -4894,6 +5088,8 @@ window.__indiePlatformerDebug = {
   draw,
   toggleGravityField,
   resetGravityField,
+  activateTimeSlow,
+  endTimeSlow,
   abilities,
   activateSelectedAbility,
   setSelectedAbility: (id) => {
@@ -4902,12 +5098,13 @@ window.__indiePlatformerDebug = {
   },
   castForcePulse,
   forcePulseVisuals,
+  droneProjectiles,
   abilityWheel,
   getSelectedAbility,
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN }
 };
 
 requestAnimationFrame(gameLoop);
