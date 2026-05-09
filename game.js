@@ -96,6 +96,12 @@ const PHASE_SHIFT_DURATION = config.phaseShiftDuration ?? 1.75;
 const PHASE_SHIFT_COOLDOWN = config.phaseShiftCooldown ?? 6.0;
 const PHASE_SHIFT_FLICKER_DURATION = 0.16;
 const PHASE_SHIFT_EXPOSURE_RADIUS = 96;
+const ANCHOR_FIELD_RADIUS = config.anchorFieldRadius ?? 160;
+const ANCHOR_FIELD_PLACEMENT_DISTANCE = config.anchorFieldPlacementDistance ?? 200;
+const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
+const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
+const ANCHOR_FIELD_FADE_DURATION = 0.16;
+const ANCHOR_FORCE_PULSE_RESISTANCE = 0.34;
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
 const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
@@ -169,6 +175,9 @@ let activeGravityEntities = new Set();
 let timeSlowActive = false;
 let timeSlowFadeTimer = 0;
 let phaseShiftActive = false;
+let anchorFieldActive = false;
+let anchorField = null;
+let anchorFieldFade = null;
 let phaseCastId = 0;
 let currentPhaseExposure = new Set();
 let cameraX = 0;
@@ -227,7 +236,7 @@ const abilities = [
   createAbility("gravity", "Gravity Field", "Gravity", true, GRAVITY_FIELD_COOLDOWN, GRAVITY_FIELD_DURATION),
   createAbility("time", "Time Slow", "Time", true, TIME_SLOW_COOLDOWN, TIME_SLOW_DURATION),
   createAbility("pulse", "Force Pulse", "Pulse", true, FORCE_PULSE_COOLDOWN),
-  createAbility("anchor", "Anchor Field", "Anchor", false, 7.0),
+  createAbility("anchor", "Anchor Field", "Anchor", true, ANCHOR_FIELD_COOLDOWN, ANCHOR_FIELD_DURATION),
   createAbility("phase", "Phase Shift", "Phase", true, PHASE_SHIFT_COOLDOWN, PHASE_SHIFT_DURATION),
   createAbility("link", "Energy Link", "Link", false, 8.0)
 ];
@@ -445,6 +454,8 @@ class Entity {
     this.forcePulseStunTimer = 0;
     this.lastForcePulseCastId = 0;
     this.verticalEdgeKillTimer = 0;
+    this.anchorLocked = false;
+    this.anchorLockMarkerTimer = 0;
   }
 
   applyGravity(dt) {
@@ -589,6 +600,10 @@ class Entity {
   receiveForcePulse(direction, speed, stunDuration, castId) {
     if (this.lastForcePulseCastId === castId || this.isDying || this.hp <= 0) return false;
     this.lastForcePulseCastId = castId;
+    if (this.anchorLocked) {
+      speed *= ANCHOR_FORCE_PULSE_RESISTANCE;
+      this.x += direction * Math.min(18, speed * 0.018);
+    }
     this.forcePulseStunTimer = Math.max(this.forcePulseStunTimer ?? 0, stunDuration);
 
     // Treat the pulse as a short impulse: preserve useful existing momentum,
@@ -605,6 +620,18 @@ class Entity {
     this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
     this.hitJoltX = direction * 2.6;
     this.hitJoltY = -this.gravitySign * 1.6;
+    return true;
+  }
+
+  updateAnchorHold(dt) {
+    if (!this.anchorLocked) return false;
+    this.vx = 0;
+    this.vy = 0;
+    this.onSurface = false;
+    this.anchorLockMarkerTimer = Math.max(this.anchorLockMarkerTimer ?? 0, 0.08);
+    this.updateGravityFlipVisual(dt);
+    this.updateHitReaction?.(dt);
+    this.updateVerticalEdgeKillTimer?.(dt);
     return true;
   }
 
@@ -2217,6 +2244,8 @@ class Enemy extends Entity {
     const timeScale = getTimeSlowScaleForTarget(this);
     const simDt = dt * timeScale;
 
+    if (this.updateAnchorHold(simDt)) return;
+
     this.idleTimer += simDt;
     this.updateGravityFlipVisual(simDt);
     this.updateHitReaction(simDt);
@@ -2785,6 +2814,8 @@ class Drone extends Entity {
 
     const timeScale = getTimeSlowScaleForTarget(this);
     const simDt = dt * timeScale;
+
+    if (this.updateAnchorHold(simDt)) return;
 
     this.hoverTimer += simDt;
     this.updateGravityFlipVisual(simDt);
@@ -3419,6 +3450,8 @@ class Jumper extends Entity {
     const timeScale = getTimeSlowScaleForTarget(this);
     const simDt = dt * timeScale;
 
+    if (this.updateAnchorHold(simDt)) return;
+
     this.hoverTimer += simDt;
     this.updateGravityFlipVisual(simDt);
     this.updateHitReaction(simDt);
@@ -4032,6 +4065,29 @@ class DroneProjectile {
     this.age = 0;
     this.orientationAngle = orientationAngle;
     this.active = true;
+    this.anchorFrozen = false;
+    this.anchorStoredVelocity = null;
+  }
+
+  restoreAnchorVelocity() {
+    if (!this.anchorFrozen || !this.anchorStoredVelocity) return;
+    this.vx = this.anchorStoredVelocity.vx;
+    this.vy = this.anchorStoredVelocity.vy;
+    this.anchorFrozen = false;
+    this.anchorStoredVelocity = null;
+  }
+
+  updateAnchorFreeze() {
+    const insideAnchor = isPointInsideAnchorField({ x: this.x, y: this.y });
+    if (insideAnchor && !this.anchorFrozen) {
+      this.anchorStoredVelocity = { vx: this.vx, vy: this.vy };
+      this.vx = 0;
+      this.vy = 0;
+      this.anchorFrozen = true;
+    } else if (!insideAnchor && this.anchorFrozen) {
+      this.restoreAnchorVelocity();
+    }
+    return insideAnchor;
   }
 
   deactivate() {
@@ -4050,7 +4106,8 @@ class DroneProjectile {
 
   update(dt) {
     if (!this.active) return;
-    const simDt = dt * getTimeSlowScaleForPoint(this.x, this.y);
+    const anchored = this.updateAnchorFreeze();
+    const simDt = anchored ? 0 : dt * getTimeSlowScaleForPoint(this.x, this.y);
     this.age += dt;
     this.x += this.vx * simDt;
     this.y += this.vy * simDt;
@@ -4093,6 +4150,15 @@ class DroneProjectile {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    if (this.anchorFrozen) {
+      ctx.strokeStyle = "rgba(220, 248, 255, 0.92)";
+      ctx.lineWidth = 1;
+      ctx.shadowColor = "rgba(190, 238, 255, 0.75)";
+      ctx.shadowBlur = 7;
+      ctx.beginPath();
+      ctx.arc(0, 0, DRONE_OUTER_DIAMOND_RY + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -4929,6 +4995,108 @@ function getTimeSlowScaleForPoint(x, y) {
   return isPointInsideTimeSlow({ x, y }) ? TIME_SLOW_MULTIPLIER : 1;
 }
 
+
+function isPointInsideAnchorField(point) {
+  return anchorFieldActive
+    && anchorField
+    && distance(anchorField, point) <= anchorField.radius;
+}
+
+function isTargetInsideAnchorField(target) {
+  return isPointInsideAnchorField(centerOf(target));
+}
+
+function findAnchorPlacementPoint() {
+  const direction = player.facing || 1;
+  const origin = {
+    x: player.x + player.w / 2,
+    y: player.y + player.h * 0.42
+  };
+  const target = {
+    x: clamp(origin.x + direction * ANCHOR_FIELD_PLACEMENT_DISTANCE, ANCHOR_FIELD_RADIUS * 0.35, ROOM_WIDTH - ANCHOR_FIELD_RADIUS * 0.35),
+    y: clamp(origin.y, 36, bottomFallBoundary - 36)
+  };
+
+  let best = { ...origin };
+  const travel = Math.abs(target.x - origin.x);
+  const steps = Math.max(1, Math.ceil(travel / 8));
+  for (let step = 1; step <= steps; step += 1) {
+    const t = step / steps;
+    const candidate = {
+      x: origin.x + (target.x - origin.x) * t,
+      y: origin.y + (target.y - origin.y) * t
+    };
+    if (platforms.some((platform) => pointInRect(candidate, platform))) break;
+    best = candidate;
+  }
+
+  return best;
+}
+
+function activateAnchorField() {
+  const ability = getAbilityById("anchor");
+  if (!ability || anchorFieldActive) return false;
+  const placement = findAnchorPlacementPoint();
+  anchorField = {
+    x: placement.x,
+    y: placement.y,
+    radius: ANCHOR_FIELD_RADIUS,
+    age: 0
+  };
+  anchorFieldFade = null;
+  anchorFieldActive = true;
+  startTimedAbility(ability);
+  refreshAnchorFieldEffects();
+  return true;
+}
+
+function clearAnchorFieldEffects() {
+  for (const enemy of enemies) enemy.anchorLocked = false;
+  for (const projectile of droneProjectiles) projectile.restoreAnchorVelocity?.();
+}
+
+function endAnchorField(startCooldown = true) {
+  const ability = getAbilityById("anchor");
+  if (!anchorFieldActive && (ability?.activeRemaining ?? 0) <= 0) return false;
+  if (anchorField) anchorFieldFade = { ...anchorField, fadeRemaining: ANCHOR_FIELD_FADE_DURATION };
+  anchorFieldActive = false;
+  anchorField = null;
+  clearAnchorFieldEffects();
+  if (ability) {
+    ability.activeRemaining = 0;
+    if (startCooldown) startAbilityCooldown(ability);
+  }
+  return true;
+}
+
+function refreshAnchorFieldEffects() {
+  if (!anchorFieldActive || !anchorField) return;
+  for (const enemy of enemies) {
+    enemy.anchorLocked = enemy.hp > 0 && !enemy.isDying && isTargetInsideAnchorField(enemy);
+    if (enemy.anchorLocked) {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.anchorLockMarkerTimer = 0.08;
+      if (enemy instanceof Drone) {
+        enemy.windupTimer = 0;
+        enemy.fireCooldown = Math.max(enemy.fireCooldown, 0.35);
+      }
+    }
+  }
+}
+
+function updateAnchorField(dt) {
+  if (anchorFieldActive && anchorField) {
+    anchorField.age += dt;
+    refreshAnchorFieldEffects();
+  }
+
+  if (anchorFieldFade) {
+    anchorFieldFade.fadeRemaining = Math.max(0, anchorFieldFade.fadeRemaining - dt);
+    if (anchorFieldFade.fadeRemaining <= 0) anchorFieldFade = null;
+  }
+}
+
 function activateTimeSlow() {
   const ability = getAbilityById("time");
   if (!ability || timeSlowActive) return false;
@@ -4982,6 +5150,13 @@ function updateAbilityCooldowns(dt) {
     }
   }
 
+  const anchorAbility = getAbilityById("anchor");
+  if (anchorFieldActive && anchorAbility?.activeRemaining > 0) {
+    anchorAbility.activeRemaining = Math.max(0, anchorAbility.activeRemaining - dt);
+    if (anchorAbility.activeRemaining <= 0) endAnchorField(true);
+  }
+
+  updateAnchorField(dt);
   timeSlowFadeTimer = Math.max(0, timeSlowFadeTimer - dt);
 }
 
@@ -5040,6 +5215,17 @@ function activateSelectedAbility() {
     }
 
     return activatePhaseShift();
+  }
+
+  if (ability.id === "anchor") {
+    if (anchorFieldActive) return endAnchorField(true);
+
+    if (!isAbilityReady(ability)) {
+      ability.unavailableTimer = 0.16;
+      return false;
+    }
+
+    return activateAnchorField();
   }
 
   if (!isAbilityReady(ability)) {
@@ -5491,10 +5677,40 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
 
     ctx.shadowBlur = 0;
   } else if (ability.id === "anchor") {
-    ctx.strokeRect(-r * 0.82, -r * 0.05, r * 1.64, r * 1.05);
+    const circleRadius = size * 0.29;
+    const diamondRadius = size * 0.105;
+    ctx.strokeStyle = "rgba(220, 248, 255, 0.96)";
+    ctx.fillStyle = "rgba(235, 253, 255, 0.94)";
+    ctx.shadowColor = "rgba(186, 232, 255, 0.68)";
+    ctx.shadowBlur = size * 0.14;
+
     ctx.beginPath();
-    ctx.arc(0, -r * 0.05, r * 0.58, Math.PI, 0);
+    ctx.arc(0, 0, circleRadius, 0, Math.PI * 2);
     ctx.stroke();
+
+    ctx.lineWidth = Math.max(1.1, size * 0.038);
+    const lineStart = diamondRadius * 1.45;
+    const lineEnd = circleRadius * 0.78;
+    ctx.beginPath();
+    ctx.moveTo(0, -lineStart);
+    ctx.lineTo(0, -lineEnd);
+    ctx.moveTo(0, lineStart);
+    ctx.lineTo(0, lineEnd);
+    ctx.moveTo(-lineStart, 0);
+    ctx.lineTo(-lineEnd, 0);
+    ctx.moveTo(lineStart, 0);
+    ctx.lineTo(lineEnd, 0);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, -diamondRadius);
+    ctx.lineTo(diamondRadius, 0);
+    ctx.lineTo(0, diamondRadius);
+    ctx.lineTo(-diamondRadius, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   } else if (ability.id === "phase") {
     const bodyTop = -size * 0.11;
     const bodyBottom = size * 0.36;
@@ -5788,6 +6004,95 @@ function drawHud() {
   ctx.restore();
 }
 
+
+function drawAnchorFieldInstance(field, alpha = 1) {
+  if (!field || alpha <= 0) return;
+  const hum = 0.86 + Math.sin((field.age ?? 0) * 5) * 0.08;
+  const radius = field.radius;
+
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.shadowColor = "rgba(190, 238, 255, 0.42)";
+  ctx.shadowBlur = 14;
+
+  const fill = ctx.createRadialGradient(field.x, field.y, radius * 0.08, field.x, field.y, radius);
+  fill.addColorStop(0, "rgba(235, 253, 255, 0.08)");
+  fill.addColorStop(0.72, "rgba(166, 224, 255, 0.035)");
+  fill.addColorStop(1, "rgba(166, 224, 255, 0.01)");
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = `rgba(218, 247, 255, ${hum})`;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(field.x, field.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 6;
+  ctx.strokeStyle = "rgba(198, 235, 255, 0.48)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i += 1) {
+    const angle = i * Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(field.x + Math.cos(angle) * 18, field.y + Math.sin(angle) * 18);
+    ctx.lineTo(field.x + Math.cos(angle) * radius * 0.82, field.y + Math.sin(angle) * radius * 0.82);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "rgba(232, 253, 255, 0.92)";
+  ctx.fillStyle = "rgba(232, 253, 255, 0.18)";
+  ctx.lineWidth = 1.3;
+  const diamond = 13;
+  ctx.beginPath();
+  ctx.moveTo(field.x, field.y - diamond);
+  ctx.lineTo(field.x + diamond, field.y);
+  ctx.lineTo(field.x, field.y + diamond);
+  ctx.lineTo(field.x - diamond, field.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawAnchorFields() {
+  if (anchorFieldActive) drawAnchorFieldInstance(anchorField, 1);
+  if (anchorFieldFade) {
+    const alpha = clamp(anchorFieldFade.fadeRemaining / ANCHOR_FIELD_FADE_DURATION, 0, 1);
+    drawAnchorFieldInstance(anchorFieldFade, alpha);
+  }
+}
+
+function drawAnchoredObjectMarkers() {
+  ctx.save();
+  ctx.strokeStyle = "rgba(220, 248, 255, 0.9)";
+  ctx.fillStyle = "rgba(220, 248, 255, 0.12)";
+  ctx.shadowColor = "rgba(190, 238, 255, 0.55)";
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 1.1;
+  for (const enemy of enemies) {
+    if (!enemy.anchorLocked || enemy.hp <= 0 || enemy.isDying) continue;
+    const rect = enemy.getDamageRect();
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    const rx = rect.w / 2 + 8;
+    const ry = rect.h / 2 + 8;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 7);
+    ctx.lineTo(cx + 7, cy);
+    ctx.lineTo(cx, cy + 7);
+    ctx.lineTo(cx - 7, cy);
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawSelectedAbilityRangePreview() {
   if (!keys.has("q")) return;
 
@@ -5833,6 +6138,16 @@ function drawSelectedAbilityRangePreview() {
     ctx.arc(origin.x, origin.y, TIME_SLOW_RADIUS, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  } else if (ability.id === "anchor") {
+    const origin = findAnchorPlacementPoint();
+    ctx.strokeStyle = "rgba(220, 248, 255, 0.86)";
+    ctx.fillStyle = "rgba(176, 224, 255, 0.06)";
+    ctx.shadowColor = "rgba(190, 238, 255, 0.38)";
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, ANCHOR_FIELD_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
   } else if (ability.id === "pulse") {
     const direction = player.facing || 1;
     const origin = player.getForcePulseHandPoint(direction);
@@ -5864,10 +6179,12 @@ function draw() {
   drawRoom();
   drawSelectedAbilityRangePreview();
   drawTimeSlowField();
+  drawAnchorFields();
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
   droneProjectiles.forEach((projectile) => projectile.draw());
+  drawAnchoredObjectMarkers();
   player.draw();
   ctx.restore();
   drawHud();
@@ -5925,6 +6242,9 @@ window.__indiePlatformerDebug = {
   endTimeSlow,
   activatePhaseShift,
   endPhaseShift,
+  activateAnchorField,
+  endAnchorField,
+  isPointInsideAnchorField,
   isPlayerPhased,
   abilities,
   activateSelectedAbility,
@@ -5943,7 +6263,7 @@ window.__indiePlatformerDebug = {
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);

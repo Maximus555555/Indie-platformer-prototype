@@ -276,6 +276,81 @@ gravityAbility.cooldownRemaining = 0;
 timeAbility.cooldownRemaining = 0;
 forcePulseAbility.cooldownRemaining = 0;
 
+// Anchor Field regression: it is selectable, starts cooldown only after ending,
+// locks enemies in its visible radius, freezes projectiles, and reduces Force
+// Pulse displacement while active.
+const anchorAbility = debug.abilities.find((ability) => ability.id === "anchor");
+if (!anchorAbility || !anchorAbility.unlocked) throw new Error("Expected unlocked Anchor Field ability.");
+const anchorWalker = debug.enemies[0];
+debug.player.x = 520;
+debug.player.y = 420;
+debug.player.facing = 1;
+debug.player.gravitySign = 1;
+anchorWalker.x = debug.player.x + 190;
+anchorWalker.y = 435;
+anchorWalker.hp = 2;
+anchorWalker.isDying = false;
+anchorWalker.anchorLocked = false;
+anchorWalker.vx = 0;
+anchorWalker.vy = 0;
+anchorAbility.cooldownRemaining = 0;
+anchorAbility.activeRemaining = 0;
+debug.setSelectedAbility("anchor");
+if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not activate when selected and ready.");
+if (anchorAbility.cooldownRemaining > 0 || anchorAbility.activeRemaining <= 0) {
+  throw new Error("Anchor Field cooldown started before its active duration ended.");
+}
+debug.update(16 / 1000);
+if (!anchorWalker.anchorLocked) throw new Error("Anchor Field did not lock a Walker inside its radius.");
+const anchoredWalkerX = anchorWalker.x;
+anchorWalker.vx = 120;
+debug.update(0.25);
+if (Math.abs(anchorWalker.x - anchoredWalkerX) > 0.01 || anchorWalker.vx !== 0) {
+  throw new Error("Anchored Walker moved while the field was active.");
+}
+forcePulseAbility.cooldownRemaining = 0;
+debug.setSelectedAbility("pulse");
+if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate against an anchored enemy.");
+if (anchorWalker.x - anchoredWalkerX > 30) throw new Error("Anchored enemy did not resist Force Pulse knockback.");
+const drone = debug.enemies.find((enemy) => typeof enemy.fireAtPlayer === "function");
+if (!drone) throw new Error("Expected a Drone for Anchor Field projectile regression.");
+debug.player.x = 450;
+debug.player.y = 420;
+drone.x = 650;
+drone.y = 390;
+drone.hp = 2;
+drone.isDying = false;
+drone.orbitSlots.forEach((slot) => { slot.detached = false; slot.detachTimer = 0; slot.reformTimer = 0; });
+const projectileCountBeforeAnchorShot = debug.droneProjectiles.length;
+if (!drone.fireAtPlayer()) throw new Error("Drone did not spawn a projectile for Anchor Field regression.");
+const anchoredProjectile = debug.droneProjectiles.at(-1);
+if (!anchoredProjectile || debug.droneProjectiles.length !== projectileCountBeforeAnchorShot + 1) {
+  throw new Error("Expected a new Drone projectile for Anchor Field regression.");
+}
+anchoredProjectile.x = debug.player.x + debug.player.w / 2 + 200;
+anchoredProjectile.y = debug.player.y + debug.player.h * 0.42;
+anchoredProjectile.vx = -120;
+anchoredProjectile.vy = 20;
+debug.update(16 / 1000);
+if (!anchoredProjectile.anchorFrozen || anchoredProjectile.vx !== 0 || anchoredProjectile.vy !== 0) {
+  throw new Error("Anchor Field did not freeze a Drone projectile inside its radius.");
+}
+if (!debug.setSelectedAbility("anchor")) throw new Error("Could not reselect Anchor Field for manual cancellation.");
+if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not manually cancel when selected and tapped again.");
+if (anchorAbility.cooldownRemaining <= 0 || anchorAbility.activeRemaining > 0) {
+  throw new Error("Anchor Field cancellation did not start cooldown and clear active time.");
+}
+if (anchorWalker.anchorLocked || anchoredProjectile.anchorFrozen || anchoredProjectile.vx !== -120 || anchoredProjectile.vy !== 20) {
+  throw new Error("Anchor Field did not restore locked enemies and frozen projectile velocity after ending.");
+}
+if (debug.activateSelectedAbility()) throw new Error("Anchor Field activation bypassed cooldown after cancellation.");
+anchorAbility.cooldownRemaining = 0;
+anchorAbility.activeRemaining = 0;
+
+debug.setSelectedAbility("gravity");
+debug.player.x = 120;
+debug.player.y = 420;
+
 const jumper = debug.enemies.find((enemy) => typeof enemy.canStartAttack === "function");
 const jumperPlatform = debug.platforms.find((platform) => platform.x === 1900 && platform.y === 310);
 if (!jumper || !jumperPlatform) throw new Error("Expected jumper enemy and its platform for detection regression.");
