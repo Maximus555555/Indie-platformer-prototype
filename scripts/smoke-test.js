@@ -22,6 +22,7 @@ const context = new Proxy({
   arc: recordCanvasCall("arc"),
   fill: recordCanvasCall("fill"),
   fillRect: recordCanvasCall("fillRect"),
+  ellipse: recordCanvasCall("ellipse"),
   lineTo: recordCanvasCall("lineTo"),
   moveTo: recordCanvasCall("moveTo"),
   stroke: recordCanvasCall("stroke"),
@@ -312,6 +313,11 @@ if (debug.isPointInsideAnchorField({ x: anchorPlayerCenter.x + 200, y: anchorPla
 }
 debug.update(16 / 1000);
 if (!anchorWalker.anchorLocked) throw new Error("Anchor Field did not lock a Walker inside its radius.");
+context.calls = [];
+debug.draw();
+if (context.calls.some((call) => call.name === "ellipse")) {
+  throw new Error("Anchor Field drew an enemy lock indicator after anchoring a Walker.");
+}
 const anchoredWalkerX = anchorWalker.x;
 anchorWalker.vx = 120;
 debug.update(0.25);

@@ -454,7 +454,6 @@ class Entity {
     this.lastForcePulseCastId = 0;
     this.verticalEdgeKillTimer = 0;
     this.anchorLocked = false;
-    this.anchorLockMarkerTimer = 0;
   }
 
   applyGravity(dt) {
@@ -627,7 +626,6 @@ class Entity {
     this.vx = 0;
     this.vy = 0;
     this.onSurface = false;
-    this.anchorLockMarkerTimer = Math.max(this.anchorLockMarkerTimer ?? 0, 0.08);
     this.updateGravityFlipVisual(dt);
     this.updateHitReaction?.(dt);
     this.updateVerticalEdgeKillTimer?.(dt);
@@ -5059,7 +5057,6 @@ function refreshAnchorFieldEffects() {
     if (enemy.anchorLocked) {
       enemy.vx = 0;
       enemy.vy = 0;
-      enemy.anchorLockMarkerTimer = 0.08;
       if (enemy instanceof Drone) {
         enemy.windupTimer = 0;
         enemy.fireCooldown = Math.max(enemy.fireCooldown, 0.35);
@@ -6048,35 +6045,6 @@ function drawAnchorFields() {
   }
 }
 
-function drawAnchoredObjectMarkers() {
-  ctx.save();
-  ctx.strokeStyle = "rgba(220, 248, 255, 0.9)";
-  ctx.fillStyle = "rgba(220, 248, 255, 0.12)";
-  ctx.shadowColor = "rgba(190, 238, 255, 0.55)";
-  ctx.shadowBlur = 8;
-  ctx.lineWidth = 1.1;
-  for (const enemy of enemies) {
-    if (!enemy.anchorLocked || enemy.hp <= 0 || enemy.isDying) continue;
-    const rect = enemy.getDamageRect();
-    const cx = rect.x + rect.w / 2;
-    const cy = rect.y + rect.h / 2;
-    const rx = rect.w / 2 + 8;
-    const ry = rect.h / 2 + 8;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - 7);
-    ctx.lineTo(cx + 7, cy);
-    ctx.lineTo(cx, cy + 7);
-    ctx.lineTo(cx - 7, cy);
-    ctx.closePath();
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function drawSelectedAbilityRangePreview() {
   if (!keys.has("q")) return;
 
@@ -6168,7 +6136,6 @@ function draw() {
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
   droneProjectiles.forEach((projectile) => projectile.draw());
-  drawAnchoredObjectMarkers();
   player.draw();
   ctx.restore();
   drawHud();
