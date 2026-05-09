@@ -77,10 +77,11 @@ const GRAVITY_FLIP_VISUAL_DURATION = 0.18;
 const GRAVITY_FIELD_COOLDOWN = config.gravityFieldCooldown ?? 3.0;
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
-const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 520;
-const FORCE_PULSE_MIN_FORCE_SCALE = 0.6;
-const FORCE_PULSE_STUN = config.forcePulseStun ?? 0.12;
-const FORCE_PULSE_VISUAL_DURATION = config.forcePulseVisualDuration ?? 0.12;
+const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
+const FORCE_PULSE_MIN_FORCE_SCALE = 0.65;
+const FORCE_PULSE_STUN = config.forcePulseStun ?? 0.18;
+const FORCE_PULSE_VISUAL_DURATION = config.forcePulseVisualDuration ?? 0.14;
+const FORCE_PULSE_EXPAND_DURATION = Math.min(config.forcePulseExpandDuration ?? 0.07, FORCE_PULSE_VISUAL_DURATION);
 const FORCE_PULSE_DRONE_RECOVERY = config.forcePulseDroneRecovery ?? 0.28;
 const FORCE_PULSE_COOLDOWN = config.forcePulseCooldown ?? 4.0;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
@@ -3828,43 +3829,40 @@ class ForcePulseVisual {
   }
 
   draw() {
-    const progress = clamp(this.age / FORCE_PULSE_VISUAL_DURATION, 0, 1);
-    const alpha = Math.max(0, 1 - progress);
+    const expansionProgress = clamp(this.age / FORCE_PULSE_EXPAND_DURATION, 0, 1);
+    const easedExpansion = expansionProgress * expansionProgress * (3 - 2 * expansionProgress);
+    const fadeProgress = FORCE_PULSE_VISUAL_DURATION <= FORCE_PULSE_EXPAND_DURATION
+      ? expansionProgress
+      : clamp((this.age - FORCE_PULSE_EXPAND_DURATION) / (FORCE_PULSE_VISUAL_DURATION - FORCE_PULSE_EXPAND_DURATION), 0, 1);
+    const alpha = expansionProgress < 1 ? 0.9 : Math.max(0, 0.9 * (1 - fadeProgress));
     if (alpha <= 0) return;
 
     const origin = this.getOrigin();
-    const range = FORCE_PULSE_RANGE;
-    const halfWidth = Math.tan(FORCE_PULSE_HALF_ANGLE) * range;
-    const tipX = origin.x + this.direction * range;
+    const range = Math.max(6, FORCE_PULSE_RANGE * easedExpansion);
+    const centerAngle = this.direction > 0 ? 0 : Math.PI;
+    const upperAngle = centerAngle - FORCE_PULSE_HALF_ANGLE * this.direction;
+    const lowerAngle = centerAngle + FORCE_PULSE_HALF_ANGLE * this.direction;
+    const upperX = origin.x + Math.cos(upperAngle) * range;
+    const upperY = origin.y + Math.sin(upperAngle) * range;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.lineJoin = "miter";
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.shadowColor = "rgba(255, 42, 64, 0.42)";
     ctx.shadowBlur = 12;
 
-    ctx.fillStyle = "rgba(255, 24, 48, 0.18)";
-    ctx.strokeStyle = "rgba(255, 54, 76, 0.92)";
-    ctx.lineWidth = 2.2;
+    ctx.fillStyle = "rgba(255, 24, 48, 0.2)";
+    ctx.strokeStyle = "rgba(255, 54, 76, 0.95)";
+    ctx.lineWidth = 2.4;
     ctx.beginPath();
     ctx.moveTo(origin.x, origin.y);
-    ctx.lineTo(tipX, origin.y - halfWidth);
-    ctx.lineTo(tipX, origin.y + halfWidth);
+    ctx.lineTo(upperX, upperY);
+    ctx.arc(origin.x, origin.y, range, upperAngle, lowerAngle, this.direction < 0);
+    ctx.lineTo(origin.x, origin.y);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-
-    // Two inner red guide lines keep the cone geometric/system-like and make the
-    // cast direction readable without making the effect look like fire or smoke.
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255, 105, 122, 0.58)";
-    ctx.lineWidth = 1.1;
-    for (const offsetScale of [-0.42, 0.42]) {
-      ctx.beginPath();
-      ctx.moveTo(origin.x + this.direction * 12, origin.y);
-      ctx.lineTo(tipX - this.direction * 18, origin.y + halfWidth * offsetScale);
-      ctx.stroke();
-    }
 
     ctx.restore();
   }
