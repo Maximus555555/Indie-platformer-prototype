@@ -98,6 +98,11 @@ const HP_DIAMOND_SIZE = 14;
 const HP_DIAMOND_SPACING = 8;
 const GRAVITY_MARKER_HEIGHT = 9;
 const GRAVITY_MARKER_GAP = 8;
+const SPIKE_HEIGHT = config.spikeHeight ?? 18;
+const SPIKE_WIDTH = config.spikeWidth ?? 16;
+const SPIKE_FILL = "#245c93";
+const SPIKE_STROKE = "rgba(24, 62, 111, 0.82)";
+const SPIKE_BASE_FILL = "rgba(31, 91, 143, 0.78)";
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -132,6 +137,16 @@ const platforms = [
   { x: 1985, y: 150, w: 150, h: 20 }
 ];
 
+const spikes = [
+  // Floor strip: leaves safe space around the platform edges for recovery while
+  // giving the player and grounded enemies a readable hazard test.
+  { platform: platforms[3], side: "top", x: 930, w: 96, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
+  // Ceiling strips: attached to the underside of the top platform so Gravity
+  // Field can launch nearby enemies upward into clean geometric hazards.
+  { platform: platforms[0], side: "bottom", x: 620, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
+  { platform: platforms[0], side: "bottom", x: 1030, w: 112, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
+];
+
 const bottomFallBoundary = config.fallBoundary
   ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
 
@@ -148,6 +163,129 @@ function rectsTouchOrOverlap(a, b, margin = 0) {
     && a.x + a.w >= b.x - margin
     && a.y <= b.y + b.h + margin
     && a.y + a.h >= b.y - margin;
+}
+
+function spikeStripBounds(spike) {
+  const baseY = spike.side === "top" ? spike.platform.y : spike.platform.y + spike.platform.h;
+  return {
+    x: spike.x,
+    y: spike.side === "top" ? baseY - spike.spikeHeight : baseY,
+    w: spike.w,
+    h: spike.spikeHeight
+  };
+}
+
+function getSpikeTriangles(spike) {
+  const count = Math.max(1, Math.floor(spike.w / spike.spikeWidth));
+  const width = spike.w / count;
+  const baseY = spike.side === "top" ? spike.platform.y : spike.platform.y + spike.platform.h;
+  const apexY = spike.side === "top" ? baseY - spike.spikeHeight : baseY + spike.spikeHeight;
+  const triangles = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const left = spike.x + i * width;
+    const right = spike.x + (i + 1) * width;
+    triangles.push([
+      { x: left, y: baseY },
+      { x: right, y: baseY },
+      { x: left + width / 2, y: apexY }
+    ]);
+  }
+
+  return triangles;
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
+}
+
+function pointInTriangle(point, triangle) {
+  const [a, b, c] = triangle;
+  const area = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+  if (Math.abs(area) < 0.0001) return false;
+
+  const weightA = ((b.y - c.y) * (point.x - c.x) + (c.x - b.x) * (point.y - c.y)) / area;
+  const weightB = ((c.y - a.y) * (point.x - c.x) + (a.x - c.x) * (point.y - c.y)) / area;
+  const weightC = 1 - weightA - weightB;
+  return weightA >= 0 && weightB >= 0 && weightC >= 0;
+}
+
+function segmentsIntersect(a, b, c, d) {
+  function orientation(p, q, r) {
+    const value = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+    if (Math.abs(value) < 0.0001) return 0;
+    return value > 0 ? 1 : 2;
+  }
+
+  function onSegment(p, q, r) {
+    return q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x)
+      && q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y);
+  }
+
+  const o1 = orientation(a, b, c);
+  const o2 = orientation(a, b, d);
+  const o3 = orientation(c, d, a);
+  const o4 = orientation(c, d, b);
+
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSegment(a, c, b)) return true;
+  if (o2 === 0 && onSegment(a, d, b)) return true;
+  if (o3 === 0 && onSegment(c, a, d)) return true;
+  if (o4 === 0 && onSegment(c, b, d)) return true;
+  return false;
+}
+
+function rectIntersectsTriangle(rect, triangle) {
+  const rectPoints = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y + rect.h },
+    { x: rect.x, y: rect.y + rect.h },
+    { x: rect.x + rect.w / 2, y: rect.y },
+    { x: rect.x + rect.w / 2, y: rect.y + rect.h },
+    { x: rect.x, y: rect.y + rect.h / 2 },
+    { x: rect.x + rect.w, y: rect.y + rect.h / 2 },
+    { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
+  ];
+  if (rectPoints.some((point) => pointInTriangle(point, triangle))) return true;
+  if (triangle.some((point) => pointInRect(point, rect))) return true;
+
+  const rectEdges = [
+    [rectPoints[0], rectPoints[1]],
+    [rectPoints[1], rectPoints[2]],
+    [rectPoints[2], rectPoints[3]],
+    [rectPoints[3], rectPoints[0]]
+  ];
+  const triangleEdges = [
+    [triangle[0], triangle[1]],
+    [triangle[1], triangle[2]],
+    [triangle[2], triangle[0]]
+  ];
+
+  return rectEdges.some((rectEdge) => triangleEdges.some((triangleEdge) => (
+    segmentsIntersect(rectEdge[0], rectEdge[1], triangleEdge[0], triangleEdge[1])
+  )));
+}
+
+function rectTouchesSpikeStrip(rect, spike) {
+  if (!rectsOverlap(rect, spikeStripBounds(spike))) return false;
+  return getSpikeTriangles(spike).some((triangle) => rectIntersectsTriangle(rect, triangle));
+}
+
+function rectTouchesSpikes(rect) {
+  return spikes.some((spike) => rectTouchesSpikeStrip(rect, spike));
+}
+
+function getFirstTouchedSpike(rect) {
+  return spikes.find((spike) => rectTouchesSpikeStrip(rect, spike)) ?? null;
+}
+
+function hasSpikesAtSurface(platform, x, gravitySign = 1, width = 1) {
+  const side = gravitySign > 0 ? "top" : "bottom";
+  return spikes.some((spike) => spike.platform === platform
+    && spike.side === side
+    && x + width / 2 >= spike.x
+    && x - width / 2 <= spike.x + spike.w);
 }
 
 function intersectionDepth(a, b) {
@@ -684,6 +822,15 @@ class Player extends Entity {
     }
 
     this.damageTimer = CONTACT_DAMAGE_COOLDOWN;
+    this.respawnAtLastGroundedEdge();
+  }
+
+  takeSpikeDamage(spike) {
+    if (this.isDying || this.fallRespawnGraceTimer > 0) return;
+
+    const damaged = this.takeDamage(1, spikeStripBounds(spike));
+    if (!damaged || this.isDying) return;
+
     this.respawnAtLastGroundedEdge();
   }
 
@@ -1697,7 +1844,9 @@ class Enemy extends Entity {
   }
 
   hasGroundAhead() {
-    return Boolean(this.getSurfacePlatformAt(this.getGroundProbeX(), this.getEdgeProbeRange()));
+    const probeX = this.getGroundProbeX();
+    const platform = this.getSurfacePlatformAt(probeX, this.getEdgeProbeRange());
+    return Boolean(platform) && !hasSpikesAtSurface(platform, probeX, this.gravitySign, this.w * 0.45);
   }
 
   hasWallAhead() {
@@ -2834,7 +2983,9 @@ class Jumper extends Entity {
   }
 
   isSafeLandingSurface(platform) {
-    return !platform.hasSpikes && !platform.spikes && platform.safeForJumpers !== false;
+    const landingSide = this.gravitySign > 0 ? "top" : "bottom";
+    const hasLandingSpikes = spikes.some((spike) => spike.platform === platform && spike.side === landingSide);
+    return !hasLandingSpikes && platform.safeForJumpers !== false;
   }
 
   launchAtPlayer() {
@@ -3433,11 +3584,13 @@ function findSafePlatformEdgeX(platform, edge, playerWidth, playerHeight, player
   for (let step = 0; step <= scanDistance; step += 6) {
     const candidateX = startX + direction * step;
     const candidate = { x: candidateX, y: playerY, w: playerWidth, h: playerHeight };
-    if (!getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect))) return candidateX;
+    const blockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect));
+    if (!blockedByEnemy && !rectTouchesSpikes(candidate)) return candidateX;
   }
 
   const fallback = { x: fallbackX, y: playerY, w: playerWidth, h: playerHeight };
-  if (!getSolidEnemyRects().some((enemyRect) => rectsOverlap(fallback, enemyRect))) return fallbackX;
+  const fallbackBlockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(fallback, enemyRect));
+  if (!fallbackBlockedByEnemy && !rectTouchesSpikes(fallback)) return fallbackX;
 
   return startX;
 }
@@ -3587,6 +3740,15 @@ function update(dt) {
     }
   }
 
+  const playerHazardRect = { x: player.x + 2, y: player.y + 2, w: player.w - 4, h: player.h - 4 };
+  const touchedSpike = getFirstTouchedSpike(playerHazardRect);
+  if (touchedSpike) player.takeSpikeDamage(touchedSpike);
+
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || enemy.isDying) continue;
+    if (rectTouchesSpikes(enemy.getDamageRect())) enemy.beginDeath();
+  }
+
   if (!player.isDying && (player.y > bottomFallBoundary || player.y + player.h < -120)) player.fallOutOfWorld();
 
   cameraX = clamp(player.x + player.w / 2 - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
@@ -3608,6 +3770,32 @@ function drawGrid() {
     ctx.lineTo(canvas.width, y);
     ctx.stroke();
   }
+}
+
+function drawSpikes() {
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 1.2;
+
+  for (const spike of spikes) {
+    const baseY = spike.side === "top" ? spike.platform.y : spike.platform.y + spike.platform.h;
+    ctx.fillStyle = SPIKE_BASE_FILL;
+    ctx.fillRect(spike.x, spike.side === "top" ? baseY - 3 : baseY, spike.w, 3);
+
+    ctx.fillStyle = SPIKE_FILL;
+    ctx.strokeStyle = SPIKE_STROKE;
+    for (const triangle of getSpikeTriangles(spike)) {
+      ctx.beginPath();
+      ctx.moveTo(triangle[0].x, triangle[0].y);
+      ctx.lineTo(triangle[1].x, triangle[1].y);
+      ctx.lineTo(triangle[2].x, triangle[2].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
 }
 
 function drawRoom() {
@@ -3636,6 +3824,8 @@ function drawRoom() {
     }
     ctx.restore();
   }
+
+  drawSpikes();
 }
 
 function drawDiamond(x, y, size, filled) {
@@ -3772,6 +3962,7 @@ window.__indiePlatformerDebug = {
   player,
   enemies,
   platforms,
+  spikes,
   update,
   draw,
   toggleGravityField,
