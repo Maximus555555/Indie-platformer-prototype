@@ -123,6 +123,44 @@ if (debug.activateSelectedAbility()) {
 debug.resetGravityField(true);
 gravityAbility.cooldownRemaining = 0;
 
+// Force Pulse regression: the ability is unlocked, selected independently from
+// Gravity Field, starts its own cooldown, and pushes an enemy inside the cone.
+const forcePulseAbility = debug.abilities.find((ability) => ability.id === "pulse");
+if (!forcePulseAbility || !forcePulseAbility.unlocked) throw new Error("Expected unlocked Force Pulse ability.");
+const pulseWalker = debug.enemies[0];
+debug.player.x = 580;
+debug.player.y = 420;
+debug.player.facing = 1;
+debug.player.gravitySign = 1;
+debug.player.isDying = false;
+pulseWalker.x = 660;
+pulseWalker.y = 435;
+pulseWalker.hp = 2;
+pulseWalker.isDying = false;
+pulseWalker.gravitySign = 1;
+pulseWalker.forcePulseStunTimer = 0;
+pulseWalker.lastForcePulseCastId = 0;
+forcePulseAbility.cooldownRemaining = 0;
+debug.setSelectedAbility("pulse");
+if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate when selected and ready.");
+if (forcePulseAbility.cooldownRemaining <= 0) throw new Error("Force Pulse activation did not start its cooldown.");
+if (pulseWalker.vx <= 300 || pulseWalker.forcePulseStunTimer <= 0) {
+  throw new Error("Force Pulse did not knock back and briefly stun the Walker in front of the player.");
+}
+const forcePulseCooldownAfterCast = forcePulseAbility.cooldownRemaining;
+const forcePulseVisualCount = debug.forcePulseVisuals.length;
+if (debug.activateSelectedAbility()) throw new Error("Force Pulse activation bypassed cooldown.");
+if (debug.forcePulseVisuals.length !== forcePulseVisualCount) {
+  throw new Error("Force Pulse spawned a visual while on cooldown.");
+}
+if (forcePulseAbility.cooldownRemaining > forcePulseCooldownAfterCast) {
+  throw new Error("Force Pulse cooldown was reset by a denied cast.");
+}
+forcePulseAbility.cooldownRemaining = 0;
+debug.setSelectedAbility("gravity");
+debug.player.x = 120;
+debug.player.y = 420;
+
 // Holding E opens the selection wheel; releasing from the wheel selects without
 // also activating/cooling down the selected ability.
 dispatch("keydown", keyEvent("e"));

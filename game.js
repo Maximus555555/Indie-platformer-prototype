@@ -75,6 +75,13 @@ const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
 const GRAVITY_FLIP_VISUAL_DURATION = 0.18;
 const GRAVITY_FIELD_COOLDOWN = config.gravityFieldCooldown ?? 3.0;
+const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
+const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
+const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 520;
+const FORCE_PULSE_MIN_FORCE_SCALE = 0.6;
+const FORCE_PULSE_STUN = config.forcePulseStun ?? 0.12;
+const FORCE_PULSE_VISUAL_DURATION = config.forcePulseVisualDuration ?? 0.12;
+const FORCE_PULSE_COOLDOWN = config.forcePulseCooldown ?? 4.0;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
 const DAMAGE_RECOIL_DURATION = 0.15;
 const DAMAGE_RECOIL_SPEED = 230;
@@ -117,6 +124,7 @@ const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
 const keys = new Set();
 const pressedThisFrame = new Set();
 const pulses = [];
+const forcePulseVisuals = [];
 const droneProjectiles = [];
 let lastTime = performance.now();
 let pointerScreen = { x: canvas.width / 2, y: canvas.height / 2 };
@@ -124,6 +132,7 @@ let eHoldTimer = 0;
 let eReleasedThisFrame = false;
 let eWheelOpenedThisHold = false;
 let gravityCastId = 0;
+let forcePulseCastId = 0;
 let gravityFieldActive = false;
 let activeGravityEntities = new Set();
 let cameraX = 0;
@@ -177,7 +186,7 @@ function createAbility(id, name, label, unlocked, cooldownDuration) {
 const abilities = [
   createAbility("gravity", "Gravity Field", "Gravity", true, GRAVITY_FIELD_COOLDOWN),
   createAbility("time", "Time Slow", "Time", false, 6.0),
-  createAbility("pulse", "Force Pulse", "Pulse", false, 4.0),
+  createAbility("pulse", "Force Pulse", "Pulse", true, FORCE_PULSE_COOLDOWN),
   createAbility("anchor", "Anchor Field", "Anchor", false, 7.0),
   createAbility("phase", "Phase Shift", "Phase", false, 5.0),
   createAbility("link", "Energy Link", "Link", false, 8.0)
@@ -375,6 +384,8 @@ class Entity {
     this.gravityFlipVisualTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
+    this.forcePulseStunTimer = 0;
+    this.lastForcePulseCastId = 0;
   }
 
   applyGravity(dt) {
@@ -437,6 +448,23 @@ class Entity {
     this.gravityFlipVisualTimer = Math.max(0, this.gravityFlipVisualTimer - dt);
   }
 
+  receiveForcePulse(direction, speed, stunDuration, castId) {
+    if (this.lastForcePulseCastId === castId || this.isDying || this.hp <= 0) return false;
+    this.lastForcePulseCastId = castId;
+    this.forcePulseStunTimer = Math.max(this.forcePulseStunTimer ?? 0, stunDuration);
+    this.vx = direction * speed;
+    this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
+    this.hitJoltX = direction * 2.6;
+    this.hitJoltY = -this.gravitySign * 1.6;
+    return true;
+  }
+
+  updateForcePulseStun(dt) {
+    if ((this.forcePulseStunTimer ?? 0) <= 0) return false;
+    this.forcePulseStunTimer = Math.max(0, this.forcePulseStunTimer - dt);
+    return true;
+  }
+
   getGravityFlipVisualTransform() {
     if (this.gravityFlipVisualTimer <= 0) return { rotation: 0, scaleX: 1 };
     const progress = 1 - clamp(this.gravityFlipVisualTimer / GRAVITY_FLIP_VISUAL_DURATION, 0, 1);
@@ -472,6 +500,8 @@ class Player extends Entity {
     this.attackReleaseTimer = 0;
     this.attackPulseQueued = false;
     this.attackFacing = 1;
+    this.forcePulsePoseTimer = 0;
+    this.forcePulsePoseFacing = 1;
     this.recoilTimer = 0;
     this.recoilDirection = 0;
     this.isDying = false;
@@ -555,6 +585,7 @@ class Player extends Entity {
       if (this.attackReleaseTimer <= 0) this.releasePulse();
     }
     if (this.attackTimer > 0) this.attackTimer -= dt;
+    if (this.forcePulsePoseTimer > 0) this.forcePulsePoseTimer -= dt;
     this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
   }
 
@@ -711,6 +742,7 @@ class Player extends Entity {
     this.gravityFlipVisualTimer = Math.max(0, this.gravityFlipVisualTimer - dt);
   }
 
+
   getGravityFlipVisualTransform() {
     if (this.gravityFlipVisualTimer <= 0) return { rotation: 0, scaleX: 1 };
     const progress = 1 - clamp(this.gravityFlipVisualTimer / GRAVITY_FLIP_VISUAL_DURATION, 0, 1);
@@ -746,7 +778,7 @@ class Player extends Entity {
     this.attackPulseQueued = false;
   }
 
-  getPulseSpawnPoint() {
+  getForwardHandPoint(direction = this.facing) {
     const modelFeetY = 50;
     const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
     const verticalFlip = this.gravitySign > 0 ? 1 : -1;
@@ -755,14 +787,23 @@ class Player extends Entity {
       : surfaceY + modelFeetY * PLAYER_VISUAL_SCALE;
     const handLocalX = this.isCrouching ? 20.5 : 18.7;
     const handLocalY = this.isCrouching ? 32.8 : 22.8;
-    const handX = this.x + this.w / 2 + this.attackFacing * PLAYER_VISUAL_SCALE * handLocalX;
+    const handX = this.x + this.w / 2 + direction * PLAYER_VISUAL_SCALE * handLocalX;
     const handY = originY + verticalFlip * PLAYER_VISUAL_SCALE * handLocalY;
     return {
-      // Start at the gathered hand position so the instant bolt is anchored to
-      // the firing animation instead of the player's torso or a detached bullet.
-      x: handX + this.attackFacing * 2,
+      // Start forward abilities at the gathered hand position so effects stay
+      // anchored to the player's pose instead of the torso center.
+      x: handX + direction * 2,
       y: handY
     };
+  }
+
+  getPulseSpawnPoint() {
+    return this.getForwardHandPoint(this.attackFacing);
+  }
+
+  startForcePulsePose(direction) {
+    this.forcePulsePoseFacing = direction;
+    this.forcePulsePoseTimer = FORCE_PULSE_VISUAL_DURATION;
   }
 
   takeDamage(amount, source = null) {
@@ -1117,7 +1158,7 @@ class Player extends Entity {
     const fill = "rgba(255, 255, 255, 0.96)";
     const inner = "rgba(226, 245, 255, 0.82)";
     const glow = "rgba(82, 166, 240, 0.34)";
-    const facing = this.attackTimer > 0 ? this.attackFacing : this.facing;
+    const facing = this.attackTimer > 0 ? this.attackFacing : (this.forcePulsePoseTimer > 0 ? this.forcePulsePoseFacing : this.facing);
     const speed = Math.abs(this.vx);
     const grounded = this.onSurface;
     const moving = speed > 2;
@@ -1686,6 +1727,22 @@ class Player extends Entity {
       pose.nearLeg = flinchLeg(pose.nearLeg, 1);
     }
 
+    if (this.forcePulsePoseTimer > 0 && this.attackTimer <= 0) {
+      const forceProgress = 1 - clamp(this.forcePulsePoseTimer / FORCE_PULSE_VISUAL_DURATION, 0, 1);
+      const pushAmount = Math.sin(forceProgress * Math.PI);
+      const baseFarArm = pose.farArm ?? restingArm(1, 0);
+      const baseNearArm = pose.nearArm ?? restingArm(-1, 0);
+      const crouchTightness = this.isCrouching ? 1 : 0;
+      const chestX = pose.torso.x + Math.cos(pose.torso.rot) * mix(7.8, 6.2, crouchTightness);
+      const chestY = pose.torso.y - mix(1.5, 0.7, crouchTightness);
+      const reachX = chestX + mix(13.2, 10.2, crouchTightness) + pushAmount * 3.4;
+      const handY = chestY + mix(2.4, 1.8, crouchTightness);
+      const elbowX = chestX + mix(5.6, 4.2, crouchTightness) + pushAmount * 1.7;
+      pose.torso = { ...pose.torso, rot: pose.torso.rot + pushAmount * 0.035 };
+      pose.farArm = blendLimb(baseFarArm, [baseFarArm[0], { x: elbowX - 1.8, y: handY + 3.4 }, { x: reachX - 0.6, y: handY + 1.2 }], 0.88);
+      pose.nearArm = blendLimb(baseNearArm, [baseNearArm[0], { x: elbowX + 1.2, y: handY + 4.1 }, { x: reachX + 1.2, y: handY - 0.4 }], 0.94);
+    }
+
     let attackChargePoint = null;
     let attackProgress = 0;
     if (this.attackTimer > 0) {
@@ -1826,7 +1883,10 @@ class Enemy extends Entity {
       return;
     }
 
-    if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
+    if (this.forcePulseStunTimer > 0) {
+      this.updateForcePulseStun(dt);
+      this.updateAirbornePhysics(dt);
+    } else if (this.walkerState === "patrolling" || this.walkerState === "recovering") {
       this.updateGroundedPatrol(dt);
     } else {
       this.updateAirbornePhysics(dt);
@@ -2030,6 +2090,13 @@ class Enemy extends Entity {
     this.landingRecoveryTimer = 0;
     this.groundedPlatform = null;
     this.onSurface = false;
+  }
+
+  receiveForcePulse(direction, speed, stunDuration, castId) {
+    if (!super.receiveForcePulse(direction, speed, stunDuration, castId)) return false;
+    this.enterAirborneState("force-pulsed");
+    this.reverseCooldown = Math.max(this.reverseCooldown, stunDuration + 0.08);
+    return true;
   }
 
   flipGravity(castId) {
@@ -2371,7 +2438,18 @@ class Drone extends Entity {
       return;
     }
 
-    if (this.droneState === "hovering") {
+    if (this.forcePulseStunTimer > 0) {
+      this.updateForcePulseStun(dt);
+      this.windupTimer = 0;
+      this.fireCooldown = Math.max(this.fireCooldown, 0.35);
+      this.applyGravity(dt);
+      this.moveAndCollide(dt);
+      if (this.forcePulseStunTimer <= 0) {
+        this.droneState = "hovering";
+        this.vx = 0;
+        this.vy = 0;
+      }
+    } else if (this.droneState === "hovering") {
       this.vx = 0;
       this.vy = 0;
       this.updateShooting(dt);
@@ -2660,6 +2738,14 @@ class Drone extends Entity {
     this.hitJoltY = -this.gravitySign * 2;
     if (this.droneState !== "hovering") this.vy -= this.gravitySign * 45;
     if (this.hp <= 0) this.beginDeath();
+  }
+
+  receiveForcePulse(direction, speed, stunDuration, castId) {
+    if (!super.receiveForcePulse(direction, speed, stunDuration, castId)) return false;
+    this.droneState = "displaced";
+    this.windupTimer = 0;
+    this.fireCooldown = Math.max(this.fireCooldown, 0.35);
+    return true;
   }
 
   flipGravity(castId) {
@@ -2959,6 +3045,13 @@ class Jumper extends Entity {
       return;
     }
 
+    if (this.forcePulseStunTimer > 0) {
+      this.updateForcePulseStun(dt);
+      this.enterAirborneState();
+      this.updateAirborne(dt);
+      return;
+    }
+
     if (this.jumperState === "jumping" || this.jumperState === "airborne") {
       this.updateAirborne(dt);
       return;
@@ -3246,6 +3339,16 @@ class Jumper extends Entity {
       this.poseBlend = Math.max(this.poseBlend, 0.55);
       this.recoveryDelayTimer = 0.18;
     }
+  }
+
+  receiveForcePulse(direction, speed, stunDuration, castId) {
+    if (!super.receiveForcePulse(direction, speed, stunDuration, castId)) return false;
+    if (this.jumperState === "charging" || this.jumperState === "crouch-hold") {
+      this.poseBlend = Math.max(this.poseBlend, 0.55);
+      this.recoveryDelayTimer = 0.18;
+    }
+    this.enterAirborneState();
+    return true;
   }
 
   flipGravity(castId) {
@@ -3685,6 +3788,61 @@ class SystemPulse {
   }
 }
 
+class ForcePulseVisual {
+  constructor(origin, direction) {
+    this.origin = origin;
+    this.direction = direction;
+    this.age = 0;
+    this.active = true;
+  }
+
+  update(dt) {
+    this.age += dt;
+    if (this.age >= FORCE_PULSE_VISUAL_DURATION) this.active = false;
+  }
+
+  draw() {
+    const progress = clamp(this.age / FORCE_PULSE_VISUAL_DURATION, 0, 1);
+    const alpha = Math.max(0, 1 - progress);
+    if (alpha <= 0) return;
+
+    const range = FORCE_PULSE_RANGE;
+    const halfWidth = Math.tan(FORCE_PULSE_HALF_ANGLE) * range;
+    const tipX = this.origin.x + this.direction * range;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineJoin = "miter";
+    ctx.shadowColor = "rgba(255, 42, 64, 0.42)";
+    ctx.shadowBlur = 12;
+
+    ctx.fillStyle = "rgba(255, 24, 48, 0.18)";
+    ctx.strokeStyle = "rgba(255, 54, 76, 0.92)";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(this.origin.x, this.origin.y);
+    ctx.lineTo(tipX, this.origin.y - halfWidth);
+    ctx.lineTo(tipX, this.origin.y + halfWidth);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Two inner red guide lines keep the cone geometric/system-like and make the
+    // cast direction readable without making the effect look like fire or smoke.
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255, 105, 122, 0.58)";
+    ctx.lineWidth = 1.1;
+    for (const offsetScale of [-0.42, 0.42]) {
+      ctx.beginPath();
+      ctx.moveTo(this.origin.x + this.direction * 12, this.origin.y);
+      ctx.lineTo(tipX - this.direction * 18, this.origin.y + halfWidth * offsetScale);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
 function getClosestPlatformEdge(platform, playerCenterX) {
   const distanceToLeft = Math.abs(playerCenterX - platform.x);
   const distanceToRight = Math.abs(platform.x + platform.w - playerCenterX);
@@ -3798,6 +3956,94 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
   return firstEnemy;
 }
 
+function segmentIntersectsRect(from, to, rect) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  let tMin = 0;
+  let tMax = 1;
+
+  function clip(p, q) {
+    if (p === 0) return q >= 0;
+    const r = q / p;
+    if (p < 0) {
+      if (r > tMax) return false;
+      if (r > tMin) tMin = r;
+    } else {
+      if (r < tMin) return false;
+      if (r < tMax) tMax = r;
+    }
+    return true;
+  }
+
+  return clip(-dx, from.x - rect.x)
+    && clip(dx, rect.x + rect.w - from.x)
+    && clip(-dy, from.y - rect.y)
+    && clip(dy, rect.y + rect.h - from.y)
+    && tMax >= 0
+    && tMin <= 1;
+}
+
+function rectSamplePoints(rect) {
+  return [
+    { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 },
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y },
+    { x: rect.x, y: rect.y + rect.h },
+    { x: rect.x + rect.w, y: rect.y + rect.h }
+  ];
+}
+
+function isPointInForcePulseCone(origin, point, direction) {
+  const dx = (point.x - origin.x) * direction;
+  const dy = point.y - origin.y;
+  if (dx < 0 || dx > FORCE_PULSE_RANGE) return false;
+  if (dx <= 0.001) return Math.abs(dy) <= 3;
+  return Math.abs(Math.atan2(dy, dx)) <= FORCE_PULSE_HALF_ANGLE;
+}
+
+function hasForcePulseLineOfSight(origin, targetPoint, targetRect) {
+  return !platforms.some((platform) => {
+    if (rectsOverlap(platform, targetRect)) return false;
+    return segmentIntersectsRect(origin, targetPoint, platform);
+  });
+}
+
+function getForcePulseHitPoint(origin, rect, direction) {
+  let bestPoint = null;
+  let bestDistance = Infinity;
+  for (const point of rectSamplePoints(rect)) {
+    if (!isPointInForcePulseCone(origin, point, direction)) continue;
+    if (!hasForcePulseLineOfSight(origin, point, rect)) continue;
+    const pointDistance = Math.hypot(point.x - origin.x, point.y - origin.y);
+    if (pointDistance < bestDistance) {
+      bestPoint = point;
+      bestDistance = pointDistance;
+    }
+  }
+  return bestPoint;
+}
+
+function castForcePulse() {
+  const direction = player.facing || 1;
+  const origin = player.getForwardHandPoint(direction);
+  forcePulseCastId += 1;
+  player.startForcePulsePose(direction);
+  forcePulseVisuals.push(new ForcePulseVisual(origin, direction));
+
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || enemy.isDying) continue;
+    const damageRect = enemy.getDamageRect();
+    const hitPoint = getForcePulseHitPoint(origin, damageRect, direction);
+    if (!hitPoint) continue;
+
+    const hitDistance = clamp(Math.hypot(hitPoint.x - origin.x, hitPoint.y - origin.y), 0, FORCE_PULSE_RANGE);
+    const forceScale = 1 - (1 - FORCE_PULSE_MIN_FORCE_SCALE) * (hitDistance / FORCE_PULSE_RANGE);
+    enemy.receiveForcePulse(direction, FORCE_PULSE_KNOCKBACK * forceScale, FORCE_PULSE_STUN, forcePulseCastId);
+  }
+
+  return true;
+}
+
 const player = new Player();
 const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Jumper(2010, 265)];
 
@@ -3892,6 +4138,12 @@ function activateSelectedAbility() {
     return false;
   }
 
+  if (ability.id === "pulse") {
+    castForcePulse();
+    startAbilityCooldown(ability);
+    return true;
+  }
+
   ability.unavailableTimer = 0.16;
   return false;
 }
@@ -3967,10 +4219,14 @@ function update(dt) {
   enemies.forEach((enemy) => enemy.update(dt));
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
+  forcePulseVisuals.forEach((visual) => visual.update(dt));
   droneProjectiles.forEach((projectile) => projectile.update(dt));
 
   for (let i = pulses.length - 1; i >= 0; i -= 1) {
     if (!pulses[i].active) pulses.splice(i, 1);
+  }
+  for (let i = forcePulseVisuals.length - 1; i >= 0; i -= 1) {
+    if (!forcePulseVisuals[i].active) forcePulseVisuals.splice(i, 1);
   }
   for (let i = droneProjectiles.length - 1; i >= 0; i -= 1) {
     if (!droneProjectiles[i].active) droneProjectiles.splice(i, 1);
@@ -4148,10 +4404,14 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.lineTo(r * 0.62, r * 0.32);
     ctx.stroke();
   } else if (ability.id === "pulse") {
+    ctx.strokeStyle = "rgba(255, 68, 88, 0.96)";
+    ctx.fillStyle = "rgba(255, 32, 54, 0.26)";
     ctx.beginPath();
-    ctx.moveTo(-r * 0.9, -r * 0.72);
-    ctx.lineTo(r * 0.95, 0);
-    ctx.lineTo(-r * 0.9, r * 0.72);
+    ctx.moveTo(-r * 0.92, -r * 0.76);
+    ctx.lineTo(r * 1.02, 0);
+    ctx.lineTo(-r * 0.92, r * 0.76);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(-r * 1.18, 0);
@@ -4376,6 +4636,7 @@ function draw() {
   ctx.translate(-cameraX, 0);
   drawRoom();
   drawGravityPreview();
+  forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
   droneProjectiles.forEach((projectile) => projectile.draw());
@@ -4432,11 +4693,17 @@ window.__indiePlatformerDebug = {
   resetGravityField,
   abilities,
   activateSelectedAbility,
+  setSelectedAbility: (id) => {
+    const ability = abilities.find((candidate) => candidate.id === id);
+    if (ability?.unlocked) selectedAbilityId = ability.id;
+  },
+  castForcePulse,
+  forcePulseVisuals,
   abilityWheel,
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN }
 };
 
 requestAnimationFrame(gameLoop);
