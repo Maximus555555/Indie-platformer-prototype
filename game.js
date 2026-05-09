@@ -5137,8 +5137,6 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     const bodyH = bodyBottom - bodyTop;
     const headY = -size * 0.28;
     const headR = size * 0.105;
-    const armY = size * 0.03;
-    const handY = size * 0.2;
 
     function tracePhaseCapsule(offsetX = 0) {
       ctx.beginPath();
@@ -5158,32 +5156,11 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
       ctx.closePath();
     }
 
-    function drawSolidArm() {
-      ctx.strokeStyle = "rgba(162, 239, 255, 0.96)";
-      ctx.lineWidth = Math.max(2, size * 0.075);
-      ctx.beginPath();
-      ctx.moveTo(-bodyR * 0.72, armY);
-      ctx.quadraticCurveTo(-size * 0.25, size * 0.06, -size * 0.29, handY);
-      ctx.stroke();
-    }
-
-    function drawTransparentArm() {
-      ctx.strokeStyle = "rgba(139, 112, 255, 0.72)";
-      ctx.lineWidth = Math.max(1.5, size * 0.055);
-      ctx.setLineDash([size * 0.09, size * 0.045]);
-      ctx.beginPath();
-      ctx.moveTo(bodyR * 0.72 + size * 0.025, armY);
-      ctx.quadraticCurveTo(size * 0.28, size * 0.06, size * 0.33, handY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
     ctx.shadowColor = "rgba(151, 238, 255, 0.5)";
     ctx.shadowBlur = size * 0.13;
 
     // Phase Shift reads as a split figure: solid left side, displaced translucent
     // right side. The head mirrors the body's half-phased treatment.
-    drawSolidArm();
 
     ctx.save();
     tracePhaseCapsule();
@@ -5225,7 +5202,6 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
       ctx.fillRect(fragment.dx, fragment.y, headR + size * 0.02, fragment.h);
       ctx.restore();
     }
-    drawTransparentArm();
 
     ctx.globalAlpha /= 0.72;
     ctx.strokeStyle = "rgba(215, 253, 255, 0.86)";
