@@ -3864,15 +3864,32 @@ function startAbilityCooldown(ability) {
 
 function activateSelectedAbility() {
   const ability = getSelectedAbility();
-  if (!isAbilityReady(ability) || player.isDying) {
+  if (player.isDying) {
     ability.unavailableTimer = 0.16;
     return false;
   }
 
   if (ability.id === "gravity") {
+    // Turning Gravity Field off should remain responsive even while the
+    // activation cooldown is still recovering from the original cast.
+    if (gravityFieldActive) {
+      resetGravityField();
+      return true;
+    }
+
+    if (!isAbilityReady(ability)) {
+      ability.unavailableTimer = 0.16;
+      return false;
+    }
+
     toggleGravityField();
     startAbilityCooldown(ability);
     return true;
+  }
+
+  if (!isAbilityReady(ability)) {
+    ability.unavailableTimer = 0.16;
+    return false;
   }
 
   ability.unavailableTimer = 0.16;
@@ -3936,8 +3953,15 @@ function updateAbilityInput(dt) {
 }
 
 function update(dt) {
-  updateAbilityCooldowns(dt);
   updateAbilityInput(dt);
+  if (abilityWheel.open) {
+    // The ability menu is an intentional pause state: keep hover/selection
+    // input live, but freeze world simulation and cooldown timers until closed.
+    pressedThisFrame.clear();
+    return;
+  }
+
+  updateAbilityCooldowns(dt);
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
 
   enemies.forEach((enemy) => enemy.update(dt));
@@ -4384,7 +4408,7 @@ canvas.addEventListener("pointermove", (event) => {
 });
 
 canvas.addEventListener("pointerdown", () => {
-  player.firePulse();
+  if (!abilityWheel.open) player.firePulse();
 });
 
 window.__indiePlatformerDebug = {
