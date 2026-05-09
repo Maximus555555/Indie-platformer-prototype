@@ -5478,6 +5478,17 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     strokePulseArc(range * 0.62, 0.16, Math.max(1.1, size * 0.032), "rgba(255, 186, 197, 0.86)");
     strokePulseArc(range * 0.84, 0.08, Math.max(1.2, size * 0.036), "rgba(255, 135, 154, 0.82)");
 
+    ctx.shadowColor = "rgba(255, 235, 239, 0.72)";
+    ctx.shadowBlur = size * 0.13;
+    ctx.fillStyle = "rgba(255, 235, 239, 0.96)";
+    ctx.beginPath();
+    ctx.moveTo(originX - size * 0.08, originY);
+    ctx.lineTo(originX, originY - size * 0.1);
+    ctx.lineTo(originX + size * 0.14, originY);
+    ctx.lineTo(originX, originY + size * 0.1);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.shadowBlur = 0;
   } else if (ability.id === "anchor") {
     ctx.strokeRect(-r * 0.82, -r * 0.05, r * 1.64, r * 1.05);
