@@ -74,6 +74,7 @@ const ATTACK_RELEASE_TIME = 0.075;
 const GRAVITY_FIELD_RADIUS = config.gravityFieldRadius ?? 260;
 const GRAVITY_FLIP_DAMPING = config.gravityFlipDamping ?? 0.45;
 const GRAVITY_FLIP_VISUAL_DURATION = 0.18;
+const GRAVITY_FIELD_COOLDOWN = config.gravityFieldCooldown ?? 3.0;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
 const DAMAGE_RECOIL_DURATION = 0.15;
 const DAMAGE_RECOIL_SPEED = 230;
@@ -103,6 +104,12 @@ const SPIKE_WIDTH = config.spikeWidth ?? 16;
 const SPIKE_FILL = "#245c93";
 const SPIKE_STROKE = "rgba(24, 62, 111, 0.82)";
 const SPIKE_BASE_FILL = "rgba(31, 91, 143, 0.78)";
+const ABILITY_HOLD_THRESHOLD = 0.24;
+const ABILITY_ICON_SIZE = 46;
+const ABILITY_ICON_MARGIN = 24;
+const ABILITY_WHEEL_RADIUS = 118;
+const ABILITY_WHEEL_INNER_RADIUS = 34;
+const ABILITY_READY_PULSE_DURATION = 0.22;
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -112,6 +119,10 @@ const pressedThisFrame = new Set();
 const pulses = [];
 const droneProjectiles = [];
 let lastTime = performance.now();
+let pointerScreen = { x: canvas.width / 2, y: canvas.height / 2 };
+let eHoldTimer = 0;
+let eReleasedThisFrame = false;
+let eWheelOpenedThisHold = false;
 let gravityCastId = 0;
 let gravityFieldActive = false;
 let activeGravityEntities = new Set();
@@ -149,6 +160,43 @@ const spikes = [
 
 const bottomFallBoundary = config.fallBoundary
   ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
+
+function createAbility(id, name, label, unlocked, cooldownDuration) {
+  return {
+    id,
+    name,
+    label,
+    unlocked,
+    cooldownDuration,
+    cooldownRemaining: 0,
+    readyPulseTimer: 0,
+    unavailableTimer: 0
+  };
+}
+
+const abilities = [
+  createAbility("gravity", "Gravity Field", "Gravity", true, GRAVITY_FIELD_COOLDOWN),
+  createAbility("time", "Time Slow", "Time", false, 6.0),
+  createAbility("pulse", "Force Pulse", "Pulse", false, 4.0),
+  createAbility("anchor", "Anchor Field", "Anchor", false, 7.0),
+  createAbility("phase", "Phase Shift", "Phase", false, 5.0),
+  createAbility("link", "Energy Link", "Link", false, 8.0)
+];
+let selectedAbilityId = "gravity";
+const abilityWheel = {
+  open: false,
+  hoveredIndex: 0,
+  centerX: canvas.width / 2,
+  centerY: canvas.height / 2
+};
+
+function getSelectedAbility() {
+  return abilities.find((ability) => ability.id === selectedAbilityId) ?? abilities[0];
+}
+
+function isAbilityReady(ability) {
+  return ability.unlocked && ability.cooldownRemaining <= 0;
+}
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -3795,9 +3843,100 @@ function toggleGravityField() {
   }
 }
 
+function updateAbilityCooldowns(dt) {
+  for (const ability of abilities) {
+    const wasCoolingDown = ability.cooldownRemaining > 0;
+    ability.cooldownRemaining = Math.max(0, ability.cooldownRemaining - dt);
+    ability.readyPulseTimer = Math.max(0, ability.readyPulseTimer - dt);
+    ability.unavailableTimer = Math.max(0, ability.unavailableTimer - dt);
+    if (wasCoolingDown && ability.cooldownRemaining <= 0) {
+      ability.readyPulseTimer = ABILITY_READY_PULSE_DURATION;
+    }
+  }
+}
+
+function startAbilityCooldown(ability) {
+  ability.cooldownRemaining = Math.max(0, ability.cooldownDuration);
+  ability.readyPulseTimer = 0;
+}
+
+function activateSelectedAbility() {
+  const ability = getSelectedAbility();
+  if (!isAbilityReady(ability) || player.isDying) {
+    ability.unavailableTimer = 0.16;
+    return false;
+  }
+
+  if (ability.id === "gravity") {
+    toggleGravityField();
+    startAbilityCooldown(ability);
+    return true;
+  }
+
+  ability.unavailableTimer = 0.16;
+  return false;
+}
+
+function openAbilityWheel() {
+  abilityWheel.open = true;
+  abilityWheel.centerX = canvas.width / 2;
+  abilityWheel.centerY = canvas.height / 2;
+  abilityWheel.hoveredIndex = Math.max(0, abilities.findIndex((ability) => ability.id === selectedAbilityId));
+  updateAbilityWheelHover();
+}
+
+function closeAbilityWheel(confirmSelection = true) {
+  if (confirmSelection) {
+    const ability = abilities[abilityWheel.hoveredIndex];
+    if (ability?.unlocked) selectedAbilityId = ability.id;
+  }
+  abilityWheel.open = false;
+}
+
+function updateAbilityWheelHover() {
+  if (!abilityWheel.open) return;
+  const dx = pointerScreen.x - abilityWheel.centerX;
+  const dy = pointerScreen.y - abilityWheel.centerY;
+  const pointerDistance = Math.hypot(dx, dy);
+  if (pointerDistance < ABILITY_WHEEL_INNER_RADIUS) return;
+
+  const angle = (Math.atan2(dy, dx) + Math.PI * 2 + Math.PI / 2) % (Math.PI * 2);
+  abilityWheel.hoveredIndex = Math.floor(angle / (Math.PI * 2 / abilities.length)) % abilities.length;
+}
+
+function updateAbilityInput(dt) {
+  if (keys.has("e")) {
+    eHoldTimer += dt;
+    if (!eWheelOpenedThisHold && eHoldTimer >= ABILITY_HOLD_THRESHOLD) {
+      openAbilityWheel();
+      eWheelOpenedThisHold = true;
+    }
+  }
+
+  if (abilityWheel.open) {
+    updateAbilityWheelHover();
+    if (pressedThisFrame.has("arrowright") || pressedThisFrame.has("d")) {
+      abilityWheel.hoveredIndex = (abilityWheel.hoveredIndex + 1) % abilities.length;
+    }
+    if (pressedThisFrame.has("arrowleft") || pressedThisFrame.has("a")) {
+      abilityWheel.hoveredIndex = (abilityWheel.hoveredIndex - 1 + abilities.length) % abilities.length;
+    }
+  }
+
+  if (!eReleasedThisFrame) return;
+
+  if (eWheelOpenedThisHold || abilityWheel.open) closeAbilityWheel(true);
+  else activateSelectedAbility();
+
+  eHoldTimer = 0;
+  eWheelOpenedThisHold = false;
+  eReleasedThisFrame = false;
+}
+
 function update(dt) {
+  updateAbilityCooldowns(dt);
+  updateAbilityInput(dt);
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
-  if (!player.isDying && pressedThisFrame.has("e")) toggleGravityField();
 
   enemies.forEach((enemy) => enemy.update(dt));
   player.update(dt);
@@ -3935,6 +4074,203 @@ function drawDiamond(x, y, size, filled) {
   ctx.stroke();
 }
 
+function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha *= alpha;
+  ctx.strokeStyle = "rgba(244, 253, 255, 0.95)";
+  ctx.fillStyle = "rgba(244, 253, 255, 0.92)";
+  ctx.lineWidth = Math.max(1.4, size * 0.055);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  const r = size * 0.24;
+  if (ability.id === "gravity") {
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 1.25);
+    ctx.lineTo(0, r * 1.25);
+    ctx.moveTo(0, -r * 1.25);
+    ctx.lineTo(-r * 0.34, -r * 0.88);
+    ctx.moveTo(0, -r * 1.25);
+    ctx.lineTo(r * 0.34, -r * 0.88);
+    ctx.moveTo(0, r * 1.25);
+    ctx.lineTo(-r * 0.34, r * 0.88);
+    ctx.moveTo(0, r * 1.25);
+    ctx.lineTo(r * 0.34, r * 0.88);
+    ctx.stroke();
+  } else if (ability.id === "time") {
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -r * 0.72);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(r * 0.62, r * 0.32);
+    ctx.stroke();
+  } else if (ability.id === "pulse") {
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.9, -r * 0.72);
+    ctx.lineTo(r * 0.95, 0);
+    ctx.lineTo(-r * 0.9, r * 0.72);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.18, 0);
+    ctx.lineTo(-r * 0.35, 0);
+    ctx.stroke();
+  } else if (ability.id === "anchor") {
+    ctx.strokeRect(-r * 0.82, -r * 0.05, r * 1.64, r * 1.05);
+    ctx.beginPath();
+    ctx.arc(0, -r * 0.05, r * 0.58, Math.PI, 0);
+    ctx.stroke();
+  } else if (ability.id === "phase") {
+    ctx.setLineDash([size * 0.08, size * 0.08]);
+    ctx.strokeRect(-r * 0.66, -r * 1.08, r * 1.32, r * 2.16);
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.05, -r * 0.35);
+    ctx.lineTo(r * 1.05, r * 0.35);
+    ctx.stroke();
+  } else if (ability.id === "link") {
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.78, r * 0.52);
+    ctx.lineTo(0, -r * 0.64);
+    ctx.lineTo(r * 0.82, r * 0.48);
+    ctx.stroke();
+    for (const node of [[-r * 0.78, r * 0.52], [0, -r * 0.64], [r * 0.82, r * 0.48]]) {
+      ctx.beginPath();
+      ctx.arc(node[0], node[1], r * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
+  const progress = ability.cooldownDuration > 0
+    ? 1 - clamp(ability.cooldownRemaining / ability.cooldownDuration, 0, 1)
+    : 1;
+  const locked = !ability.unlocked;
+  const selected = options.selected ?? false;
+  const highlighted = options.highlighted ?? false;
+  const pulse = clamp(ability.readyPulseTimer / ABILITY_READY_PULSE_DURATION, 0, 1);
+  const denied = clamp(ability.unavailableTimer / 0.16, 0, 1);
+  const nudge = denied > 0 ? Math.sin(denied * Math.PI * 4) * 1.4 : 0;
+
+  ctx.save();
+  ctx.translate(centerX + nudge, centerY);
+  ctx.globalAlpha *= locked ? 0.35 : 1;
+  ctx.fillStyle = locked ? "rgba(6, 26, 55, 0.62)" : "rgba(7, 31, 66, 0.82)";
+  ctx.strokeStyle = highlighted || selected ? "rgba(220, 251, 255, 0.92)" : "rgba(86, 168, 229, 0.76)";
+  ctx.lineWidth = highlighted || selected ? 2.2 : 1.4;
+  ctx.beginPath();
+  ctx.roundRect(-size / 2, -size / 2, size, size, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  if (!locked) {
+    const fillHeight = size * progress;
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(-size / 2 + 2, -size / 2 + 2, size - 4, size - 4, 6);
+    ctx.clip();
+    ctx.fillStyle = "rgba(83, 184, 255, 0.32)";
+    ctx.fillRect(-size / 2 + 2, size / 2 - 2 - fillHeight, size - 4, fillHeight);
+    ctx.restore();
+  }
+
+  if (pulse > 0) {
+    ctx.strokeStyle = `rgba(246, 253, 255, ${0.5 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-size / 2 - 3 * pulse, -size / 2 - 3 * pulse, size + 6 * pulse, size + 6 * pulse);
+  }
+
+  drawAbilitySymbol(ability, 0, 0, size, locked ? 0.55 : 1);
+
+  if (locked) {
+    ctx.strokeStyle = "rgba(188, 217, 240, 0.8)";
+    ctx.lineWidth = 1.5;
+    const lockW = size * 0.28;
+    const lockY = size * 0.2;
+    ctx.strokeRect(-lockW / 2, lockY, lockW, size * 0.18);
+    ctx.beginPath();
+    ctx.arc(0, lockY, lockW * 0.34, Math.PI, 0);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawSelectedAbilityIcon() {
+  const ability = getSelectedAbility();
+  const x = canvas.width - ABILITY_ICON_MARGIN - ABILITY_ICON_SIZE / 2;
+  const y = canvas.height - ABILITY_ICON_MARGIN - ABILITY_ICON_SIZE / 2;
+  drawAbilityTile(ability, x, y, ABILITY_ICON_SIZE, { selected: true });
+}
+
+function drawAbilityWheel() {
+  if (!abilityWheel.open) return;
+
+  const centerX = abilityWheel.centerX;
+  const centerY = abilityWheel.centerY;
+  const slice = Math.PI * 2 / abilities.length;
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "rgba(4, 18, 42, 0.46)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < abilities.length; i += 1) {
+    const start = -Math.PI / 2 + i * slice;
+    const end = start + slice;
+    const ability = abilities[i];
+    const highlighted = i === abilityWheel.hoveredIndex;
+
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.arc(centerX, centerY, ABILITY_WHEEL_RADIUS, start, end);
+    ctx.closePath();
+    ctx.fillStyle = highlighted ? "rgba(80, 174, 243, 0.26)" : "rgba(8, 36, 76, 0.62)";
+    if (!ability.unlocked) ctx.fillStyle = highlighted ? "rgba(46, 75, 104, 0.28)" : "rgba(7, 23, 47, 0.56)";
+    ctx.fill();
+    ctx.strokeStyle = highlighted ? "rgba(220, 251, 255, 0.9)" : "rgba(89, 163, 220, 0.48)";
+    ctx.lineWidth = highlighted ? 2 : 1;
+    ctx.stroke();
+
+    const angle = start + slice / 2;
+    const iconX = centerX + Math.cos(angle) * (ABILITY_WHEEL_RADIUS * 0.64);
+    const iconY = centerY + Math.sin(angle) * (ABILITY_WHEEL_RADIUS * 0.64);
+    drawAbilityTile(ability, iconX, iconY, 42, { highlighted, selected: ability.id === selectedAbilityId });
+
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = ability.unlocked ? "rgba(238, 251, 255, 0.92)" : "rgba(160, 183, 204, 0.58)";
+    ctx.fillText(ability.label, centerX + Math.cos(angle) * (ABILITY_WHEEL_RADIUS + 23), centerY + Math.sin(angle) * (ABILITY_WHEEL_RADIUS + 23));
+  }
+
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, ABILITY_WHEEL_INNER_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(4, 20, 48, 0.88)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(156, 221, 255, 0.76)";
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  ctx.font = "10px system-ui, sans-serif";
+  ctx.fillStyle = "rgba(236, 250, 255, 0.86)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("E", centerX, centerY - 5);
+  ctx.fillStyle = "rgba(158, 214, 247, 0.72)";
+  ctx.fillText("release", centerX, centerY + 8);
+  ctx.restore();
+}
+
 function getHudPlacement(width, height) {
   const placement = {
     x: canvas.width - HUD_MARGIN - width,
@@ -4010,6 +4346,8 @@ function draw() {
   player.draw();
   ctx.restore();
   drawHud();
+  drawSelectedAbilityIcon();
+  drawAbilityWheel();
 }
 
 function gameLoop(now) {
@@ -4022,13 +4360,25 @@ function gameLoop(now) {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
-  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) event.preventDefault();
+  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "e"].includes(key)) event.preventDefault();
   if (!keys.has(key)) pressedThisFrame.add(key);
   keys.add(key);
 });
 
 window.addEventListener("keyup", (event) => {
-  keys.delete(event.key.toLowerCase());
+  const key = event.key.toLowerCase();
+  keys.delete(key);
+  if (key === "e") eReleasedThisFrame = true;
+});
+
+canvas.addEventListener("pointermove", (event) => {
+  const bounds = canvas.getBoundingClientRect?.() ?? { left: 0, top: 0, width: canvas.width, height: canvas.height };
+  const scaleX = bounds.width ? canvas.width / bounds.width : 1;
+  const scaleY = bounds.height ? canvas.height / bounds.height : 1;
+  pointerScreen = {
+    x: (event.clientX - bounds.left) * scaleX,
+    y: (event.clientY - bounds.top) * scaleY
+  };
 });
 
 canvas.addEventListener("pointerdown", () => {
@@ -4044,6 +4394,9 @@ window.__indiePlatformerDebug = {
   draw,
   toggleGravityField,
   resetGravityField,
+  abilities,
+  activateSelectedAbility,
+  abilityWheel,
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
