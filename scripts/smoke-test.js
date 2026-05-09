@@ -235,6 +235,137 @@ if (pulseWalker.x <= pulseChainRearStartX + 8 || pulseChainFrontWalker.x <= puls
 }
 
 forcePulseAbility.cooldownRemaining = 0;
+
+// Energy Link regression: the final ability is selectable, uses two E taps to
+// target different enemies, transfers System Pulse damage and Force Pulse
+// knockback once, persists across ability switches, and starts cooldown when
+// cancelled or expired.
+const linkAbility = debug.abilities.find((ability) => ability.id === "link");
+if (!linkAbility || !linkAbility.unlocked) throw new Error("Expected unlocked Energy Link ability.");
+const linkA = debug.enemies[0];
+const linkB = debug.enemies[1];
+if (!linkA || !linkB) throw new Error("Expected two nearby enemies for Energy Link regression.");
+for (const enemy of [linkA, linkB]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.forcePulseStunTimer = 0;
+  enemy.lastForcePulseCastId = 0;
+}
+debug.player.x = 500;
+debug.player.y = 420;
+debug.player.facing = 1;
+debug.player.gravitySign = 1;
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 710;
+linkB.y = 435;
+linkAbility.cooldownRemaining = 0;
+linkAbility.activeRemaining = 0;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link first tap did not select a target.");
+if (debug.getEnergyLinkState().pending !== linkA || debug.getEnergyLinkState().active) {
+  throw new Error("Energy Link did not store the nearest first target without activating.");
+}
+if (linkAbility.cooldownRemaining > 0 || linkAbility.activeRemaining > 0) {
+  throw new Error("Energy Link first-target selection spent cooldown or active time.");
+}
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link second tap did not create a link.");
+let linkState = debug.getEnergyLinkState();
+if (!linkState.active || linkState.a !== linkA || linkState.b !== linkB) {
+  throw new Error("Energy Link did not connect the first and second enemy targets.");
+}
+if (linkAbility.cooldownRemaining > 0 || Math.abs(linkAbility.activeRemaining - debug.constants.ENERGY_LINK_DURATION) > 0.01) {
+  throw new Error("Energy Link did not start its active duration without immediate cooldown.");
+}
+if (!debug.setSelectedAbility("gravity")) throw new Error("Could not switch away from Energy Link.");
+if (!debug.getEnergyLinkState().active) throw new Error("Switching away from Energy Link cancelled the active link.");
+debug.setSelectedAbility("link");
+debug.player.x = 540;
+debug.player.y = 420;
+debug.player.facing = 1;
+linkA.x = 630;
+linkA.y = 435;
+linkB.x = 735;
+linkB.y = 435;
+linkA.hp = 2;
+linkB.hp = 2;
+debug.player.firePulse();
+debug.update(0.09);
+if (linkA.hp !== 1 || linkB.hp !== 1.5) {
+  throw new Error(`Energy Link did not transfer half System Pulse damage; got ${linkA.hp} and ${linkB.hp}.`);
+}
+linkA.hp = 2;
+linkB.hp = 2;
+linkA.vx = 0;
+linkB.vx = 0;
+linkA.forcePulseStunTimer = 0;
+linkB.forcePulseStunTimer = 0;
+linkA.lastForcePulseCastId = 0;
+linkB.lastForcePulseCastId = 0;
+linkA.x = 630;
+linkA.y = 435;
+linkB.x = 735;
+linkB.y = 220;
+forcePulseAbility.cooldownRemaining = 0;
+debug.setSelectedAbility("pulse");
+if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate for Energy Link transfer regression.");
+if (linkA.vx <= 300 || linkB.vx <= 100 || linkB.vx >= linkA.vx * 0.7) {
+  throw new Error(`Energy Link did not transfer reduced Force Pulse knockback; got ${linkA.vx} and ${linkB.vx}.`);
+}
+forcePulseAbility.cooldownRemaining = 0;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not manually cancel when selected and active.");
+if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || linkAbility.cooldownRemaining <= 0) {
+  throw new Error("Energy Link cancellation did not clear active link and start cooldown.");
+}
+linkAbility.cooldownRemaining = 0;
+linkAbility.activeRemaining = 0;
+debug.player.x = 500;
+debug.player.y = 420;
+debug.player.facing = 1;
+for (const enemy of [linkA, linkB]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.forcePulseStunTimer = 0;
+  enemy.lastForcePulseCastId = 0;
+}
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 710;
+linkB.y = 435;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link first tap failed for timeout regression.");
+debug.update(debug.constants.ENERGY_LINK_PENDING_TIMEOUT + 0.1);
+if (debug.getEnergyLinkState().pending || linkAbility.cooldownRemaining > 0) {
+  throw new Error("Energy Link pending target did not time out cleanly without cooldown.");
+}
+for (const enemy of [linkA, linkB]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.forcePulseStunTimer = 0;
+  enemy.lastForcePulseCastId = 0;
+}
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 710;
+linkB.y = 435;
+if (!debug.activateSelectedAbility() || !debug.activateSelectedAbility()) throw new Error("Energy Link did not reactivate for duration expiry regression.");
+for (let elapsed = 0; elapsed < debug.constants.ENERGY_LINK_DURATION + 0.1; elapsed += 0.1) debug.update(0.1);
+if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || linkAbility.cooldownRemaining <= 0) {
+  throw new Error("Energy Link duration expiry did not end link and start cooldown.");
+}
+linkAbility.cooldownRemaining = 0;
+linkAbility.activeRemaining = 0;
+
 debug.setSelectedAbility("gravity");
 debug.player.x = 120;
 debug.player.y = 420;
