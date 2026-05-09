@@ -1335,7 +1335,7 @@ class Player extends Entity {
     ctx.shadowColor = phased ? "rgba(137, 235, 255, 0.46)" : glow;
     ctx.shadowBlur = phased ? 12 : 10;
 
-    if (phased || phaseSnap > 0) {
+    if (!phased && phaseSnap > 0) {
       const snapBoost = phaseSnap * phaseSnap;
       ctx.save();
       ctx.globalAlpha *= 0.18 + snapBoost * 0.18;
@@ -1360,6 +1360,8 @@ class Player extends Entity {
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
       ctx.stroke();
+
+      if (phased) return;
 
       ctx.strokeStyle = fill;
       ctx.lineWidth = fillWidth;
@@ -1387,7 +1389,7 @@ class Player extends Entity {
       ctx.quadraticCurveTo(rx, -ry, 0, -ry);
       ctx.quadraticCurveTo(-rx, -ry, -rx, -sideHalf);
       ctx.closePath();
-      ctx.fill();
+      if (!phased) ctx.fill();
       ctx.stroke();
       ctx.restore();
     }
@@ -1995,20 +1997,20 @@ class Player extends Entity {
       ctx.restore();
     }
 
-    if (phased || phaseSnap > 0) {
+    if (!phased && phaseSnap > 0) {
       const snapBoost = phaseSnap * phaseSnap;
       const pulseOffset = Math.sin(this.animTime * 10) * 0.35;
       const cyanOffset = 2.4 + pulseOffset + snapBoost * 2.2;
       const violetOffset = -2.1 + pulseOffset * 0.5 - snapBoost * 1.7;
-      drawPhaseGhostSilhouette(cyanOffset, "rgba(169, 244, 255, 0.92)", phased ? 0.2 + snapBoost * 0.1 : 0.22 * snapBoost);
-      drawPhaseGhostSilhouette(violetOffset, "rgba(137, 111, 255, 0.88)", phased ? 0.14 + snapBoost * 0.08 : 0.18 * snapBoost);
+      drawPhaseGhostSilhouette(cyanOffset, "rgba(169, 244, 255, 0.92)", 0.22 * snapBoost);
+      drawPhaseGhostSilhouette(violetOffset, "rgba(137, 111, 255, 0.88)", 0.18 * snapBoost);
     }
 
     strokeLimb(pose.farLeg, 2.8);
     if (pose.farArm) strokeLimb(pose.farArm, 2.4);
     drawTorso(pose.torso.x, pose.torso.y, pose.torso.rx, pose.torso.ry, pose.torso.rot);
     strokeLimb(pose.nearLeg, 3.2);
-    if (attackChargePoint && attackChargePoint.strength > 0.04) {
+    if (!phased && attackChargePoint && attackChargePoint.strength > 0.04) {
       ctx.save();
       ctx.shadowColor = "rgba(174, 244, 255, 0.95)";
       ctx.shadowBlur = 8 + attackChargePoint.strength * 10;
@@ -2033,13 +2035,13 @@ class Player extends Entity {
     ctx.lineWidth = characterOutlineWidth;
     ctx.beginPath();
     ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
-    ctx.fill();
+    if (!phased) ctx.fill();
     ctx.stroke();
 
-    if (phased || phaseSnap > 0) {
+    if (!phased && phaseSnap > 0) {
       ctx.save();
       const snapBoost = phaseSnap * phaseSnap;
-      ctx.globalAlpha *= phased ? 0.28 + snapBoost * 0.14 : snapBoost * 0.28;
+      ctx.globalAlpha *= snapBoost * 0.28;
       ctx.strokeStyle = "rgba(202, 251, 255, 0.78)";
       ctx.lineWidth = 0.9;
       ctx.beginPath();
