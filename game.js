@@ -117,12 +117,11 @@ const FORCE_PULSE_ARM_DURATION = FORCE_PULSE_ARM_PUSH_DURATION + FORCE_PULSE_ARM
 const FORCE_PULSE_DRONE_RECOVERY = config.forcePulseDroneRecovery ?? 0.28;
 const FORCE_PULSE_COOLDOWN = config.forcePulseCooldown ?? 4.0;
 const ENERGY_LINK_RANGE = config.energyLinkRange ?? 320;
-const ENERGY_LINK_HALF_ANGLE = config.energyLinkHalfAngle ?? Math.PI / 6;
 const ENERGY_LINK_PENDING_TIMEOUT = config.energyLinkPendingTimeout ?? 2.5;
 const ENERGY_LINK_DURATION = config.energyLinkDuration ?? 4.0;
 const ENERGY_LINK_COOLDOWN = config.energyLinkCooldown ?? 8.0;
-const ENERGY_LINK_DAMAGE_TRANSFER = config.energyLinkDamageTransfer ?? 0.5;
-const ENERGY_LINK_FORCE_TRANSFER = config.energyLinkForceTransfer ?? 0.4;
+const ENERGY_LINK_DAMAGE_TRANSFER = config.energyLinkDamageTransfer ?? 1.0;
+const ENERGY_LINK_FORCE_TRANSFER = config.energyLinkForceTransfer ?? 1.0;
 const ENERGY_LINK_FADE_DURATION = 0.16;
 const ENERGY_LINK_YELLOW = "rgba(255, 242, 92, 0.96)";
 const ENERGY_LINK_CORE = "rgba(255, 255, 218, 0.98)";
@@ -193,8 +192,6 @@ let anchorField = null;
 let anchorFieldFade = null;
 let energyLink = null;
 let energyLinkFade = null;
-let pendingEnergyLinkTarget = null;
-let pendingEnergyLinkTimer = 0;
 let phaseCastId = 0;
 let currentPhaseExposure = new Set();
 let cameraX = 0;
@@ -4579,74 +4576,50 @@ function isValidEnergyLinkTarget(enemy) {
   return Boolean(enemy) && enemy.hp > 0 && !enemy.isDying;
 }
 
-function getEnergyLinkPartner(enemy) {
-  if (!energyLink?.active) return null;
-  if (energyLink.a === enemy) return energyLink.b;
-  if (energyLink.b === enemy) return energyLink.a;
-  return null;
+function getActiveEnergyLinkTargets() {
+  if (!energyLink?.active) return [];
+  return energyLink.targets.filter(isValidEnergyLinkTarget);
+}
+
+function isEnergyLinked(enemy) {
+  return getActiveEnergyLinkTargets().includes(enemy);
 }
 
 function clearPendingEnergyLink() {
-  pendingEnergyLinkTarget = null;
-  pendingEnergyLinkTimer = 0;
+  // Energy Link now casts immediately as a player-centered field. Keep this
+  // helper as a no-op so ability switching paths can clear older pending state.
 }
 
-function findEnergyLinkTarget(excluded = null) {
+function findEnergyLinkTargets() {
   const origin = centerOf(player);
-  const direction = player.facing || 1;
-  let bestForward = null;
-  let bestForwardScore = Infinity;
-  let bestFallback = null;
-  let bestFallbackDistance = Infinity;
+  return enemies.filter((enemy) => {
+    if (!isValidEnergyLinkTarget(enemy)) return false;
+    return distance(origin, centerOf(enemy)) <= ENERGY_LINK_RANGE;
+  });
+}
 
-  for (const enemy of enemies) {
-    if (!isValidEnergyLinkTarget(enemy) || enemy === excluded) continue;
-    const target = centerOf(enemy);
-    const dx = (target.x - origin.x) * direction;
-    const dy = target.y - origin.y;
-    const targetDistance = Math.hypot(target.x - origin.x, target.y - origin.y);
-    if (targetDistance > ENERGY_LINK_RANGE) continue;
-
-    if (dx > 0) {
-      const angle = Math.abs(Math.atan2(dy, dx));
-      if (angle <= ENERGY_LINK_HALF_ANGLE) {
-        const score = targetDistance + angle * 80;
-        if (score < bestForwardScore) {
-          bestForward = enemy;
-          bestForwardScore = score;
-        }
-      }
-    }
-
-    // Small fallback radius keeps close targets usable when the player is not
-    // perfectly facing them, while the forward cone remains the priority.
-    if (targetDistance <= ENERGY_LINK_RANGE * 0.38 && targetDistance < bestFallbackDistance) {
-      bestFallback = enemy;
-      bestFallbackDistance = targetDistance;
-    }
-  }
-
-  return bestForward ?? bestFallback;
+function getEnergyLinkPreviewTargets() {
+  if (selectedAbilityId !== "link") return [];
+  if (energyLink?.active) return [];
+  const ability = getAbilityById("link");
+  if (!isAbilityReady(ability)) return [];
+  return findEnergyLinkTargets();
 }
 
 function getEnergyLinkPreviewTarget() {
-  if (selectedAbilityId !== "link") return null;
-  if (energyLink?.active) return null;
-  const ability = getAbilityById("link");
-  if (!isAbilityReady(ability) && !pendingEnergyLinkTarget) return null;
-  return findEnergyLinkTarget(pendingEnergyLinkTarget);
+  return getEnergyLinkPreviewTargets()[0] ?? null;
 }
 
-function beginEnergyLink(firstTarget, secondTarget) {
+function beginEnergyLink(targets) {
   const ability = getAbilityById("link");
-  if (!ability || !isValidEnergyLinkTarget(firstTarget) || !isValidEnergyLinkTarget(secondTarget) || firstTarget === secondTarget) {
-    clearPendingEnergyLink();
-    return false;
-  }
+  const validTargets = [...new Set(targets)].filter(isValidEnergyLinkTarget);
+  if (!ability || validTargets.length < 2) return false;
 
   energyLink = {
-    a: firstTarget,
-    b: secondTarget,
+    targets: validTargets,
+    // Preserve a/b for debug consumers while drawing and transfers use targets.
+    a: validTargets[0],
+    b: validTargets[1],
     active: true,
     age: 0,
     pulse: 0.18
@@ -4660,7 +4633,8 @@ function beginEnergyLink(firstTarget, secondTarget) {
 function endEnergyLink(startCooldown = true) {
   const ability = getAbilityById("link");
   if (energyLink?.active) {
-    energyLinkFade = { a: energyLink.a, b: energyLink.b, fadeRemaining: ENERGY_LINK_FADE_DURATION };
+    const targets = getActiveEnergyLinkTargets();
+    energyLinkFade = { targets, a: targets[0] ?? null, b: targets[1] ?? null, fadeRemaining: ENERGY_LINK_FADE_DURATION };
   }
   energyLink = null;
   clearPendingEnergyLink();
@@ -4677,43 +4651,29 @@ function activateEnergyLink() {
 
   if (energyLink?.active) return endEnergyLink(true);
 
-  if (!pendingEnergyLinkTarget && !isAbilityReady(ability)) {
+  if (!isAbilityReady(ability)) {
     ability.unavailableTimer = 0.16;
     return false;
   }
 
-  if (pendingEnergyLinkTarget && !isValidEnergyLinkTarget(pendingEnergyLinkTarget)) {
-    clearPendingEnergyLink();
-  }
-
-  const target = findEnergyLinkTarget(pendingEnergyLinkTarget);
-  if (!target) {
+  const targets = findEnergyLinkTargets();
+  if (targets.length < 2) {
     ability.unavailableTimer = 0.16;
     return false;
   }
 
-  if (!pendingEnergyLinkTarget) {
-    pendingEnergyLinkTarget = target;
-    pendingEnergyLinkTimer = ENERGY_LINK_PENDING_TIMEOUT;
-    return true;
-  }
-
-  return beginEnergyLink(pendingEnergyLinkTarget, target);
+  return beginEnergyLink(targets);
 }
 
 function updateEnergyLink(dt) {
-  if (pendingEnergyLinkTarget) {
-    pendingEnergyLinkTimer = Math.max(0, pendingEnergyLinkTimer - dt);
-    if (pendingEnergyLinkTimer <= 0 || !isValidEnergyLinkTarget(pendingEnergyLinkTarget) || selectedAbilityId !== "link") {
-      clearPendingEnergyLink();
-    }
-  }
-
   const ability = getAbilityById("link");
   if (energyLink?.active) {
     energyLink.age += dt;
     energyLink.pulse = Math.max(0, energyLink.pulse - dt);
-    if (!isValidEnergyLinkTarget(energyLink.a) || !isValidEnergyLinkTarget(energyLink.b)) {
+    energyLink.targets = energyLink.targets.filter(isValidEnergyLinkTarget);
+    energyLink.a = energyLink.targets[0] ?? null;
+    energyLink.b = energyLink.targets[1] ?? null;
+    if (energyLink.targets.length < 2) {
       endEnergyLink(true);
       return;
     }
@@ -4727,33 +4687,41 @@ function updateEnergyLink(dt) {
 }
 
 function transferEnergyLinkDamage(sourceEnemy, amount, impact = null) {
-  const partner = getEnergyLinkPartner(sourceEnemy);
-  if (!isValidEnergyLinkTarget(partner)) return false;
+  if (!isEnergyLinked(sourceEnemy) || impact?.linkedDamage) return false;
   const linkedDamage = amount * ENERGY_LINK_DAMAGE_TRANSFER;
   if (linkedDamage <= 0) return false;
-  partner.hit(linkedDamage, { ...impact, linkedDamage: true });
-  if (energyLink?.active && (!isValidEnergyLinkTarget(sourceEnemy) || !isValidEnergyLinkTarget(partner))) endEnergyLink(true);
-  return true;
+
+  let transferred = false;
+  for (const target of getActiveEnergyLinkTargets()) {
+    if (target === sourceEnemy) continue;
+    target.hit(linkedDamage, { ...impact, linkedDamage: true });
+    transferred = true;
+  }
+
+  if (energyLink?.active) {
+    energyLink.targets = energyLink.targets.filter(isValidEnergyLinkTarget);
+    if (energyLink.targets.length < 2) endEnergyLink(true);
+  }
+  return transferred;
 }
 
 function transferEnergyLinkForce(sourceEnemy, direction, speed, stunDuration, castId, directHits) {
-  const partner = getEnergyLinkPartner(sourceEnemy);
-  if (!isValidEnergyLinkTarget(partner) || directHits?.has(partner)) return false;
-  return partner.receiveForcePulse(
-    direction,
-    speed * ENERGY_LINK_FORCE_TRANSFER,
-    stunDuration,
-    `${castId}:link:${enemies.indexOf(sourceEnemy)}`,
-  );
+  if (!isEnergyLinked(sourceEnemy)) return false;
+  let transferred = false;
+  for (const target of getActiveEnergyLinkTargets()) {
+    if (target === sourceEnemy || directHits?.has(target)) continue;
+    const didTransfer = target.receiveForcePulse(
+      direction,
+      speed * ENERGY_LINK_FORCE_TRANSFER,
+      stunDuration,
+      `${castId}:link:${enemies.indexOf(sourceEnemy)}:${enemies.indexOf(target)}`,
+    );
+    transferred = didTransfer || transferred;
+  }
+  return transferred;
 }
 
-function castForcePulse() {
-  const direction = player.facing || 1;
-  player.startForcePulsePose(direction);
-  const origin = player.getForcePulseHandPoint(direction);
-  forcePulseCastId += 1;
-  forcePulseVisuals.push(new ForcePulseVisual(player, direction, origin));
-
+function buildForcePulseHitEntries(origin, direction) {
   const hits = [];
   const directHitEnemies = new Set();
 
@@ -4769,15 +4737,17 @@ function castForcePulse() {
     directHitEnemies.add(enemy);
   }
 
+  return { hits, directHitEnemies };
+}
+
+function applyForcePulseHits({ hits, directHitEnemies }, direction, castId) {
   for (const hit of hits) {
-    hit.enemy.receiveForcePulse(direction, hit.speed, FORCE_PULSE_STUN, forcePulseCastId);
+    hit.enemy.receiveForcePulse(direction, hit.speed, FORCE_PULSE_STUN, castId);
   }
 
   for (const hit of hits) {
-    transferEnergyLinkForce(hit.enemy, direction, hit.speed, FORCE_PULSE_STUN, forcePulseCastId, directHitEnemies);
+    transferEnergyLinkForce(hit.enemy, direction, hit.speed, FORCE_PULSE_STUN, castId, directHitEnemies);
   }
-
-  flushChain();
 }
 
 function castForcePulse() {
@@ -6407,9 +6377,8 @@ function drawEnergyLinkMarker(enemy, alpha = 1, strong = false) {
 }
 
 function drawEnergyLinkInstance(link, alpha = 1) {
-  if (!link?.a || !link?.b) return;
-  const a = centerOf(link.a);
-  const b = centerOf(link.b);
+  const targets = (link?.targets ?? [link?.a, link?.b]).filter(isValidEnergyLinkTarget);
+  if (targets.length < 2) return;
   const pulseAlpha = link.pulse ? clamp(link.pulse / 0.18, 0, 1) : 0;
 
   ctx.save();
@@ -6420,16 +6389,24 @@ function drawEnergyLinkInstance(link, alpha = 1) {
   ctx.strokeStyle = ENERGY_LINK_YELLOW;
   ctx.lineWidth = 2.2 + pulseAlpha * 1.1;
   ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-  ctx.lineTo(b.x, b.y);
+  for (let i = 0; i < targets.length; i += 1) {
+    const from = centerOf(targets[i]);
+    const to = centerOf(targets[(i + 1) % targets.length]);
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+  }
   ctx.stroke();
 
   ctx.shadowBlur = 3;
   ctx.strokeStyle = ENERGY_LINK_CORE;
   ctx.lineWidth = 0.9;
   ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-  ctx.lineTo(b.x, b.y);
+  for (let i = 0; i < targets.length; i += 1) {
+    const from = centerOf(targets[i]);
+    const to = centerOf(targets[(i + 1) % targets.length]);
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+  }
   ctx.stroke();
   ctx.restore();
 }
@@ -6443,15 +6420,14 @@ function drawEnergyLinks() {
 }
 
 function drawEnergyLinkTargeting() {
-  if (pendingEnergyLinkTarget) drawEnergyLinkMarker(pendingEnergyLinkTarget, 0.95, true);
-  const previewTarget = getEnergyLinkPreviewTarget();
-  if (previewTarget) drawEnergyLinkMarker(previewTarget, 0.72, false);
+  for (const previewTarget of getEnergyLinkPreviewTargets()) {
+    drawEnergyLinkMarker(previewTarget, 0.72, false);
+  }
 }
 
 function drawEnergyLinkMarkers() {
   if (energyLink?.active) {
-    drawEnergyLinkMarker(energyLink.a, 0.8, false);
-    drawEnergyLinkMarker(energyLink.b, 0.8, false);
+    for (const target of getActiveEnergyLinkTargets()) drawEnergyLinkMarker(target, 0.8, false);
   }
   drawEnergyLinkTargeting();
 }
@@ -6513,21 +6489,12 @@ function drawSelectedAbilityRangePreview() {
     ctx.stroke();
   } else if (ability.id === "link") {
     const origin = centerOf(player);
-    const direction = player.facing || 1;
-    const centerAngle = direction > 0 ? 0 : Math.PI;
-    const upperAngle = centerAngle - ENERGY_LINK_HALF_ANGLE * direction;
-    const lowerAngle = centerAngle + ENERGY_LINK_HALF_ANGLE * direction;
-
     ctx.strokeStyle = "rgba(255, 242, 92, 0.82)";
     ctx.fillStyle = "rgba(255, 242, 92, 0.06)";
     ctx.shadowColor = ENERGY_LINK_GLOW;
     ctx.shadowBlur = 15;
     ctx.beginPath();
-    ctx.moveTo(origin.x, origin.y);
-    ctx.lineTo(origin.x + Math.cos(upperAngle) * ENERGY_LINK_RANGE, origin.y + Math.sin(upperAngle) * ENERGY_LINK_RANGE);
-    ctx.arc(origin.x, origin.y, ENERGY_LINK_RANGE, upperAngle, lowerAngle, direction < 0);
-    ctx.lineTo(origin.x, origin.y);
-    ctx.closePath();
+    ctx.arc(origin.x, origin.y, ENERGY_LINK_RANGE, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   } else if (ability.id === "pulse") {
@@ -6647,8 +6614,9 @@ window.__indiePlatformerDebug = {
     active: Boolean(energyLink?.active),
     a: energyLink?.a ?? null,
     b: energyLink?.b ?? null,
-    pending: pendingEnergyLinkTarget ?? null,
-    pendingTime: pendingEnergyLinkTimer
+    targets: energyLink?.targets ?? [],
+    pending: null,
+    pendingTime: 0
   }),
   checkpoint,
   safeAnchor,
