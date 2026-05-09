@@ -107,6 +107,7 @@ const FALL_RESPAWN_GRACE = config.fallRespawnGrace ?? 0.22;
 const EDGE_RESPAWN_INSET = config.edgeRespawnInset ?? 18;
 const ROOM_WIDTH = config.roomWidth ?? 2200;
 const ENEMY_VERTICAL_EDGE_KILL_TOLERANCE = config.enemyVerticalEdgeKillTolerance ?? 4;
+const ENEMY_VERTICAL_EDGE_KILL_ARM_DURATION = config.enemyVerticalEdgeKillArmDuration ?? 0.9;
 const HUD_MARGIN = 20;
 const HP_DIAMOND_SIZE = 14;
 const HP_DIAMOND_SPACING = 8;
@@ -374,6 +375,10 @@ function enemyTouchesVerticalWorldEdge(enemy) {
   return left <= ENEMY_VERTICAL_EDGE_KILL_TOLERANCE || right >= ROOM_WIDTH - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE;
 }
 
+function enemyShouldDieOnVerticalWorldEdge(enemy) {
+  return enemyTouchesVerticalWorldEdge(enemy) && (enemy.verticalEdgeKillTimer ?? 0) > 0;
+}
+
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -398,6 +403,7 @@ class Entity {
     this.gravityFlipVisualToSign = this.gravitySign;
     this.forcePulseStunTimer = 0;
     this.lastForcePulseCastId = 0;
+    this.verticalEdgeKillTimer = 0;
   }
 
   applyGravity(dt) {
@@ -413,6 +419,7 @@ class Entity {
       if (this.vx < 0) this.x = platform.x + platform.w;
       this.vx = 0;
     }
+    this.resolveWorldHorizontalBounds();
 
     this.y += this.vy * dt;
     this.onSurface = false;
@@ -430,6 +437,24 @@ class Entity {
       }
       this.vy = 0;
     }
+  }
+
+  resolveWorldHorizontalBounds() {
+    const oldX = this.x;
+    this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
+    if (this.x !== oldX) {
+      this.vx = 0;
+      return true;
+    }
+    return false;
+  }
+
+  armVerticalEdgeKill(duration = ENEMY_VERTICAL_EDGE_KILL_ARM_DURATION) {
+    this.verticalEdgeKillTimer = Math.max(this.verticalEdgeKillTimer ?? 0, duration);
+  }
+
+  updateVerticalEdgeKillTimer(dt) {
+    this.verticalEdgeKillTimer = Math.max(0, (this.verticalEdgeKillTimer ?? 0) - dt);
   }
 
   flipGravity(castId) {
@@ -475,6 +500,7 @@ class Entity {
     // enemy's gravity/collision update decides whether it is still supported.
     this.onSurface = false;
 
+    this.armVerticalEdgeKill();
     this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
     this.hitJoltX = direction * 2.6;
     this.hitJoltY = -this.gravitySign * 1.6;
@@ -1925,7 +1951,9 @@ class Enemy extends Entity {
     this.updateHitReaction(dt);
     this.reverseCooldown = Math.max(0, this.reverseCooldown - dt);
 
-    if (this.isTouchingVerticalWorldEdge() || this.isOutsideVerticalWorldBounds()) {
+    this.updateVerticalEdgeKillTimer(dt);
+
+    if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
       this.beginDeath();
       return;
     }
@@ -1939,7 +1967,7 @@ class Enemy extends Entity {
       this.updateAirbornePhysics(dt);
     }
 
-    if (!this.isDying && (this.isTouchingVerticalWorldEdge() || this.isOutsideVerticalWorldBounds())) this.beginDeath();
+    if (!this.isDying && (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds())) this.beginDeath();
   }
 
   updateHitReaction(dt) {
@@ -2082,6 +2110,8 @@ class Enemy extends Entity {
 
   hasWallAhead() {
     const body = this.getCollisionRect();
+    if (this.direction < 0 && body.x <= ENEMY_VERTICAL_EDGE_KILL_TOLERANCE) return true;
+    if (this.direction > 0 && body.x + body.w >= ROOM_WIDTH - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE) return true;
     const wallProbe = {
       x: this.direction > 0 ? body.x + body.w : body.x - 3,
       y: body.y + 4,
@@ -2114,7 +2144,7 @@ class Enemy extends Entity {
       this.vx = 0;
     }
 
-    if (hitWall) this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
+    hitWall = this.resolveWorldHorizontalBounds() || hitWall;
     return hitWall && this.x !== oldX;
   }
 
@@ -2173,8 +2203,9 @@ class Enemy extends Entity {
     return this.getCollisionRect();
   }
 
-  hit(amount) {
+  hit(amount, impact = null) {
     if (this.isDying || this.hp <= 0) return;
+    if (impact?.armsVerticalEdgeKill) this.armVerticalEdgeKill();
     this.hp -= amount;
     this.hitTimer = 0.12;
     this.hitJoltX = (player.facing || 1) * 2.2;
@@ -2485,7 +2516,9 @@ class Drone extends Entity {
     this.updateHitReaction(dt);
     this.updateOrbitDetachVisuals(dt);
 
-    if (this.isTouchingVerticalWorldEdge() || this.isOutsideVerticalWorldBounds()) {
+    this.updateVerticalEdgeKillTimer(dt);
+
+    if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
       this.beginDeath();
       return;
     }
@@ -2798,8 +2831,9 @@ class Drone extends Entity {
     };
   }
 
-  hit(amount) {
+  hit(amount, impact = null) {
     if (this.isDying || this.hp <= 0) return;
+    if (impact?.armsVerticalEdgeKill) this.armVerticalEdgeKill();
     this.hp -= amount;
     this.hitTimer = 0.12;
     const playerFacing = player.facing || 1;
@@ -3111,7 +3145,9 @@ class Jumper extends Entity {
     this.updateGravityFlipVisual(dt);
     this.updateHitReaction(dt);
 
-    if (this.isOutsideWorld()) {
+    this.updateVerticalEdgeKillTimer(dt);
+
+    if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideWorld()) {
       this.beginDeath();
       return;
     }
@@ -3382,7 +3418,7 @@ class Jumper extends Entity {
 
   isOutsideWorld() {
     const body = this.getCollisionRect();
-    return body.y + body.h >= bottomFallBoundary || body.y <= -120 || enemyTouchesVerticalWorldEdge(this);
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120;
   }
 
   getCollisionRect() {
@@ -3393,8 +3429,9 @@ class Jumper extends Entity {
     return this.getCollisionRect();
   }
 
-  hit(amount) {
+  hit(amount, impact = null) {
     if (this.isDying || this.hp <= 0) return;
+    if (impact?.armsVerticalEdgeKill) this.armVerticalEdgeKill();
     this.hp -= amount;
     this.hitTimer = 0.14;
     this.vx += this.x + this.w / 2 < player.x + player.w / 2 ? -26 : 26;
@@ -3789,7 +3826,7 @@ class SystemPulse {
   static fire(startX, y, direction) {
     const endX = findPulseEndpoint(startX, y, direction);
     const hitEnemy = findFirstEnemyOnPulse(startX, y, endX, direction);
-    if (hitEnemy) hitEnemy.hit(PULSE_DAMAGE);
+    if (hitEnemy) hitEnemy.hit(PULSE_DAMAGE, { armsVerticalEdgeKill: true, direction });
     return new SystemPulse(startX, y, endX, direction);
   }
 

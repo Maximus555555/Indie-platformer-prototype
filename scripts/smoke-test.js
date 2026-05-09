@@ -271,16 +271,28 @@ if (!Array.isArray(debug.spikes) || debug.spikes.length < 2) {
   throw new Error("Expected platform-attached spike strips to exist.");
 }
 
-// Regression: enemies that touch the left or right room boundary should enter
-// their existing dissolve death state instead of sticking to the world edge.
+// Regression: enemies that reach a left or right room boundary under their own
+// movement should survive; edge shatters are reserved for pulse/projectile shove
+// windows so ordinary patrols cannot die just by running into the screen edge.
 for (const enemy of debug.enemies) {
   enemy.hp = 2;
   enemy.isDying = false;
   enemy.gravitySign = 1;
+  enemy.verticalEdgeKillTimer = 0;
   enemy.x = 0;
   enemy.update(16 / 1000);
+  if (enemy.hp === 0 || enemy.isDying) {
+    throw new Error(`${enemy.constructor.name} died from an unarmed left room edge touch.`);
+  }
+
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.gravitySign = 1;
+  enemy.x = 0;
+  enemy.armVerticalEdgeKill();
+  enemy.update(16 / 1000);
   if (enemy.hp !== 0 || !enemy.isDying) {
-    throw new Error(`${enemy.constructor.name} did not die after touching the left room edge.`);
+    throw new Error(`${enemy.constructor.name} did not die from an armed left room edge shove.`);
   }
 }
 
