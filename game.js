@@ -5077,7 +5077,6 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
   const selected = options.selected ?? false;
   const highlighted = options.highlighted ?? false;
   const showReadyPulse = options.showReadyPulse ?? true;
-  const showActiveTimerRing = activeProgress > 0 && ability.id !== "gravity" && ability.id !== "time";
   const pulse = showReadyPulse ? clamp(ability.readyPulseTimer / ABILITY_READY_PULSE_DURATION, 0, 1) : 0;
   const denied = clamp(ability.unavailableTimer / 0.16, 0, 1);
   const nudge = denied > 0 ? Math.sin(denied * Math.PI * 4) * 1.4 : 0;
@@ -5109,13 +5108,7 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
     ctx.restore();
   }
 
-  if (showActiveTimerRing) {
-    ctx.strokeStyle = "rgba(151, 248, 255, 0.9)";
-    ctx.lineWidth = 2.4;
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.47, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * activeProgress);
-    ctx.stroke();
-  }
+  // Keep active ability timing as tile fill only; avoid circular timer rings for all abilities.
 
   if (pulse > 0) {
     ctx.strokeStyle = `rgba(246, 253, 255, ${0.5 * pulse})`;
