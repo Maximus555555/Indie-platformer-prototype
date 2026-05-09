@@ -2276,7 +2276,7 @@ class Enemy extends Entity {
     this.updateVerticalEdgeKillTimer(simDt);
 
     if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
-      this.beginDeath();
+      beginEnvironmentalEnemyDeath(this);
       return;
     }
 
@@ -2289,7 +2289,7 @@ class Enemy extends Entity {
       this.updateAirbornePhysics(simDt);
     }
 
-    if (!this.isDying && (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds())) this.beginDeath();
+    if (!this.isDying && (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds())) beginEnvironmentalEnemyDeath(this);
   }
 
   updateHitReaction(dt) {
@@ -2848,7 +2848,7 @@ class Drone extends Entity {
     this.updateVerticalEdgeKillTimer(simDt);
 
     if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
-      this.beginDeath();
+      beginEnvironmentalEnemyDeath(this);
       return;
     }
 
@@ -3483,7 +3483,7 @@ class Jumper extends Entity {
     this.updateVerticalEdgeKillTimer(simDt);
 
     if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideWorld()) {
-      this.beginDeath();
+      beginEnvironmentalEnemyDeath(this);
       return;
     }
 
@@ -4686,6 +4686,29 @@ function updateEnergyLink(dt) {
   }
 }
 
+function beginEnvironmentalEnemyDeath(sourceEnemy) {
+  if (!sourceEnemy || sourceEnemy.hp <= 0 || sourceEnemy.isDying) return false;
+
+  const linkedTargets = !sourceEnemy.isBoss && isEnergyLinked(sourceEnemy)
+    ? getActiveEnergyLinkTargets().filter((target) => target !== sourceEnemy && !target.isBoss)
+    : [];
+
+  sourceEnemy.beginDeath();
+
+  // Environmental hazards are lethal through Energy Link: spikes and armed edge
+  // kills shatter every other linked non-boss enemy instead of dealing damage.
+  for (const target of linkedTargets) {
+    if (target.hp > 0 && !target.isDying) target.beginDeath();
+  }
+
+  if (linkedTargets.length > 0 && energyLink?.active) {
+    energyLink.targets = energyLink.targets.filter(isValidEnergyLinkTarget);
+    if (energyLink.targets.length < 2) endEnergyLink(true);
+  }
+
+  return true;
+}
+
 function transferEnergyLinkDamage(sourceEnemy, amount, impact = null) {
   if (!isEnergyLinked(sourceEnemy) || impact?.linkedDamage) return false;
   const linkedDamage = amount * ENERGY_LINK_DAMAGE_TRANSFER;
@@ -5619,7 +5642,7 @@ function update(dt) {
 
   for (const enemy of enemies) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
-    if (rectTouchesSpikes(enemy.getDamageRect())) enemy.beginDeath();
+    if (rectTouchesSpikes(enemy.getDamageRect())) beginEnvironmentalEnemyDeath(enemy);
   }
 
   if (!player.isDying && (player.y > bottomFallBoundary || player.y + player.h < -120)) player.fallOutOfWorld();
