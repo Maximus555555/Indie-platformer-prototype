@@ -1356,14 +1356,64 @@ class Player extends Entity {
     }
 
     function strokeLimb(points, fillWidth) {
+      function drawHollowPhaseLimb() {
+        const outerRadius = fillWidth * 0.5 + characterOutlineWidth;
+        const edgeWidth = characterOutlineWidth * 0.82;
+
+        function segmentNormal(from, to) {
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const length = Math.hypot(dx, dy) || 1;
+          return { x: -dy / length, y: dx / length };
+        }
+
+        function offsetPoint(index, side) {
+          const previous = points[Math.max(0, index - 1)];
+          const point = points[index];
+          const next = points[Math.min(points.length - 1, index + 1)];
+          const before = index > 0 ? segmentNormal(previous, point) : null;
+          const after = index < points.length - 1 ? segmentNormal(point, next) : null;
+          const normal = before && after
+            ? { x: before.x + after.x, y: before.y + after.y }
+            : (before ?? after);
+          const normalLength = Math.hypot(normal.x, normal.y) || 1;
+          const unit = { x: normal.x / normalLength, y: normal.y / normalLength };
+          const reference = after ?? before;
+          const alignment = Math.max(0.38, Math.abs(unit.x * reference.x + unit.y * reference.y));
+          const distance = Math.min(outerRadius / alignment, outerRadius * 1.65);
+          return { x: point.x + unit.x * distance * side, y: point.y + unit.y * distance * side };
+        }
+
+        const outerA = points.map((_, index) => offsetPoint(index, 1));
+        const outerB = points.map((_, index) => offsetPoint(index, -1));
+
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = edgeWidth;
+        ctx.beginPath();
+        ctx.moveTo(outerA[0].x, outerA[0].y);
+        for (let i = 1; i < outerA.length; i += 1) ctx.lineTo(outerA[i].x, outerA[i].y);
+        ctx.moveTo(outerB[0].x, outerB[0].y);
+        for (let i = 1; i < outerB.length; i += 1) ctx.lineTo(outerB[i].x, outerB[i].y);
+
+        // Round end caps complete the limb outline without painting its center.
+        for (const point of [points[0], points[points.length - 1]]) {
+          ctx.moveTo(point.x + outerRadius, point.y);
+          ctx.arc(point.x, point.y, outerRadius, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+      }
+
+      if (phased) {
+        drawHollowPhaseLimb();
+        return;
+      }
+
       ctx.strokeStyle = outline;
       ctx.lineWidth = fillWidth + characterOutlineWidth * 2;
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
       ctx.stroke();
-
-      if (phased) return;
 
       ctx.strokeStyle = fill;
       ctx.lineWidth = fillWidth;
