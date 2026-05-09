@@ -4486,19 +4486,38 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.lineTo(r * 0.62, r * 0.32);
     ctx.stroke();
   } else if (ability.id === "pulse") {
-    ctx.strokeStyle = "rgba(255, 68, 88, 0.96)";
-    ctx.fillStyle = "rgba(255, 32, 54, 0.26)";
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.92, -r * 0.76);
-    ctx.lineTo(r * 1.02, 0);
-    ctx.lineTo(-r * 0.92, r * 0.76);
-    ctx.closePath();
+    // Match the in-world Force Pulse: a clean red fan with a narrow origin
+    // and one rounded outer arc, with no internal/radial detail.
+    const originX = -size * 0.27;
+    const originY = 0;
+    const range = size * 0.56;
+    const halfAngle = 0.5;
+    const upperAngle = -halfAngle;
+    const lowerAngle = halfAngle;
+
+    const tracePulseFan = (extraRange = 0) => {
+      const drawRange = range + extraRange;
+      ctx.beginPath();
+      ctx.moveTo(originX, originY);
+      ctx.lineTo(originX + Math.cos(upperAngle) * drawRange, originY + Math.sin(upperAngle) * drawRange);
+      ctx.arc(originX, originY, drawRange, upperAngle, lowerAngle);
+      ctx.lineTo(originX, originY);
+      ctx.closePath();
+    };
+
+    ctx.shadowColor = "rgba(255, 50, 76, 0.38)";
+    ctx.shadowBlur = size * 0.18;
+    ctx.fillStyle = "rgba(255, 36, 64, 0.34)";
+    tracePulseFan(size * 0.015);
     ctx.fill();
+
+    ctx.shadowColor = "rgba(255, 89, 114, 0.35)";
+    ctx.shadowBlur = size * 0.09;
+    ctx.strokeStyle = "rgba(255, 142, 158, 0.96)";
+    ctx.lineWidth = Math.max(1.6, size * 0.06);
+    tracePulseFan();
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-r * 1.18, 0);
-    ctx.lineTo(-r * 0.35, 0);
-    ctx.stroke();
+    ctx.shadowBlur = 0;
   } else if (ability.id === "anchor") {
     ctx.strokeRect(-r * 0.82, -r * 0.05, r * 1.64, r * 1.05);
     ctx.beginPath();
