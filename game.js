@@ -6047,35 +6047,45 @@ function drawAnchorFieldInstance(field, alpha = 1) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.shadowColor = ANCHOR_SILVER_SHADOW;
-  ctx.shadowBlur = 14;
+  ctx.shadowBlur = 24;
 
-  const fill = ctx.createRadialGradient(field.x, field.y, radius * 0.08, field.x, field.y, radius);
-  fill.addColorStop(0, "rgba(245, 245, 245, 0.08)");
-  fill.addColorStop(0.72, "rgba(192, 192, 192, 0.04)");
-  fill.addColorStop(1, "rgba(192, 192, 192, 0.01)");
+  // Keep this activation flash independent from the smaller enemy anchor-lock
+  // indicator so captured enemies do not inherit the stronger full-field bloom.
+  const fill = ctx.createRadialGradient(field.x, field.y, radius * 0.04, field.x, field.y, radius);
+  fill.addColorStop(0, "rgba(255, 255, 255, 0.20)");
+  fill.addColorStop(0.42, "rgba(205, 218, 235, 0.14)");
+  fill.addColorStop(0.78, "rgba(76, 86, 104, 0.16)");
+  fill.addColorStop(1, "rgba(22, 27, 36, 0.04)");
   ctx.fillStyle = fill;
-  ctx.strokeStyle = `rgba(224, 224, 224, ${hum})`;
-  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = `rgba(245, 248, 255, ${Math.min(1, hum + 0.08)})`;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   ctx.arc(field.x, field.y, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  ctx.shadowBlur = 6;
-  ctx.strokeStyle = "rgba(192, 192, 192, 0.5)";
-  ctx.lineWidth = 1;
+  ctx.shadowBlur = 18;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.48)";
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.arc(field.x, field.y, radius * 0.72, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = "rgba(234, 240, 252, 0.74)";
+  ctx.lineWidth = 1.4;
   for (let i = 0; i < 4; i += 1) {
     const angle = i * Math.PI / 2;
     ctx.beginPath();
-    ctx.moveTo(field.x + Math.cos(angle) * 18, field.y + Math.sin(angle) * 18);
-    ctx.lineTo(field.x + Math.cos(angle) * radius * 0.82, field.y + Math.sin(angle) * radius * 0.82);
+    ctx.moveTo(field.x + Math.cos(angle) * 14, field.y + Math.sin(angle) * 14);
+    ctx.lineTo(field.x + Math.cos(angle) * radius * 0.86, field.y + Math.sin(angle) * radius * 0.86);
     ctx.stroke();
   }
 
   ctx.strokeStyle = ANCHOR_SILVER_STROKE;
-  ctx.fillStyle = ANCHOR_SILVER_FILL;
-  ctx.lineWidth = 1.3;
-  const diamond = 13;
+  ctx.fillStyle = ANCHOR_SILVER_CORE;
+  ctx.lineWidth = 1.7;
+  const diamond = 15;
   ctx.beginPath();
   ctx.moveTo(field.x, field.y - diamond);
   ctx.lineTo(field.x + diamond, field.y);
