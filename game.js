@@ -2853,7 +2853,7 @@ class Drone extends Entity {
 class Jumper extends Entity {
   constructor(x, y) {
     super(x, y, JUMPER_WIDTH, JUMPER_HEIGHT);
-    this.hp = 2;
+    this.hp = 3;
     this.facing = -1;
     this.jumperState = "idle";
     this.stateTimer = 0;
