@@ -1270,7 +1270,6 @@ class Player extends Entity {
 
     let outline = "#4ea2f2";
     let fill = "rgba(255, 255, 255, 0.96)";
-    let inner = "rgba(226, 245, 255, 0.82)";
     let glow = "rgba(82, 166, 240, 0.34)";
     const facing = this.attackTimer > 0 ? this.attackFacing : (this.forcePulsePoseTimer > 0 ? this.forcePulsePoseFacing : this.facing);
     const speed = Math.abs(this.vx);
@@ -1314,9 +1313,9 @@ class Player extends Entity {
     const phaseSnap = clamp(this.phaseFlickerTimer / PHASE_SHIFT_FLICKER_DURATION, 0, 1);
     const phaseEdgePulse = 0.5 + 0.5 * Math.sin(this.animTime * 18);
     if (phased) {
-      fill = "rgba(7, 45, 124, 0.72)";
-      outline = "rgba(5, 32, 92, 0.9)";
-      inner = "rgba(10, 58, 145, 0.64)";
+      // Phase Shift removes the character interior entirely; keep only a
+      // readable spectral outline so the active state feels hollow.
+      outline = "rgba(137, 235, 255, 0.95)";
       glow = "rgba(8, 46, 125, 0.34)";
       ctx.globalAlpha *= 0.62 + phaseEdgePulse * 0.08;
     } else if (phaseSnap > 0) ctx.globalAlpha *= 0.82 + phaseEdgePulse * 0.06;
@@ -1364,6 +1363,8 @@ class Player extends Entity {
       for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
       ctx.stroke();
 
+      if (phased) return;
+
       ctx.strokeStyle = fill;
       ctx.lineWidth = fillWidth;
       ctx.beginPath();
@@ -1390,7 +1391,7 @@ class Player extends Entity {
       ctx.quadraticCurveTo(rx, -ry, 0, -ry);
       ctx.quadraticCurveTo(-rx, -ry, -rx, -sideHalf);
       ctx.closePath();
-      ctx.fill();
+      if (!phased) ctx.fill();
       ctx.stroke();
       ctx.restore();
     }
@@ -2036,7 +2037,7 @@ class Player extends Entity {
     ctx.lineWidth = characterOutlineWidth;
     ctx.beginPath();
     ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
-    ctx.fill();
+    if (!phased) ctx.fill();
     ctx.stroke();
 
     if (!phased && phaseSnap > 0) {
