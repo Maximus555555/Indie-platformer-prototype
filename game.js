@@ -455,6 +455,7 @@ class Entity {
       if (this.vx < 0) this.x = platform.x + platform.w;
       this.vx = 0;
     }
+    this.resolveHorizontalEnemyContacts();
     this.resolveWorldHorizontalBounds();
 
     this.y += this.vy * dt;
@@ -473,6 +474,65 @@ class Entity {
       }
       this.vy = 0;
     }
+    this.resolveVerticalEnemyContacts();
+  }
+
+  getOtherSolidEnemyRects() {
+    if (typeof enemies === "undefined") return [];
+    return enemies
+      .filter((enemy) => enemy !== this && enemy.hp > 0 && !enemy.isDying)
+      .map((enemy) => enemy.getCollisionRect());
+  }
+
+  resolveHorizontalEnemyContacts() {
+    let hitEnemy = false;
+
+    for (const solid of this.getOtherSolidEnemyRects()) {
+      const body = this.getCollisionRect();
+      if (!rectsOverlap(body, solid)) continue;
+
+      const bodyOffsetX = body.x - this.x;
+      if (this.vx > 0) this.x = solid.x - body.w - bodyOffsetX;
+      else if (this.vx < 0) this.x = solid.x + solid.w - bodyOffsetX;
+      else {
+        const depth = intersectionDepth(body, solid);
+        this.x += depth.signX * (depth.x + 0.1);
+      }
+
+      this.vx = 0;
+      hitEnemy = true;
+    }
+
+    return hitEnemy;
+  }
+
+  resolveVerticalEnemyContacts() {
+    let hitEnemy = false;
+
+    for (const solid of this.getOtherSolidEnemyRects()) {
+      const body = this.getCollisionRect();
+      if (!rectsOverlap(body, solid)) continue;
+
+      const bodyOffsetY = body.y - this.y;
+      if (this.vy * this.gravitySign > 0) {
+        this.y = this.gravitySign > 0
+          ? solid.y - body.h - bodyOffsetY
+          : solid.y + solid.h - bodyOffsetY;
+        this.onSurface = true;
+      } else if (this.vy < 0) {
+        this.y = solid.y + solid.h - bodyOffsetY;
+      } else if (this.vy > 0) {
+        this.y = solid.y - body.h - bodyOffsetY;
+      } else {
+        const depth = intersectionDepth(body, solid);
+        this.y += depth.signY * (depth.y + 0.1);
+      }
+
+      this.vy = 0;
+      hitEnemy = true;
+    }
+
+    return hitEnemy;
   }
 
   resolveWorldHorizontalBounds() {
@@ -2226,7 +2286,8 @@ class Enemy extends Entity {
     this.x += this.vx * dt;
 
     const hitWall = this.resolvePlatformWallContacts();
-    if (hitWall && this.reverseCooldown <= 0) this.reverseDirection();
+    const hitEnemy = this.resolveHorizontalEnemyContacts();
+    if ((hitWall || hitEnemy) && this.reverseCooldown <= 0) this.reverseDirection();
 
     const currentPlatform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
     if (currentPlatform) {
