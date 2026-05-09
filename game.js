@@ -100,6 +100,10 @@ const ANCHOR_FIELD_RADIUS = config.anchorFieldRadius ?? 160;
 const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
 const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
 const ANCHOR_FIELD_FADE_DURATION = 0.16;
+const ANCHOR_SILVER_FILL = "rgba(192, 192, 192, 0.14)";
+const ANCHOR_SILVER_STROKE = "rgba(224, 224, 224, 0.92)";
+const ANCHOR_SILVER_CORE = "rgba(245, 245, 245, 0.96)";
+const ANCHOR_SILVER_SHADOW = "rgba(192, 192, 192, 0.72)";
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
 const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
@@ -2711,6 +2715,7 @@ class Enemy extends Entity {
     }
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
+    if (this.anchorLocked) drawAnchorTargetGlow(28, 28);
     ctx.shadowBlur = 0;
     ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_PLATE_STROKE;
     ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : WALKER_PLATE_FILL;
@@ -3411,8 +3416,9 @@ class Drone extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
-    ctx.shadowColor = "rgba(255, 168, 35, 0.35)";
-    ctx.shadowBlur = 4 + charge * 7 + hitFlash * 5;
+    if (this.anchorLocked) drawAnchorTargetGlow(30, 28);
+    ctx.shadowColor = this.anchorLocked ? ANCHOR_SILVER_SHADOW : "rgba(255, 168, 35, 0.35)";
+    ctx.shadowBlur = (this.anchorLocked ? 10 : 4) + charge * 7 + hitFlash * 5;
     this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
     ctx.restore();
     const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
@@ -4149,9 +4155,9 @@ class DroneProjectile {
     ctx.fill();
     ctx.stroke();
     if (this.anchorFrozen) {
-      ctx.strokeStyle = "rgba(220, 248, 255, 0.92)";
+      ctx.strokeStyle = ANCHOR_SILVER_STROKE;
       ctx.lineWidth = 1;
-      ctx.shadowColor = "rgba(190, 238, 255, 0.75)";
+      ctx.shadowColor = ANCHOR_SILVER_SHADOW;
       ctx.shadowBlur = 7;
       ctx.beginPath();
       ctx.arc(0, 0, DRONE_OUTER_DIAMOND_RY + 4, 0, Math.PI * 2);
@@ -4824,6 +4830,45 @@ function drawSystemMessages() {
       prompt: ""
     });
   }
+
+  ctx.restore();
+}
+
+function drawAnchorTargetGlow(rx = 28, ry = 28) {
+  ctx.save();
+  ctx.lineJoin = "miter";
+  ctx.lineCap = "round";
+  ctx.shadowColor = ANCHOR_SILVER_SHADOW;
+  ctx.shadowBlur = 16;
+  ctx.strokeStyle = ANCHOR_SILVER_STROKE;
+  ctx.fillStyle = ANCHOR_SILVER_FILL;
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.moveTo(0, -ry);
+  ctx.lineTo(rx, 0);
+  ctx.lineTo(0, ry);
+  ctx.lineTo(-rx, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.strokeStyle = ANCHOR_SILVER_CORE;
+  ctx.lineWidth = 1;
+  const tickStartX = rx * 0.54;
+  const tickEndX = rx * 0.82;
+  const tickStartY = ry * 0.54;
+  const tickEndY = ry * 0.82;
+  ctx.beginPath();
+  ctx.moveTo(-tickStartX, 0);
+  ctx.lineTo(-tickEndX, 0);
+  ctx.moveTo(tickStartX, 0);
+  ctx.lineTo(tickEndX, 0);
+  ctx.moveTo(0, -tickStartY);
+  ctx.lineTo(0, -tickEndY);
+  ctx.moveTo(0, tickStartY);
+  ctx.lineTo(0, tickEndY);
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -5666,9 +5711,9 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
   } else if (ability.id === "anchor") {
     const circleRadius = size * 0.29;
     const diamondRadius = size * 0.105;
-    ctx.strokeStyle = "rgba(220, 248, 255, 0.96)";
-    ctx.fillStyle = "rgba(235, 253, 255, 0.94)";
-    ctx.shadowColor = "rgba(186, 232, 255, 0.68)";
+    ctx.strokeStyle = ANCHOR_SILVER_STROKE;
+    ctx.fillStyle = ANCHOR_SILVER_CORE;
+    ctx.shadowColor = ANCHOR_SILVER_SHADOW;
     ctx.shadowBlur = size * 0.14;
 
     ctx.beginPath();
@@ -6001,15 +6046,15 @@ function drawAnchorFieldInstance(field, alpha = 1) {
   ctx.globalAlpha *= alpha;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.shadowColor = "rgba(190, 238, 255, 0.42)";
+  ctx.shadowColor = ANCHOR_SILVER_SHADOW;
   ctx.shadowBlur = 14;
 
   const fill = ctx.createRadialGradient(field.x, field.y, radius * 0.08, field.x, field.y, radius);
-  fill.addColorStop(0, "rgba(235, 253, 255, 0.08)");
-  fill.addColorStop(0.72, "rgba(166, 224, 255, 0.035)");
-  fill.addColorStop(1, "rgba(166, 224, 255, 0.01)");
+  fill.addColorStop(0, "rgba(245, 245, 245, 0.08)");
+  fill.addColorStop(0.72, "rgba(192, 192, 192, 0.04)");
+  fill.addColorStop(1, "rgba(192, 192, 192, 0.01)");
   ctx.fillStyle = fill;
-  ctx.strokeStyle = `rgba(218, 247, 255, ${hum})`;
+  ctx.strokeStyle = `rgba(224, 224, 224, ${hum})`;
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.arc(field.x, field.y, radius, 0, Math.PI * 2);
@@ -6017,7 +6062,7 @@ function drawAnchorFieldInstance(field, alpha = 1) {
   ctx.stroke();
 
   ctx.shadowBlur = 6;
-  ctx.strokeStyle = "rgba(198, 235, 255, 0.48)";
+  ctx.strokeStyle = "rgba(192, 192, 192, 0.5)";
   ctx.lineWidth = 1;
   for (let i = 0; i < 4; i += 1) {
     const angle = i * Math.PI / 2;
@@ -6027,8 +6072,8 @@ function drawAnchorFieldInstance(field, alpha = 1) {
     ctx.stroke();
   }
 
-  ctx.strokeStyle = "rgba(232, 253, 255, 0.92)";
-  ctx.fillStyle = "rgba(232, 253, 255, 0.18)";
+  ctx.strokeStyle = ANCHOR_SILVER_STROKE;
+  ctx.fillStyle = ANCHOR_SILVER_FILL;
   ctx.lineWidth = 1.3;
   const diamond = 13;
   ctx.beginPath();
@@ -6097,9 +6142,9 @@ function drawSelectedAbilityRangePreview() {
     ctx.stroke();
   } else if (ability.id === "anchor") {
     const origin = getAnchorFieldOrigin();
-    ctx.strokeStyle = "rgba(220, 248, 255, 0.86)";
-    ctx.fillStyle = "rgba(176, 224, 255, 0.06)";
-    ctx.shadowColor = "rgba(190, 238, 255, 0.38)";
+    ctx.strokeStyle = "rgba(224, 224, 224, 0.86)";
+    ctx.fillStyle = "rgba(192, 192, 192, 0.07)";
+    ctx.shadowColor = "rgba(192, 192, 192, 0.42)";
     ctx.shadowBlur = 15;
     ctx.beginPath();
     ctx.arc(origin.x, origin.y, ANCHOR_FIELD_RADIUS, 0, Math.PI * 2);
