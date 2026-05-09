@@ -842,14 +842,15 @@ class Player extends Entity {
 
   recoverFromSpikeDamage(spike, spikeBounds) {
     // Spike recovery is a knockback, not a fall respawn: preserve reversed
-    // gravity so ceiling-side hazards do not flip the player back to the floor.
+    // gravity, but always eject from the side where the spike geometry lives.
+    // This keeps gravity flips from turning spike contact into a platform warp.
     this.h = STAND_HEIGHT;
     const recoveryPoint = this.getSpikeRecoveryPoint(spike, spikeBounds);
     this.x = recoveryPoint.x;
     this.y = recoveryPoint.y;
     this.onSurface = false;
     this.vx = recoveryPoint.direction * DAMAGE_RECOIL_SPEED;
-    this.vy = -this.gravitySign * DAMAGE_RECOIL_BUMP_SPEED;
+    this.vy = recoveryPoint.outwardY * DAMAGE_RECOIL_BUMP_SPEED;
     this.recoilDirection = recoveryPoint.direction;
     this.recoilTimer = DAMAGE_RECOIL_DURATION;
   }
@@ -859,7 +860,8 @@ class Player extends Entity {
     const centerX = this.x + this.w / 2;
     const spikeCenterX = spikeBounds.x + spikeBounds.w / 2;
     const preferredDirection = centerX < spikeCenterX ? -1 : 1;
-    const y = this.gravitySign > 0 ? platform.y - STAND_HEIGHT : platform.y + platform.h;
+    const outwardY = spike.side === "top" ? -1 : 1;
+    const y = spike.side === "top" ? platform.y - STAND_HEIGHT : platform.y + platform.h;
     const margin = 6;
     const minX = platform.x + EDGE_RESPAWN_INSET;
     const maxX = platform.x + platform.w - this.w - EDGE_RESPAWN_INSET;
@@ -884,7 +886,7 @@ class Player extends Entity {
       ?? scanDirection(-preferredDirection)
       ?? findSafePlatformEdgeX(platform, getClosestPlatformEdge(platform, centerX), this.w, STAND_HEIGHT, y);
 
-    return { x, y, direction: preferredDirection };
+    return { x, y, direction: preferredDirection, outwardY };
   }
 
   respawnAtLastGroundedEdge() {

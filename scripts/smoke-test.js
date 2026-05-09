@@ -157,6 +157,50 @@ if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpik
   throw new Error("Invulnerable player was allowed to remain inside the floor spike strip.");
 }
 
+
+// Regression: hitting floor spikes while gravity is reversed should still eject
+// from the spike side, not teleport the player through the platform.
+debug.player.x = 942;
+debug.player.y = 420;
+debug.player.hp = 3;
+debug.player.gravitySign = -1;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.update(16 / 1000);
+if (debug.player.hp !== 2) {
+  throw new Error(`Expected reversed-gravity floor spikes to deal one player damage, got HP ${debug.player.hp}.`);
+}
+if (debug.player.gravitySign !== -1) {
+  throw new Error("Reversed-gravity floor spike damage reset inverted gravity.");
+}
+if (debug.player.y >= floorSpike.platform.y) {
+  throw new Error("Player was moved through to the underside after reversed-gravity floor spike damage.");
+}
+
+// Regression: flipping gravity immediately after spike recovery should launch away
+// from the current contact side instead of snapping to the opposite platform side.
+debug.player.x = 942;
+debug.player.y = 420;
+debug.player.hp = 3;
+debug.player.gravitySign = 1;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.player.onSurface = false;
+debug.update(16 / 1000);
+if (debug.player.hp !== 2) {
+  throw new Error(`Expected setup spike hit to deal one player damage, got HP ${debug.player.hp}.`);
+}
+debug.toggleGravityField();
+if (debug.player.gravitySign !== -1) {
+  throw new Error("Expected gravity field to invert player after spike recovery.");
+}
+if (debug.player.y >= floorSpike.platform.y) {
+  throw new Error("Gravity flip after spike recovery snapped player through the platform.");
+}
+debug.resetGravityField(true);
+
 // Regression: inverted-gravity spike damage should knock the player away from
 // underside spikes without resetting gravity or placing them on top of the platform.
 const undersideSpike = debug.spikes.find((spike) => spike.side === "bottom");
