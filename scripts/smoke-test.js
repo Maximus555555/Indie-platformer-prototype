@@ -117,4 +117,39 @@ if (!jumper.onSurface || jumper.jumperState === "airborne" || jumper.groundedPla
   throw new Error("Jumper got stuck airborne while balanced on a platform edge.");
 }
 
+if (!Array.isArray(debug.spikes) || debug.spikes.length < 2) {
+  throw new Error("Expected platform-attached spike strips to exist.");
+}
+
+// Regression: spike hazards deal one player damage, use the existing safe edge
+// respawn, and do not leave the player standing inside the spike strip.
+debug.player.x = 942;
+debug.player.y = 420;
+debug.player.hp = 3;
+debug.player.gravitySign = 1;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.update(16 / 1000);
+if (debug.player.hp !== 2) {
+  throw new Error(`Expected floor spikes to deal one player damage, got HP ${debug.player.hp}.`);
+}
+if (debug.player.x >= 900 && debug.player.x <= 1050) {
+  throw new Error("Player respawned inside the floor spike test area.");
+}
+
+// Regression: an enemy flipped into ceiling-attached spikes should dissolve via
+// its normal death state instead of landing safely on the ceiling platform.
+const walker = debug.enemies[0];
+walker.x = 650;
+walker.y = 28;
+walker.hp = 2;
+walker.isDying = false;
+walker.walkerState = "airborne";
+walker.gravitySign = -1;
+debug.update(16 / 1000);
+if (walker.hp !== 0 || !walker.isDying) {
+  throw new Error("Walker did not enter its death state after touching ceiling spikes.");
+}
+
 console.log("Smoke test passed: game boots, schedules frames, and keeps a valid player state.");
