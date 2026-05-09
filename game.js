@@ -116,6 +116,17 @@ const FORCE_PULSE_ARM_RECOVERY_DURATION = config.forcePulseArmRecoveryDuration ?
 const FORCE_PULSE_ARM_DURATION = FORCE_PULSE_ARM_PUSH_DURATION + FORCE_PULSE_ARM_RECOVERY_DURATION;
 const FORCE_PULSE_DRONE_RECOVERY = config.forcePulseDroneRecovery ?? 0.28;
 const FORCE_PULSE_COOLDOWN = config.forcePulseCooldown ?? 4.0;
+const ENERGY_LINK_RANGE = config.energyLinkRange ?? 320;
+const ENERGY_LINK_HALF_ANGLE = config.energyLinkHalfAngle ?? Math.PI / 6;
+const ENERGY_LINK_PENDING_TIMEOUT = config.energyLinkPendingTimeout ?? 2.5;
+const ENERGY_LINK_DURATION = config.energyLinkDuration ?? 4.0;
+const ENERGY_LINK_COOLDOWN = config.energyLinkCooldown ?? 8.0;
+const ENERGY_LINK_DAMAGE_TRANSFER = config.energyLinkDamageTransfer ?? 0.5;
+const ENERGY_LINK_FORCE_TRANSFER = config.energyLinkForceTransfer ?? 0.4;
+const ENERGY_LINK_FADE_DURATION = 0.16;
+const ENERGY_LINK_YELLOW = "rgba(255, 242, 92, 0.96)";
+const ENERGY_LINK_CORE = "rgba(255, 255, 218, 0.98)";
+const ENERGY_LINK_GLOW = "rgba(255, 235, 64, 0.62)";
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
 const DAMAGE_RECOIL_DURATION = 0.15;
 const DAMAGE_RECOIL_SPEED = 230;
@@ -180,6 +191,10 @@ let phaseShiftActive = false;
 let anchorFieldActive = false;
 let anchorField = null;
 let anchorFieldFade = null;
+let energyLink = null;
+let energyLinkFade = null;
+let pendingEnergyLinkTarget = null;
+let pendingEnergyLinkTimer = 0;
 let phaseCastId = 0;
 let currentPhaseExposure = new Set();
 let cameraX = 0;
@@ -240,7 +255,7 @@ const abilities = [
   createAbility("pulse", "Force Pulse", "Pulse", true, FORCE_PULSE_COOLDOWN),
   createAbility("anchor", "Anchor Field", "Anchor", true, ANCHOR_FIELD_COOLDOWN, ANCHOR_FIELD_DURATION),
   createAbility("phase", "Phase Shift", "Phase", true, PHASE_SHIFT_COOLDOWN, PHASE_SHIFT_DURATION),
-  createAbility("link", "Energy Link", "Link", false, 8.0)
+  createAbility("link", "Energy Link", "Link", true, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DURATION)
 ];
 let selectedAbilityId = "gravity";
 const abilityWheel = {
@@ -4180,7 +4195,11 @@ class SystemPulse {
   static fire(startX, y, direction) {
     const endX = findPulseEndpoint(startX, y, direction);
     const hitEnemy = findFirstEnemyOnPulse(startX, y, endX, direction);
-    if (hitEnemy) hitEnemy.hit(PULSE_DAMAGE, { armsVerticalEdgeKill: true, direction });
+    if (hitEnemy) {
+      const impact = { armsVerticalEdgeKill: true, direction, damageSource: "system-pulse" };
+      hitEnemy.hit(PULSE_DAMAGE, impact);
+      transferEnergyLinkDamage(hitEnemy, PULSE_DAMAGE, impact);
+    }
     return new SystemPulse(startX, y, endX, direction);
   }
 
@@ -4549,12 +4568,188 @@ function getForcePulseHitPoint(origin, rect, direction) {
   return bestPoint;
 }
 
+
+function isValidEnergyLinkTarget(enemy) {
+  return Boolean(enemy) && enemy.hp > 0 && !enemy.isDying;
+}
+
+function getEnergyLinkPartner(enemy) {
+  if (!energyLink?.active) return null;
+  if (energyLink.a === enemy) return energyLink.b;
+  if (energyLink.b === enemy) return energyLink.a;
+  return null;
+}
+
+function clearPendingEnergyLink() {
+  pendingEnergyLinkTarget = null;
+  pendingEnergyLinkTimer = 0;
+}
+
+function findEnergyLinkTarget(excluded = null) {
+  const origin = centerOf(player);
+  const direction = player.facing || 1;
+  let bestForward = null;
+  let bestForwardScore = Infinity;
+  let bestFallback = null;
+  let bestFallbackDistance = Infinity;
+
+  for (const enemy of enemies) {
+    if (!isValidEnergyLinkTarget(enemy) || enemy === excluded) continue;
+    const target = centerOf(enemy);
+    const dx = (target.x - origin.x) * direction;
+    const dy = target.y - origin.y;
+    const targetDistance = Math.hypot(target.x - origin.x, target.y - origin.y);
+    if (targetDistance > ENERGY_LINK_RANGE) continue;
+
+    if (dx > 0) {
+      const angle = Math.abs(Math.atan2(dy, dx));
+      if (angle <= ENERGY_LINK_HALF_ANGLE) {
+        const score = targetDistance + angle * 80;
+        if (score < bestForwardScore) {
+          bestForward = enemy;
+          bestForwardScore = score;
+        }
+      }
+    }
+
+    // Small fallback radius keeps close targets usable when the player is not
+    // perfectly facing them, while the forward cone remains the priority.
+    if (targetDistance <= ENERGY_LINK_RANGE * 0.38 && targetDistance < bestFallbackDistance) {
+      bestFallback = enemy;
+      bestFallbackDistance = targetDistance;
+    }
+  }
+
+  return bestForward ?? bestFallback;
+}
+
+function getEnergyLinkPreviewTarget() {
+  if (selectedAbilityId !== "link") return null;
+  if (energyLink?.active) return null;
+  const ability = getAbilityById("link");
+  if (!isAbilityReady(ability) && !pendingEnergyLinkTarget) return null;
+  return findEnergyLinkTarget(pendingEnergyLinkTarget);
+}
+
+function beginEnergyLink(firstTarget, secondTarget) {
+  const ability = getAbilityById("link");
+  if (!ability || !isValidEnergyLinkTarget(firstTarget) || !isValidEnergyLinkTarget(secondTarget) || firstTarget === secondTarget) {
+    clearPendingEnergyLink();
+    return false;
+  }
+
+  energyLink = {
+    a: firstTarget,
+    b: secondTarget,
+    active: true,
+    age: 0,
+    pulse: 0.18
+  };
+  energyLinkFade = null;
+  clearPendingEnergyLink();
+  startTimedAbility(ability);
+  return true;
+}
+
+function endEnergyLink(startCooldown = true) {
+  const ability = getAbilityById("link");
+  if (energyLink?.active) {
+    energyLinkFade = { a: energyLink.a, b: energyLink.b, fadeRemaining: ENERGY_LINK_FADE_DURATION };
+  }
+  energyLink = null;
+  clearPendingEnergyLink();
+  if (ability) {
+    ability.activeRemaining = 0;
+    if (startCooldown) startAbilityCooldown(ability);
+  }
+  return true;
+}
+
+function activateEnergyLink() {
+  const ability = getAbilityById("link");
+  if (!ability) return false;
+
+  if (energyLink?.active) return endEnergyLink(true);
+
+  if (!pendingEnergyLinkTarget && !isAbilityReady(ability)) {
+    ability.unavailableTimer = 0.16;
+    return false;
+  }
+
+  if (pendingEnergyLinkTarget && !isValidEnergyLinkTarget(pendingEnergyLinkTarget)) {
+    clearPendingEnergyLink();
+  }
+
+  const target = findEnergyLinkTarget(pendingEnergyLinkTarget);
+  if (!target) {
+    ability.unavailableTimer = 0.16;
+    return false;
+  }
+
+  if (!pendingEnergyLinkTarget) {
+    pendingEnergyLinkTarget = target;
+    pendingEnergyLinkTimer = ENERGY_LINK_PENDING_TIMEOUT;
+    return true;
+  }
+
+  return beginEnergyLink(pendingEnergyLinkTarget, target);
+}
+
+function updateEnergyLink(dt) {
+  if (pendingEnergyLinkTarget) {
+    pendingEnergyLinkTimer = Math.max(0, pendingEnergyLinkTimer - dt);
+    if (pendingEnergyLinkTimer <= 0 || !isValidEnergyLinkTarget(pendingEnergyLinkTarget) || selectedAbilityId !== "link") {
+      clearPendingEnergyLink();
+    }
+  }
+
+  const ability = getAbilityById("link");
+  if (energyLink?.active) {
+    energyLink.age += dt;
+    energyLink.pulse = Math.max(0, energyLink.pulse - dt);
+    if (!isValidEnergyLinkTarget(energyLink.a) || !isValidEnergyLinkTarget(energyLink.b)) {
+      endEnergyLink(true);
+      return;
+    }
+    if (ability?.activeRemaining <= 0) endEnergyLink(true);
+  }
+
+  if (energyLinkFade) {
+    energyLinkFade.fadeRemaining = Math.max(0, energyLinkFade.fadeRemaining - dt);
+    if (energyLinkFade.fadeRemaining <= 0) energyLinkFade = null;
+  }
+}
+
+function transferEnergyLinkDamage(sourceEnemy, amount, impact = null) {
+  const partner = getEnergyLinkPartner(sourceEnemy);
+  if (!isValidEnergyLinkTarget(partner)) return false;
+  const linkedDamage = amount * ENERGY_LINK_DAMAGE_TRANSFER;
+  if (linkedDamage <= 0) return false;
+  partner.hit(linkedDamage, { ...impact, linkedDamage: true });
+  if (energyLink?.active && (!isValidEnergyLinkTarget(sourceEnemy) || !isValidEnergyLinkTarget(partner))) endEnergyLink(true);
+  return true;
+}
+
+function transferEnergyLinkForce(sourceEnemy, direction, speed, stunDuration, castId, directHits) {
+  const partner = getEnergyLinkPartner(sourceEnemy);
+  if (!isValidEnergyLinkTarget(partner) || directHits?.has(partner)) return false;
+  return partner.receiveForcePulse(
+    direction,
+    speed * ENERGY_LINK_FORCE_TRANSFER,
+    stunDuration,
+    `${castId}:link:${enemies.indexOf(sourceEnemy)}`,
+  );
+}
+
 function castForcePulse() {
   const direction = player.facing || 1;
   player.startForcePulsePose(direction);
   const origin = player.getForcePulseHandPoint(direction);
   forcePulseCastId += 1;
   forcePulseVisuals.push(new ForcePulseVisual(player, direction, origin));
+
+  const hits = [];
+  const directHitEnemies = new Set();
 
   for (const enemy of enemies) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
@@ -4564,14 +4759,23 @@ function castForcePulse() {
 
     const hitDistance = clamp(Math.hypot(hitPoint.x - origin.x, hitPoint.y - origin.y), 0, FORCE_PULSE_RANGE);
     const forceScale = 1 - (1 - FORCE_PULSE_MIN_FORCE_SCALE) * (hitDistance / FORCE_PULSE_RANGE);
-    enemy.receiveForcePulse(direction, FORCE_PULSE_KNOCKBACK * forceScale, FORCE_PULSE_STUN, forcePulseCastId);
+    hits.push({ enemy, speed: FORCE_PULSE_KNOCKBACK * forceScale });
+    directHitEnemies.add(enemy);
+  }
+
+  for (const hit of hits) {
+    hit.enemy.receiveForcePulse(direction, hit.speed, FORCE_PULSE_STUN, forcePulseCastId);
+  }
+
+  for (const hit of hits) {
+    transferEnergyLinkForce(hit.enemy, direction, hit.speed, FORCE_PULSE_STUN, forcePulseCastId, directHitEnemies);
   }
 
   return true;
 }
 
 const player = new Player();
-const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Enemy(1590, 435), new Jumper(2010, 265)];
+const enemies = [new Enemy(620, 435), new Enemy(720, 435), new Drone(1085, 210), new Enemy(1590, 435), new Jumper(2010, 265)];
 
 const systemDialogue = {
   activeBlocking: null,
@@ -5188,6 +5392,12 @@ function updateAbilityCooldowns(dt) {
     if (anchorAbility.activeRemaining <= 0) endAnchorField(true);
   }
 
+  const linkAbility = getAbilityById("link");
+  if (energyLink?.active && linkAbility?.activeRemaining > 0) {
+    linkAbility.activeRemaining = Math.max(0, linkAbility.activeRemaining - dt);
+  }
+
+  updateEnergyLink(dt);
   updateAnchorField(dt);
   timeSlowFadeTimer = Math.max(0, timeSlowFadeTimer - dt);
 }
@@ -5202,6 +5412,7 @@ function selectAbility(ability) {
 
   // Timed abilities continue independently while the wheel changes only which
   // ability a tap of E will activate or cancel next.
+  if (selectedAbilityId === "link" && ability.id !== "link") clearPendingEnergyLink();
   selectedAbilityId = ability.id;
   return true;
 }
@@ -5258,6 +5469,10 @@ function activateSelectedAbility() {
     }
 
     return activateAnchorField();
+  }
+
+  if (ability.id === "link") {
+    return activateEnergyLink();
   }
 
   if (!isAbilityReady(ability)) {
@@ -5836,15 +6051,31 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.stroke();
 
   } else if (ability.id === "link") {
+    const left = { x: -r * 0.82, y: r * 0.12 };
+    const right = { x: r * 0.82, y: -r * 0.12 };
+    const nodeRadius = r * 0.34;
+
+    ctx.strokeStyle = ENERGY_LINK_YELLOW;
+    ctx.fillStyle = "rgba(255, 242, 92, 0.9)";
+    ctx.shadowColor = ENERGY_LINK_GLOW;
+    ctx.shadowBlur = size * 0.16;
+    ctx.lineWidth = Math.max(1.2, size * 0.045);
     ctx.beginPath();
-    ctx.moveTo(-r * 0.78, r * 0.52);
-    ctx.lineTo(0, -r * 0.64);
-    ctx.lineTo(r * 0.82, r * 0.48);
+    ctx.moveTo(left.x, left.y);
+    ctx.lineTo(right.x, right.y);
     ctx.stroke();
-    for (const node of [[-r * 0.78, r * 0.52], [0, -r * 0.64], [r * 0.82, r * 0.48]]) {
+
+    ctx.strokeStyle = ENERGY_LINK_CORE;
+    ctx.lineWidth = Math.max(1.1, size * 0.034);
+    for (const node of [left, right]) {
       ctx.beginPath();
-      ctx.arc(node[0], node[1], r * 0.24, 0, Math.PI * 2);
+      ctx.moveTo(node.x, node.y - nodeRadius);
+      ctx.lineTo(node.x + nodeRadius, node.y);
+      ctx.lineTo(node.x, node.y + nodeRadius);
+      ctx.lineTo(node.x - nodeRadius, node.y);
+      ctx.closePath();
       ctx.fill();
+      ctx.stroke();
     }
   }
 
@@ -6105,6 +6336,83 @@ function drawAnchorFields() {
   }
 }
 
+
+function drawEnergyLinkMarker(enemy, alpha = 1, strong = false) {
+  if (!isValidEnergyLinkTarget(enemy)) return;
+  const c = centerOf(enemy);
+  const radius = Math.max(enemy.w, enemy.h) * (strong ? 0.72 : 0.62);
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.strokeStyle = strong ? ENERGY_LINK_CORE : ENERGY_LINK_YELLOW;
+  ctx.lineWidth = strong ? 2.2 : 1.6;
+  ctx.shadowColor = ENERGY_LINK_GLOW;
+  ctx.shadowBlur = strong ? 12 : 7;
+  ctx.setLineDash(strong ? [] : [5, 5]);
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, radius, radius * 0.72, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = ENERGY_LINK_CORE;
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y - 4);
+  ctx.lineTo(c.x + 4, c.y);
+  ctx.lineTo(c.x, c.y + 4);
+  ctx.lineTo(c.x - 4, c.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawEnergyLinkInstance(link, alpha = 1) {
+  if (!link?.a || !link?.b) return;
+  const a = centerOf(link.a);
+  const b = centerOf(link.b);
+  const pulseAlpha = link.pulse ? clamp(link.pulse / 0.18, 0, 1) : 0;
+
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.lineCap = "round";
+  ctx.shadowColor = ENERGY_LINK_GLOW;
+  ctx.shadowBlur = 12 + pulseAlpha * 10;
+  ctx.strokeStyle = ENERGY_LINK_YELLOW;
+  ctx.lineWidth = 2.2 + pulseAlpha * 1.1;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+
+  ctx.shadowBlur = 3;
+  ctx.strokeStyle = ENERGY_LINK_CORE;
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawEnergyLinks() {
+  if (energyLinkFade) {
+    const alpha = clamp(energyLinkFade.fadeRemaining / ENERGY_LINK_FADE_DURATION, 0, 1);
+    drawEnergyLinkInstance(energyLinkFade, alpha);
+  }
+  if (energyLink?.active) drawEnergyLinkInstance(energyLink, 1);
+}
+
+function drawEnergyLinkTargeting() {
+  if (pendingEnergyLinkTarget) drawEnergyLinkMarker(pendingEnergyLinkTarget, 0.95, true);
+  const previewTarget = getEnergyLinkPreviewTarget();
+  if (previewTarget) drawEnergyLinkMarker(previewTarget, 0.72, false);
+}
+
+function drawEnergyLinkMarkers() {
+  if (energyLink?.active) {
+    drawEnergyLinkMarker(energyLink.a, 0.8, false);
+    drawEnergyLinkMarker(energyLink.b, 0.8, false);
+  }
+  drawEnergyLinkTargeting();
+}
+
 function drawSelectedAbilityRangePreview() {
   if (!keys.has("q")) return;
 
@@ -6160,6 +6468,25 @@ function drawSelectedAbilityRangePreview() {
     ctx.arc(origin.x, origin.y, ANCHOR_FIELD_RADIUS, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+  } else if (ability.id === "link") {
+    const origin = centerOf(player);
+    const direction = player.facing || 1;
+    const centerAngle = direction > 0 ? 0 : Math.PI;
+    const upperAngle = centerAngle - ENERGY_LINK_HALF_ANGLE * direction;
+    const lowerAngle = centerAngle + ENERGY_LINK_HALF_ANGLE * direction;
+
+    ctx.strokeStyle = "rgba(255, 242, 92, 0.82)";
+    ctx.fillStyle = "rgba(255, 242, 92, 0.06)";
+    ctx.shadowColor = ENERGY_LINK_GLOW;
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(origin.x + Math.cos(upperAngle) * ENERGY_LINK_RANGE, origin.y + Math.sin(upperAngle) * ENERGY_LINK_RANGE);
+    ctx.arc(origin.x, origin.y, ENERGY_LINK_RANGE, upperAngle, lowerAngle, direction < 0);
+    ctx.lineTo(origin.x, origin.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
   } else if (ability.id === "pulse") {
     const direction = player.facing || 1;
     const origin = player.getForcePulseHandPoint(direction);
@@ -6192,9 +6519,11 @@ function draw() {
   drawSelectedAbilityRangePreview();
   drawTimeSlowField();
   drawAnchorFields();
+  drawEnergyLinks();
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
+  drawEnergyLinkMarkers();
   droneProjectiles.forEach((projectile) => projectile.draw());
   player.draw();
   ctx.restore();
@@ -6271,10 +6600,17 @@ window.__indiePlatformerDebug = {
   systemMessageTriggers,
   enqueueSystemMessage,
   getSelectedAbility,
+  getEnergyLinkState: () => ({
+    active: Boolean(energyLink?.active),
+    a: energyLink?.a ?? null,
+    b: energyLink?.b ?? null,
+    pending: pendingEnergyLinkTarget ?? null,
+    pendingTime: pendingEnergyLinkTimer
+  }),
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
