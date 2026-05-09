@@ -4099,24 +4099,44 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
 
   const r = size * 0.24;
   if (ability.id === "gravity") {
-    const arrowTop = -r * 1.05;
-    const arrowBottom = r * 1.05;
-    const arrowHead = r * 0.38;
+    const arrowHeight = size * 0.28;
+    const arrowWidth = size * 0.34;
+    const stemWidth = size * 0.13;
+    const headHeight = arrowHeight * 0.5;
+    const gap = size * 0.07;
 
-    ctx.beginPath();
-    // Up arrow.
-    ctx.moveTo(-r * 0.48, arrowBottom);
-    ctx.lineTo(-r * 0.48, arrowTop);
-    ctx.lineTo(-r * 0.86, arrowTop + arrowHead);
-    ctx.moveTo(-r * 0.48, arrowTop);
-    ctx.lineTo(-r * 0.1, arrowTop + arrowHead);
-    // Down arrow.
-    ctx.moveTo(r * 0.48, arrowTop);
-    ctx.lineTo(r * 0.48, arrowBottom);
-    ctx.lineTo(r * 0.1, arrowBottom - arrowHead);
-    ctx.moveTo(r * 0.48, arrowBottom);
-    ctx.lineTo(r * 0.86, arrowBottom - arrowHead);
-    ctx.stroke();
+    const drawFilledArrowKey = (centerY, direction) => {
+      const top = centerY - arrowHeight / 2;
+      const bottom = centerY + arrowHeight / 2;
+      const halfWidth = arrowWidth / 2;
+      const halfStem = stemWidth / 2;
+
+      ctx.beginPath();
+      if (direction < 0) {
+        ctx.moveTo(0, top);
+        ctx.lineTo(halfWidth, top + headHeight);
+        ctx.lineTo(halfStem, top + headHeight);
+        ctx.lineTo(halfStem, bottom);
+        ctx.lineTo(-halfStem, bottom);
+        ctx.lineTo(-halfStem, top + headHeight);
+        ctx.lineTo(-halfWidth, top + headHeight);
+      } else {
+        ctx.moveTo(0, bottom);
+        ctx.lineTo(halfWidth, bottom - headHeight);
+        ctx.lineTo(halfStem, bottom - headHeight);
+        ctx.lineTo(halfStem, top);
+        ctx.lineTo(-halfStem, top);
+        ctx.lineTo(-halfStem, bottom - headHeight);
+        ctx.lineTo(-halfWidth, bottom - headHeight);
+      }
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    // Gravity Field uses compact, filled keyboard-arrow glyphs so the selected
+    // ability reads as an up/down gravity flip instead of thin direction lines.
+    drawFilledArrowKey(-(arrowHeight + gap) / 2, -1);
+    drawFilledArrowKey((arrowHeight + gap) / 2, 1);
   } else if (ability.id === "time") {
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
