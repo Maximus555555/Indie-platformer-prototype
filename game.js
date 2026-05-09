@@ -829,9 +829,14 @@ class Player extends Entity {
     if (this.isDying || this.fallRespawnGraceTimer > 0) return;
 
     const spikeBounds = spikeStripBounds(spike);
-    const damaged = this.takeDamage(1, spikeBounds);
-    if (!damaged || this.isDying) return;
+    const canTakeDamage = this.damageTimer <= 0;
+    if (canTakeDamage) {
+      this.takeDamage(1, spikeBounds);
+      if (this.isDying) return;
+    }
 
+    // Damage invulnerability should prevent repeated HP loss, not make spikes
+    // non-solid. Always eject the player so they cannot walk through a strip.
     this.recoverFromSpikeDamage(spike, spikeBounds);
   }
 
