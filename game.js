@@ -235,6 +235,8 @@ const abilityWheel = {
   centerX: canvas.width / 2,
   centerY: canvas.height / 2
 };
+// Mouse-driven wheel selection will be restored behind a future settings toggle.
+const MOUSE_ABILITY_WHEEL_SELECTION_ENABLED = false;
 
 function getSelectedAbility() {
   return abilities.find((ability) => ability.id === selectedAbilityId) ?? abilities[0];
@@ -4755,7 +4757,7 @@ function stepAbilityWheelHover(delta) {
 }
 
 function updateAbilityWheelHover() {
-  if (!abilityWheel.open) return;
+  if (!abilityWheel.open || !MOUSE_ABILITY_WHEEL_SELECTION_ENABLED) return;
   const dx = pointerScreen.x - abilityWheel.centerX;
   const dy = pointerScreen.y - abilityWheel.centerY;
   const pointerDistance = Math.hypot(dx, dy);

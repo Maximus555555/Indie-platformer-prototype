@@ -239,6 +239,11 @@ if (gravityAbility.cooldownRemaining !== cooldownWhileWheelOpen) {
 if (debug.player.x !== playerXWhileWheelOpen) {
   throw new Error("Player simulation advanced while the ability wheel was open.");
 }
+dispatch("pointermove", { clientX: 960, clientY: 270 });
+debug.update(16 / 1000);
+if (debug.abilities[debug.abilityWheel.hoveredIndex]?.id !== "gravity") {
+  throw new Error("Mouse movement changed ability wheel selection before the settings toggle exists.");
+}
 dispatch("keydown", keyEvent("ArrowRight"));
 debug.update(16 / 1000);
 dispatch("keyup", keyEvent("ArrowRight"));
