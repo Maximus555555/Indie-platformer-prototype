@@ -29,6 +29,17 @@ const PLAYER_VISUAL_SCALE = config.playerVisualScale ?? 1.17;
 const WALKER_WIDTH = config.walkerWidth ?? 32;
 const WALKER_HEIGHT = config.walkerHeight ?? 28;
 const WALKER_VISUAL_SCALE = config.walkerVisualScale ?? 0.78;
+
+const WALKER_PLATE_STROKE = "#37b6e6";
+const WALKER_PLATE_FILL = "rgba(49, 173, 219, 0.18)";
+const WALKER_DETAIL_STROKE = "rgba(93, 213, 244, 0.58)";
+const WALKER_DETAIL_STROKE_DIM = "rgba(76, 195, 232, 0.36)";
+const WALKER_CORE_STROKE = "#229bd1";
+const WALKER_CORE_FILL = "rgba(46, 169, 214, 0.2)";
+const WALKER_INNER_STROKE = "rgba(108, 221, 250, 0.68)";
+const WALKER_INNER_FILL = "rgba(90, 207, 239, 0.1)";
+const WALKER_CENTER_FILL = "rgba(125, 232, 250, 0.32)";
+const WALKER_CENTER_STROKE = "rgba(190, 248, 255, 0.9)";
 const DRONE_WIDTH = config.droneWidth ?? 32;
 const DRONE_HEIGHT = config.droneHeight ?? 28;
 const DRONE_DETECTION_RANGE = config.droneDetectionRange ?? 440;
@@ -2429,8 +2440,8 @@ class Enemy extends Entity {
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : "#49c7f4";
-    ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : "rgba(77, 199, 244, 0.16)";
+    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_PLATE_STROKE;
+    ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : WALKER_PLATE_FILL;
     ctx.lineWidth = 1.8;
 
     const leftPlate = [
@@ -2462,27 +2473,27 @@ class Enemy extends Entity {
     drawPolygon(leftPlate);
     drawPolygon(rightPlate);
 
-    ctx.strokeStyle = "rgba(119, 230, 255, 0.58)";
+    ctx.strokeStyle = WALKER_DETAIL_STROKE;
     ctx.lineWidth = 1.05;
     strokeLine({ x: -20.5, y: 16 }, { x: -12.4, y: -16 });
     strokeLine({ x: 20.5, y: 16 }, { x: 12.4, y: -16 });
-    ctx.strokeStyle = "rgba(106, 216, 252, 0.34)";
+    ctx.strokeStyle = WALKER_DETAIL_STROKE_DIM;
     ctx.lineWidth = 0.9;
     strokeLine({ x: -17.5, y: 10 }, { x: -13.8, y: -5 });
     strokeLine({ x: 17.5, y: 10 }, { x: 13.8, y: -5 });
 
-    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : "#2fb6ec";
-    ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.46)" : "rgba(67, 188, 234, 0.18)";
+    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_CORE_STROKE;
+    ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.46)" : WALKER_CORE_FILL;
     ctx.lineWidth = 1.8;
     drawPolygon(core);
 
-    ctx.strokeStyle = "rgba(139, 237, 255, 0.7)";
-    ctx.fillStyle = "rgba(118, 226, 255, 0.08)";
+    ctx.strokeStyle = WALKER_INNER_STROKE;
+    ctx.fillStyle = WALKER_INNER_FILL;
     ctx.lineWidth = 1;
     drawPolygon(innerCore);
 
-    ctx.fillStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.76)" : "rgba(151, 244, 255, 0.32)";
-    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.98)" : "rgba(206, 253, 255, 0.92)";
+    ctx.fillStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.76)" : WALKER_CENTER_FILL;
+    ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.98)" : WALKER_CENTER_STROKE;
     ctx.lineWidth = 0.8;
     drawPolygon(centerGlow);
 
