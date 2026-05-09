@@ -4052,19 +4052,6 @@ function drawRoom() {
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(platform.x, platform.y, platform.w, platform.h);
-    ctx.clip();
-    ctx.strokeStyle = "rgba(45, 126, 204, 0.22)";
-    for (let panelX = platform.x + 40; panelX < platform.x + platform.w; panelX += 40) {
-      ctx.beginPath();
-      ctx.moveTo(panelX + 0.5, platform.y + 2);
-      ctx.lineTo(panelX + 0.5, platform.y + platform.h - 2);
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
   drawSpikes();
@@ -4112,20 +4099,23 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
 
   const r = size * 0.24;
   if (ability.id === "gravity") {
+    const arrowTop = -r * 1.05;
+    const arrowBottom = r * 1.05;
+    const arrowHead = r * 0.38;
+
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, -r * 1.25);
-    ctx.lineTo(0, r * 1.25);
-    ctx.moveTo(0, -r * 1.25);
-    ctx.lineTo(-r * 0.34, -r * 0.88);
-    ctx.moveTo(0, -r * 1.25);
-    ctx.lineTo(r * 0.34, -r * 0.88);
-    ctx.moveTo(0, r * 1.25);
-    ctx.lineTo(-r * 0.34, r * 0.88);
-    ctx.moveTo(0, r * 1.25);
-    ctx.lineTo(r * 0.34, r * 0.88);
+    // Up arrow.
+    ctx.moveTo(-r * 0.48, arrowBottom);
+    ctx.lineTo(-r * 0.48, arrowTop);
+    ctx.lineTo(-r * 0.86, arrowTop + arrowHead);
+    ctx.moveTo(-r * 0.48, arrowTop);
+    ctx.lineTo(-r * 0.1, arrowTop + arrowHead);
+    // Down arrow.
+    ctx.moveTo(r * 0.48, arrowTop);
+    ctx.lineTo(r * 0.48, arrowBottom);
+    ctx.lineTo(r * 0.1, arrowBottom - arrowHead);
+    ctx.moveTo(r * 0.48, arrowBottom);
+    ctx.lineTo(r * 0.86, arrowBottom - arrowHead);
     ctx.stroke();
   } else if (ability.id === "time") {
     ctx.beginPath();
