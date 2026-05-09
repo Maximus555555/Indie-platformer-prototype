@@ -82,6 +82,9 @@ const FORCE_PULSE_MIN_FORCE_SCALE = 0.65;
 const FORCE_PULSE_STUN = config.forcePulseStun ?? 0.18;
 const FORCE_PULSE_VISUAL_DURATION = config.forcePulseVisualDuration ?? 0.14;
 const FORCE_PULSE_EXPAND_DURATION = Math.min(config.forcePulseExpandDuration ?? 0.07, FORCE_PULSE_VISUAL_DURATION);
+const FORCE_PULSE_ARM_PUSH_DURATION = config.forcePulseArmPushDuration ?? 0.15;
+const FORCE_PULSE_ARM_RECOVERY_DURATION = config.forcePulseArmRecoveryDuration ?? 0.13;
+const FORCE_PULSE_ARM_DURATION = FORCE_PULSE_ARM_PUSH_DURATION + FORCE_PULSE_ARM_RECOVERY_DURATION;
 const FORCE_PULSE_DRONE_RECOVERY = config.forcePulseDroneRecovery ?? 0.28;
 const FORCE_PULSE_COOLDOWN = config.forcePulseCooldown ?? 4.0;
 const CONTACT_DAMAGE_COOLDOWN = config.contactDamageCooldown ?? 0.8;
@@ -461,6 +464,9 @@ class Entity {
     const impulseSpeed = Math.max(speed, existingAwaySpeed + speed * 0.62);
     this.vx = direction * impulseSpeed;
     this.vy -= this.gravitySign * speed * 0.18;
+    // The shove is an impulse only; clear any stale grounded contact so each
+    // enemy's gravity/collision update decides whether it is still supported.
+    this.onSurface = false;
 
     this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
     this.hitJoltX = direction * 2.6;
@@ -810,9 +816,33 @@ class Player extends Entity {
     return this.getForwardHandPoint(this.attackFacing);
   }
 
+  getForcePulsePoseAmount() {
+    if (this.forcePulsePoseTimer <= 0 || FORCE_PULSE_ARM_DURATION <= 0) return 0;
+
+    const progress = 1 - clamp(this.forcePulsePoseTimer / FORCE_PULSE_ARM_DURATION, 0, 1);
+    const pushPortion = clamp(FORCE_PULSE_ARM_PUSH_DURATION / FORCE_PULSE_ARM_DURATION, 0.01, 0.99);
+    if (progress <= pushPortion) {
+      const pushProgress = clamp(progress / pushPortion, 0, 1);
+      return pushProgress * pushProgress * (3 - 2 * pushProgress);
+    }
+
+    const recoveryProgress = clamp((progress - pushPortion) / (1 - pushPortion), 0, 1);
+    const easedRecovery = recoveryProgress * recoveryProgress * (3 - 2 * recoveryProgress);
+    return 1 - easedRecovery;
+  }
+
+  getForcePulseHandPoint(direction = this.forcePulsePoseFacing) {
+    const baseHand = this.getForwardHandPoint(direction);
+    const poseAmount = this.forcePulsePoseFacing === direction ? this.getForcePulsePoseAmount() : 0;
+    return {
+      x: baseHand.x + direction * PLAYER_VISUAL_SCALE * 1.3 * poseAmount,
+      y: baseHand.y
+    };
+  }
+
   startForcePulsePose(direction) {
     this.forcePulsePoseFacing = direction;
-    this.forcePulsePoseTimer = FORCE_PULSE_VISUAL_DURATION;
+    this.forcePulsePoseTimer = FORCE_PULSE_ARM_DURATION;
   }
 
   takeDamage(amount, source = null) {
@@ -1737,8 +1767,7 @@ class Player extends Entity {
     }
 
     if (this.forcePulsePoseTimer > 0 && this.attackTimer <= 0) {
-      const forceProgress = 1 - clamp(this.forcePulsePoseTimer / FORCE_PULSE_VISUAL_DURATION, 0, 1);
-      const pushAmount = Math.sin(forceProgress * Math.PI);
+      const pushAmount = this.getForcePulsePoseAmount();
       const baseFarArm = pose.farArm ?? restingArm(1, 0);
       const baseNearArm = pose.nearArm ?? restingArm(-1, 0);
       const crouchTightness = this.isCrouching ? 1 : 0;
@@ -2474,12 +2503,9 @@ class Drone extends Entity {
       this.vx *= horizontalDrag;
       this.vy *= verticalDrag;
 
+      // Do not let recovery time alone restore hover: a shoved Drone must keep
+      // falling until collision physics finds a real platform/surface below it.
       if (this.onSurface) this.beginHoveringOnSurface();
-      else if (this.droneState === "displaced" && this.forcePulseRecoveryTimer <= 0) {
-        this.droneState = "hovering";
-        this.vx = 0;
-        this.vy = 0;
-      }
     }
   }
 
@@ -2691,11 +2717,18 @@ class Drone extends Entity {
 
   beginHoveringOnSurface() {
     const platform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
-    if (platform) this.attachToHoverSurface(platform);
+    if (!platform) {
+      this.droneState = "falling";
+      this.onSurface = false;
+      return false;
+    }
+
+    this.attachToHoverSurface(platform);
     this.droneState = "hovering";
     this.onSurface = true;
     this.vx = 0;
     this.vy = 0;
+    return true;
   }
 
   attachToHoverSurface(platform) {
@@ -2764,6 +2797,7 @@ class Drone extends Entity {
   receiveForcePulse(direction, speed, stunDuration, castId) {
     if (!super.receiveForcePulse(direction, speed, stunDuration, castId)) return false;
     this.droneState = "displaced";
+    this.onSurface = false;
     this.forcePulseRecoveryTimer = FORCE_PULSE_DRONE_RECOVERY;
     this.windupTimer = 0;
     this.fireCooldown = Math.max(this.fireCooldown, 0.35);
@@ -3820,7 +3854,7 @@ class ForcePulseVisual {
   }
 
   getOrigin() {
-    return this.caster?.getForwardHandPoint?.(this.direction) ?? this.origin;
+    return this.caster?.getForcePulseHandPoint?.(this.direction) ?? this.origin;
   }
 
   update(dt) {
@@ -3842,26 +3876,42 @@ class ForcePulseVisual {
     const centerAngle = this.direction > 0 ? 0 : Math.PI;
     const upperAngle = centerAngle - FORCE_PULSE_HALF_ANGLE * this.direction;
     const lowerAngle = centerAngle + FORCE_PULSE_HALF_ANGLE * this.direction;
-    const upperX = origin.x + Math.cos(upperAngle) * range;
-    const upperY = origin.y + Math.sin(upperAngle) * range;
+    function traceCone(extraRange = 0) {
+      const drawRange = range + extraRange;
+      const drawUpperX = origin.x + Math.cos(upperAngle) * drawRange;
+      const drawUpperY = origin.y + Math.sin(upperAngle) * drawRange;
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(drawUpperX, drawUpperY);
+      ctx.arc(origin.x, origin.y, drawRange, upperAngle, lowerAngle, this.direction < 0);
+      ctx.lineTo(origin.x, origin.y);
+      ctx.closePath();
+    }
 
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    ctx.shadowColor = "rgba(255, 42, 64, 0.42)";
-    ctx.shadowBlur = 12;
 
-    ctx.fillStyle = "rgba(255, 24, 48, 0.2)";
-    ctx.strokeStyle = "rgba(255, 54, 76, 0.95)";
-    ctx.lineWidth = 2.4;
-    ctx.beginPath();
-    ctx.moveTo(origin.x, origin.y);
-    ctx.lineTo(upperX, upperY);
-    ctx.arc(origin.x, origin.y, range, upperAngle, lowerAngle, this.direction < 0);
-    ctx.lineTo(origin.x, origin.y);
-    ctx.closePath();
+    // Layered translucent fills and soft shadows make the pulse read as clean
+    // red energy without adding interior segment/radial detail to the cone.
+    ctx.shadowColor = "rgba(255, 58, 84, 0.48)";
+    ctx.shadowBlur = 28;
+    ctx.fillStyle = "rgba(255, 36, 64, 0.13)";
+    traceCone.call(this, 12);
     ctx.fill();
+
+    ctx.shadowColor = "rgba(255, 65, 95, 0.58)";
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = "rgba(255, 24, 52, 0.2)";
+    traceCone.call(this, 0);
+    ctx.fill();
+
+    ctx.shadowColor = "rgba(255, 98, 124, 0.42)";
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = "rgba(255, 142, 158, 0.96)";
+    ctx.lineWidth = 2.2;
+    traceCone.call(this, 0);
     ctx.stroke();
 
     ctx.restore();
@@ -4051,7 +4101,7 @@ function getForcePulseHitPoint(origin, rect, direction) {
 function castForcePulse() {
   const direction = player.facing || 1;
   player.startForcePulsePose(direction);
-  const origin = player.getForwardHandPoint(direction);
+  const origin = player.getForcePulseHandPoint(direction);
   forcePulseCastId += 1;
   forcePulseVisuals.push(new ForcePulseVisual(player, direction, origin));
 

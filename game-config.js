@@ -34,6 +34,8 @@
     forcePulseStun: 0.18,
     forcePulseVisualDuration: 0.14,
     forcePulseExpandDuration: 0.07,
+    forcePulseArmPushDuration: 0.15,
+    forcePulseArmRecoveryDuration: 0.13,
     forcePulseCooldown: 4.0,
     contactDamageCooldown: 0.8,
     fallBoundaryOffset: 48,
