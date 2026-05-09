@@ -4200,8 +4200,10 @@ class SystemPulse {
     const hitEnemy = findFirstEnemyOnPulse(startX, y, endX, direction);
     if (hitEnemy) {
       const impact = { armsVerticalEdgeKill: true, direction, damageSource: "system-pulse" };
-      hitEnemy.hit(PULSE_DAMAGE, impact);
+      // Transfer while the source enemy is still a valid linked target so lethal
+      // hits share their full damage before the source starts dying.
       transferEnergyLinkDamage(hitEnemy, PULSE_DAMAGE, impact);
+      hitEnemy.hit(PULSE_DAMAGE, impact);
     }
     return new SystemPulse(startX, y, endX, direction);
   }

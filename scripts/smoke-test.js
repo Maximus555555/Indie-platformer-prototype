@@ -393,6 +393,39 @@ for (const enemy of [linkA, linkB, linkC]) {
 linkAbility.cooldownRemaining = 0;
 linkAbility.activeRemaining = 0;
 
+// Lethal Energy Link regression: when a linked walker dies to a second
+// System Pulse hit, the killing hit should still transfer to the other linked
+// walkers before the source leaves the active link.
+debug.player.x = 500;
+debug.player.y = 420;
+debug.player.facing = 1;
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 710;
+linkB.y = 435;
+linkC.x = 760;
+linkC.y = 435;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not activate for lethal System Pulse transfer regression.");
+debug.player.pulseTimer = 0;
+debug.player.firePulse();
+debug.update(0.09);
+debug.player.pulseTimer = 0;
+debug.player.firePulse();
+debug.update(0.09);
+if (!linkA.isDying || !linkB.isDying || !linkC.isDying) {
+  throw new Error("Energy Link did not transfer lethal System Pulse damage before the source enemy died.");
+}
+for (const enemy of [linkA, linkB, linkC]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.deathFragments = [];
+  enemy.vx = 0;
+  enemy.vy = 0;
+}
+linkAbility.cooldownRemaining = 0;
+linkAbility.activeRemaining = 0;
+
 debug.setSelectedAbility("gravity");
 debug.player.x = 120;
 debug.player.y = 420;
