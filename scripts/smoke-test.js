@@ -507,8 +507,9 @@ timeAbility.cooldownRemaining = 0;
 forcePulseAbility.cooldownRemaining = 0;
 
 // Anchor Field regression: it is selectable, starts cooldown only after ending,
-// locks enemies in its visible radius, freezes projectiles, and reduces Force
-// Pulse displacement while active.
+// locks enemies in its visible radius, coexists with other abilities, and lets
+// player projectiles keep damaging anchored enemies while non-projectile
+// abilities ignore anchored targets.
 const anchorAbility = debug.abilities.find((ability) => ability.id === "anchor");
 if (!anchorAbility || !anchorAbility.unlocked) throw new Error("Expected unlocked Anchor Field ability.");
 const anchorWalker = debug.enemies[0];
@@ -523,6 +524,8 @@ anchorWalker.isDying = false;
 anchorWalker.anchorLocked = false;
 anchorWalker.vx = 0;
 anchorWalker.vy = 0;
+anchorWalker.gravitySign = 1;
+anchorWalker.forcePulseStunTimer = 0;
 anchorAbility.cooldownRemaining = 0;
 anchorAbility.activeRemaining = 0;
 gravityAbility.cooldownRemaining = 0;
@@ -531,31 +534,10 @@ timeAbility.cooldownRemaining = 0;
 timeAbility.activeRemaining = 0;
 linkAbility.cooldownRemaining = 0;
 linkAbility.activeRemaining = 0;
-linkA.hp = 2;
-linkB.hp = 2;
-linkA.isDying = false;
-linkB.isDying = false;
-linkA.x = debug.player.x + 70;
-linkA.y = 435;
-linkB.x = debug.player.x + 120;
-linkB.y = 435;
-if (!debug.toggleGravityField()) throw new Error("Gravity Field did not activate before Anchor Field suppression regression.");
-if (!debug.activateTimeSlow()) throw new Error("Time Slow did not activate before Anchor Field suppression regression.");
-debug.setSelectedAbility("link");
-if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not activate before Anchor Field suppression regression.");
 debug.setSelectedAbility("anchor");
 if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not activate when selected and ready.");
 if (anchorAbility.cooldownRemaining > 0 || anchorAbility.activeRemaining <= 0) {
   throw new Error("Anchor Field cooldown started before its active duration ended.");
-}
-if (debug.player.gravitySign !== 1 || gravityAbility.activeRemaining > 0 || gravityAbility.cooldownRemaining <= 0) {
-  throw new Error("Anchor Field activation did not negate an active Gravity Field and start its cooldown.");
-}
-if (timeAbility.activeRemaining > 0 || timeAbility.cooldownRemaining <= 0) {
-  throw new Error("Anchor Field activation did not negate active Time Slow and start its cooldown.");
-}
-if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || linkAbility.cooldownRemaining <= 0) {
-  throw new Error("Anchor Field activation did not negate active Energy Link and start its cooldown.");
 }
 const anchorPlayerCenter = {
   x: debug.player.x + debug.player.w / 2,
@@ -599,27 +581,61 @@ if (lateAnchorEnemy.anchorLocked) {
 }
 forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("pulse");
-if (debug.activateSelectedAbility()) throw new Error("Force Pulse activated while Anchor Field was active.");
-if (forcePulseAbility.cooldownRemaining > 0 || debug.forcePulseVisuals.length > 0) {
-  throw new Error("A negated Force Pulse spent cooldown or spawned visuals while Anchor Field was active.");
+const forcePulseVisualsBeforeAnchorCast = debug.forcePulseVisuals.length;
+if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate while Anchor Field was active.");
+if (forcePulseAbility.cooldownRemaining <= 0 || debug.forcePulseVisuals.length !== forcePulseVisualsBeforeAnchorCast + 1) {
+  throw new Error("Force Pulse while Anchor Field was active did not spend cooldown and spawn its visual.");
 }
 if (Math.abs(anchorWalker.x - anchoredWalkerX) > 0.01 || anchorWalker.vx !== 0 || anchorWalker.forcePulseStunTimer > 0) {
   throw new Error("Anchored enemy received Force Pulse movement or stun while Anchor Field was active.");
 }
+anchorWalker.hp = 2;
+debug.player.pulseTimer = 0;
 debug.player.firePulse();
-if (debug.player.attackPulseQueued || debug.player.attackTimer > 0) {
-  throw new Error("System Pulse started while Anchor Field was active.");
+if (!debug.player.attackPulseQueued || debug.player.attackTimer <= 0) {
+  throw new Error("System Pulse did not start while Anchor Field was active.");
+}
+debug.update(0.09);
+if (anchorWalker.hp !== 1) {
+  throw new Error("System Pulse did not damage an anchored enemy while Anchor Field was active.");
 }
 gravityAbility.cooldownRemaining = 0;
 gravityAbility.activeRemaining = 0;
-if (debug.toggleGravityField() || debug.player.gravitySign !== 1 || gravityAbility.activeRemaining > 0) {
-  throw new Error("Gravity Field activated while Anchor Field was active.");
+const anchoredGravitySign = anchorWalker.gravitySign;
+if (!debug.toggleGravityField()) throw new Error("Gravity Field did not activate while Anchor Field was active.");
+if (debug.player.gravitySign !== -1 || gravityAbility.activeRemaining <= 0) {
+  throw new Error("Gravity Field did not affect the player while Anchor Field was active.");
 }
+if (anchorWalker.gravitySign !== anchoredGravitySign) {
+  throw new Error("Gravity Field affected an anchored enemy while Anchor Field was active.");
+}
+debug.resetGravityField(false, true);
 timeAbility.cooldownRemaining = 0;
 timeAbility.activeRemaining = 0;
-if (debug.activateTimeSlow() || timeAbility.activeRemaining > 0) {
-  throw new Error("Time Slow activated while Anchor Field was active.");
+if (!debug.activateTimeSlow() || timeAbility.activeRemaining <= 0) {
+  throw new Error("Time Slow did not activate while Anchor Field was active.");
 }
+if (!debug.endTimeSlow(true) || timeAbility.cooldownRemaining <= 0) {
+  throw new Error("Time Slow did not cancel after activating during Anchor Field.");
+}
+const linkD = debug.enemies[1];
+const linkE = debug.enemies[3];
+for (const enemy of [linkD, linkE]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.anchorLocked = false;
+  enemy.x = debug.player.x + (enemy === linkD ? 75 : 130);
+  enemy.y = 435;
+}
+linkAbility.cooldownRemaining = 0;
+linkAbility.activeRemaining = 0;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not activate for unanchored targets while Anchor Field was active.");
+const anchorLinkState = debug.getEnergyLinkState();
+if (!anchorLinkState.active || anchorLinkState.targets.includes(anchorWalker) || !anchorLinkState.targets.includes(linkD) || !anchorLinkState.targets.includes(linkE)) {
+  throw new Error("Energy Link did not ignore anchored enemies while linking unanchored targets during Anchor Field.");
+}
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not cancel after Anchor Field coexistence regression.");
 const drone = debug.enemies.find((enemy) => typeof enemy.fireAtPlayer === "function");
 if (!drone) throw new Error("Expected a Drone for Anchor Field projectile regression.");
 debug.player.x = 450;
