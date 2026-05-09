@@ -100,49 +100,54 @@ function keyEvent(key) {
 }
 
 // Ability UI/input regression: tapping E activates the selected Gravity Field
-// through the ability system, starts cooldown, and still allows deactivation
-// before the cooldown has refreshed.
+// through the ability system, starts its timed active window, and delays
+// cooldown until the field ends or is cancelled.
 const gravityAbility = debug.abilities.find((ability) => ability.id === "gravity");
 if (!gravityAbility || !gravityAbility.unlocked) throw new Error("Expected unlocked Gravity Field ability.");
 gravityAbility.cooldownRemaining = 0;
+gravityAbility.activeRemaining = 0;
 dispatch("keydown", keyEvent("e"));
 dispatch("keyup", keyEvent("e"));
 debug.update(16 / 1000);
-if (gravityAbility.cooldownRemaining <= 0) {
-  throw new Error("E tap did not start the selected ability cooldown.");
+if (gravityAbility.cooldownRemaining > 0) {
+  throw new Error("Gravity Field cooldown started before its active duration ended.");
+}
+if (gravityAbility.activeRemaining <= 0) {
+  throw new Error("E tap did not start the Gravity Field active duration.");
 }
 if (debug.player.gravitySign !== -1) {
   throw new Error("E tap did not activate Gravity Field.");
 }
-const cooldownAfterTap = gravityAbility.cooldownRemaining;
 if (!debug.activateSelectedAbility()) {
-  throw new Error("Gravity Field could not be deactivated during cooldown.");
+  throw new Error("Gravity Field could not be manually ended while active.");
 }
 if (debug.player.gravitySign !== 1) {
   throw new Error("Gravity Field deactivation did not restore player gravity.");
 }
-if (gravityAbility.cooldownRemaining > cooldownAfterTap) {
-  throw new Error("Gravity Field deactivation unexpectedly reset cooldown.");
+if (gravityAbility.cooldownRemaining <= 0 || gravityAbility.activeRemaining > 0) {
+  throw new Error("Gravity Field cancellation did not start cooldown and clear active time.");
 }
 if (debug.activateSelectedAbility()) {
   throw new Error("Inactive Gravity Field activation bypassed cooldown.");
 }
 debug.resetGravityField(true);
 gravityAbility.cooldownRemaining = 0;
+gravityAbility.activeRemaining = 0;
 
 // Switching away from Gravity Field through the same selection path used by the
-// wheel must immediately run the normal gravity reset instead of leaving the
-// player or affected enemies inverted under another selected ability.
+// wheel should only change the selected tap target. Timed abilities now remain
+// active until their timer expires or the same ability is tapped again.
 debug.setSelectedAbility("gravity");
-if (!debug.activateSelectedAbility()) throw new Error("Gravity Field did not reactivate for ability-switch reset regression.");
+if (!debug.activateSelectedAbility()) throw new Error("Gravity Field did not reactivate for ability-switch persistence regression.");
 if (debug.player.gravitySign !== -1) throw new Error("Gravity Field setup did not invert the player before switching abilities.");
 debug.setSelectedAbility("pulse");
 if (debug.getSelectedAbility().id !== "pulse") throw new Error("Switching away from Gravity Field did not select Force Pulse.");
-if (debug.player.gravitySign !== 1) throw new Error("Switching away from Gravity Field did not reset player gravity.");
-if (debug.enemies.some((enemy) => enemy.gravitySign !== 1)) {
-  throw new Error("Switching away from Gravity Field left an enemy in reversed gravity.");
-}
+if (debug.player.gravitySign !== -1) throw new Error("Switching away from Gravity Field unexpectedly reset player gravity.");
+for (let elapsed = 0; elapsed < debug.constants.GRAVITY_FIELD_DURATION + 0.1; elapsed += 0.1) debug.update(0.1);
+if (debug.player.gravitySign !== 1) throw new Error("Gravity Field duration expiry did not restore player gravity.");
+if (gravityAbility.cooldownRemaining <= 0) throw new Error("Gravity Field cooldown did not start after duration expiry.");
 gravityAbility.cooldownRemaining = 0;
+gravityAbility.activeRemaining = 0;
 
 // Force Pulse regression: the ability is unlocked, selected independently from
 // Gravity Field, starts its own cooldown, and pushes an enemy inside the cone.
@@ -234,27 +239,33 @@ if (debug.player.x !== playerXWhileWheelOpen) {
 dispatch("keydown", keyEvent("ArrowRight"));
 debug.update(16 / 1000);
 dispatch("keyup", keyEvent("ArrowRight"));
-if (debug.abilities[debug.abilityWheel.hoveredIndex]?.id !== "pulse") {
-  throw new Error("Ability wheel keyboard navigation did not skip locked slots to Force Pulse.");
+if (debug.abilities[debug.abilityWheel.hoveredIndex]?.id !== "time") {
+  throw new Error("Ability wheel keyboard navigation did not reach the unlocked Time Slow slot.");
 }
-forcePulseAbility.cooldownRemaining = 0;
+const timeAbility = debug.abilities.find((ability) => ability.id === "time");
+if (!timeAbility || !timeAbility.unlocked) throw new Error("Expected unlocked Time Slow ability.");
+timeAbility.cooldownRemaining = 0;
+timeAbility.activeRemaining = 0;
 dispatch("keyup", keyEvent("e"));
 debug.update(16 / 1000);
 if (debug.abilityWheel.open) throw new Error("Releasing E did not close the ability wheel.");
-if (debug.getSelectedAbility().id !== "pulse") {
-  throw new Error("Releasing the ability wheel did not select Force Pulse.");
+if (debug.getSelectedAbility().id !== "time") {
+  throw new Error("Releasing the ability wheel did not select Time Slow.");
 }
-if (forcePulseAbility.cooldownRemaining > 0 || gravityAbility.cooldownRemaining > cooldownWhileWheelOpen) {
+if (timeAbility.activeRemaining > 0 || timeAbility.cooldownRemaining > 0 || gravityAbility.cooldownRemaining > cooldownWhileWheelOpen) {
   throw new Error("Releasing the ability wheel activated an ability or reset a cooldown.");
 }
-forcePulseAbility.cooldownRemaining = 0;
 dispatch("keydown", keyEvent("e"));
 dispatch("keyup", keyEvent("e"));
 debug.update(16 / 1000);
-if (forcePulseAbility.cooldownRemaining <= 0) {
-  throw new Error("Tapping E after wheel selection did not activate Force Pulse.");
+if (timeAbility.activeRemaining <= 0 || timeAbility.cooldownRemaining > 0) {
+  throw new Error("Tapping E after wheel selection did not activate Time Slow without starting cooldown.");
+}
+if (!debug.activateSelectedAbility() || timeAbility.activeRemaining > 0 || timeAbility.cooldownRemaining <= 0) {
+  throw new Error("Time Slow manual cancellation did not clear active time and start cooldown.");
 }
 gravityAbility.cooldownRemaining = 0;
+timeAbility.cooldownRemaining = 0;
 forcePulseAbility.cooldownRemaining = 0;
 
 const jumper = debug.enemies.find((enemy) => typeof enemy.canStartAttack === "function");
