@@ -4688,27 +4688,43 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     drawFilledArrowKey((arrowHeight + gap) / 2, 1);
     ctx.shadowBlur = 0;
   } else if (ability.id === "time") {
+    const clockRadius = size * 0.29;
+    const tickLength = size * 0.055;
+
     ctx.strokeStyle = "rgba(132, 239, 255, 0.96)";
     ctx.fillStyle = "rgba(132, 239, 255, 0.92)";
     ctx.shadowColor = "rgba(77, 218, 255, 0.72)";
     ctx.shadowBlur = size * 0.16;
+
+    // Time Slow uses a simple clock face; cooldown and active timers are drawn
+    // elsewhere so the glyph remains a stable ability identifier.
     ctx.beginPath();
-    ctx.arc(0, 0, r * 1.08, 0, Math.PI * 2);
+    ctx.arc(0, 0, clockRadius, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(0, -r * 0.74);
-    ctx.moveTo(0, 0);
-    ctx.lineTo(r * 0.55, r * 0.26);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = Math.max(1.2, size * 0.045);
-    for (const x of [-r * 0.46, r * 0.46]) {
+
+    ctx.lineWidth = Math.max(1.1, size * 0.04);
+    for (let tick = 0; tick < 12; tick += 1) {
+      const angle = -Math.PI / 2 + tick * (Math.PI * 2 / 12);
+      const inner = clockRadius - (tick % 3 === 0 ? tickLength * 1.35 : tickLength);
+      const outer = clockRadius - size * 0.018;
       ctx.beginPath();
-      ctx.moveTo(x, r * 0.42);
-      ctx.lineTo(x, r * 0.82);
+      ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+      ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
       ctx.stroke();
     }
+
+    ctx.lineWidth = Math.max(1.5, size * 0.055);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -clockRadius * 0.58);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(clockRadius * 0.5, clockRadius * 0.28);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.035, 0, Math.PI * 2);
+    ctx.fill();
   } else if (ability.id === "pulse") {
     // Match the in-world Force Pulse: a clean red fan with a narrow origin
     // and one rounded outer arc, with no internal/radial detail.
@@ -4782,7 +4798,9 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
   const locked = !ability.unlocked;
   const selected = options.selected ?? false;
   const highlighted = options.highlighted ?? false;
-  const pulse = clamp(ability.readyPulseTimer / ABILITY_READY_PULSE_DURATION, 0, 1);
+  const showReadyPulse = options.showReadyPulse ?? true;
+  const showActiveTimerRing = activeProgress > 0 && ability.id !== "gravity" && ability.id !== "time";
+  const pulse = showReadyPulse ? clamp(ability.readyPulseTimer / ABILITY_READY_PULSE_DURATION, 0, 1) : 0;
   const denied = clamp(ability.unavailableTimer / 0.16, 0, 1);
   const nudge = denied > 0 ? Math.sin(denied * Math.PI * 4) * 1.4 : 0;
 
@@ -4813,7 +4831,7 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
     ctx.restore();
   }
 
-  if (activeProgress > 0) {
+  if (showActiveTimerRing) {
     ctx.strokeStyle = "rgba(151, 248, 255, 0.9)";
     ctx.lineWidth = 2.4;
     ctx.beginPath();
@@ -4847,7 +4865,7 @@ function drawSelectedAbilityIcon() {
   const ability = getSelectedAbility();
   const x = canvas.width - ABILITY_ICON_MARGIN - ABILITY_ICON_SIZE / 2;
   const y = canvas.height - ABILITY_ICON_MARGIN - ABILITY_ICON_SIZE / 2;
-  drawAbilityTile(ability, x, y, ABILITY_ICON_SIZE, { selected: true });
+  drawAbilityTile(ability, x, y, ABILITY_ICON_SIZE, { selected: true, showReadyPulse: !abilityWheel.open });
 }
 
 function drawAbilityWheel() {
@@ -4882,7 +4900,11 @@ function drawAbilityWheel() {
     const angle = start + slice / 2;
     const iconX = centerX + Math.cos(angle) * (ABILITY_WHEEL_RADIUS * 0.64);
     const iconY = centerY + Math.sin(angle) * (ABILITY_WHEEL_RADIUS * 0.64);
-    drawAbilityTile(ability, iconX, iconY, 42, { highlighted, selected: ability.id === selectedAbilityId });
+    drawAbilityTile(ability, iconX, iconY, 42, {
+      highlighted,
+      selected: ability.id === selectedAbilityId,
+      showReadyPulse: false
+    });
 
     ctx.font = "11px system-ui, sans-serif";
     ctx.textAlign = "center";
