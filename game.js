@@ -5126,63 +5126,119 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.arc(0, -r * 0.05, r * 0.58, Math.PI, 0);
     ctx.stroke();
   } else if (ability.id === "phase") {
-    const capsuleTop = -size * 0.34;
-    const capsuleBottom = size * 0.36;
-    const capsuleW = size * 0.27;
-    const capsuleR = capsuleW / 2;
-    const centerY = (capsuleTop + capsuleBottom) / 2;
-    const capsuleH = capsuleBottom - capsuleTop;
+    const bodyTop = -size * 0.11;
+    const bodyBottom = size * 0.36;
+    const bodyW = size * 0.25;
+    const bodyR = bodyW / 2;
+    const bodyCenterY = (bodyTop + bodyBottom) / 2;
+    const bodyH = bodyBottom - bodyTop;
+    const headY = -size * 0.28;
+    const headR = size * 0.105;
+    const armY = size * 0.03;
+    const handY = size * 0.2;
 
     function tracePhaseCapsule(offsetX = 0) {
       ctx.beginPath();
-      ctx.moveTo(offsetX - capsuleR, capsuleTop + capsuleR);
-      ctx.lineTo(offsetX - capsuleR, capsuleBottom - capsuleR);
-      ctx.quadraticCurveTo(offsetX - capsuleR, capsuleBottom, offsetX, capsuleBottom);
-      ctx.quadraticCurveTo(offsetX + capsuleR, capsuleBottom, offsetX + capsuleR, capsuleBottom - capsuleR);
-      ctx.lineTo(offsetX + capsuleR, capsuleTop + capsuleR);
-      ctx.quadraticCurveTo(offsetX + capsuleR, capsuleTop, offsetX, capsuleTop);
-      ctx.quadraticCurveTo(offsetX - capsuleR, capsuleTop, offsetX - capsuleR, capsuleTop + capsuleR);
+      ctx.moveTo(offsetX - bodyR, bodyTop + bodyR);
+      ctx.lineTo(offsetX - bodyR, bodyBottom - bodyR);
+      ctx.quadraticCurveTo(offsetX - bodyR, bodyBottom, offsetX, bodyBottom);
+      ctx.quadraticCurveTo(offsetX + bodyR, bodyBottom, offsetX + bodyR, bodyBottom - bodyR);
+      ctx.lineTo(offsetX + bodyR, bodyTop + bodyR);
+      ctx.quadraticCurveTo(offsetX + bodyR, bodyTop, offsetX, bodyTop);
+      ctx.quadraticCurveTo(offsetX - bodyR, bodyTop, offsetX - bodyR, bodyTop + bodyR);
       ctx.closePath();
+    }
+
+    function tracePhaseHead(offsetX = 0) {
+      ctx.beginPath();
+      ctx.arc(offsetX, headY, headR, 0, Math.PI * 2);
+      ctx.closePath();
+    }
+
+    function drawSolidArm() {
+      ctx.strokeStyle = "rgba(162, 239, 255, 0.96)";
+      ctx.lineWidth = Math.max(2, size * 0.075);
+      ctx.beginPath();
+      ctx.moveTo(-bodyR * 0.72, armY);
+      ctx.quadraticCurveTo(-size * 0.25, size * 0.06, -size * 0.29, handY);
+      ctx.stroke();
+    }
+
+    function drawTransparentArm() {
+      ctx.strokeStyle = "rgba(139, 112, 255, 0.72)";
+      ctx.lineWidth = Math.max(1.5, size * 0.055);
+      ctx.setLineDash([size * 0.09, size * 0.045]);
+      ctx.beginPath();
+      ctx.moveTo(bodyR * 0.72 + size * 0.025, armY);
+      ctx.quadraticCurveTo(size * 0.28, size * 0.06, size * 0.33, handY);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     ctx.shadowColor = "rgba(151, 238, 255, 0.5)";
     ctx.shadowBlur = size * 0.13;
 
-    // Phase Shift is intentionally just a split capsule/body: solid left half,
-    // lightly offset right fragments, so it stays readable in small HUD tiles.
+    // Phase Shift reads as a split figure: solid left side, displaced translucent
+    // right side. The head mirrors the body's half-phased treatment.
+    drawSolidArm();
+
     ctx.save();
     tracePhaseCapsule();
     ctx.clip();
     ctx.fillStyle = "rgba(162, 239, 255, 0.96)";
-    ctx.fillRect(-capsuleR, capsuleTop, capsuleR, capsuleH);
+    ctx.fillRect(-bodyR, bodyTop, bodyR, bodyH);
+    ctx.restore();
+
+    ctx.save();
+    tracePhaseHead();
+    ctx.clip();
+    ctx.fillStyle = "rgba(162, 239, 255, 0.96)";
+    ctx.fillRect(-headR, headY - headR, headR, headR * 2);
     ctx.restore();
 
     ctx.globalAlpha *= 0.72;
     ctx.fillStyle = "rgba(139, 112, 255, 0.76)";
-    const fragments = [
-      { y: capsuleTop + size * 0.08, h: size * 0.14, dx: size * 0.045 },
-      { y: centerY - size * 0.05, h: size * 0.16, dx: size * 0.1 },
-      { y: capsuleBottom - size * 0.18, h: size * 0.11, dx: size * 0.055 }
+    const bodyFragments = [
+      { y: bodyTop + size * 0.05, h: size * 0.1, dx: size * 0.045 },
+      { y: bodyCenterY - size * 0.045, h: size * 0.13, dx: size * 0.1 },
+      { y: bodyBottom - size * 0.14, h: size * 0.085, dx: size * 0.055 }
     ];
-    for (const fragment of fragments) {
+    for (const fragment of bodyFragments) {
       ctx.save();
       tracePhaseCapsule(fragment.dx);
       ctx.clip();
-      ctx.fillRect(fragment.dx, fragment.y, capsuleR + size * 0.02, fragment.h);
+      ctx.fillRect(fragment.dx, fragment.y, bodyR + size * 0.02, fragment.h);
       ctx.restore();
     }
+
+    const headFragments = [
+      { y: headY - headR * 0.74, h: headR * 0.64, dx: size * 0.038 },
+      { y: headY - headR * 0.06, h: headR * 0.8, dx: size * 0.082 }
+    ];
+    for (const fragment of headFragments) {
+      ctx.save();
+      tracePhaseHead(fragment.dx);
+      ctx.clip();
+      ctx.fillRect(fragment.dx, fragment.y, headR + size * 0.02, fragment.h);
+      ctx.restore();
+    }
+    drawTransparentArm();
 
     ctx.globalAlpha /= 0.72;
     ctx.strokeStyle = "rgba(215, 253, 255, 0.86)";
     ctx.lineWidth = Math.max(1.1, size * 0.038);
     tracePhaseCapsule();
     ctx.stroke();
+    tracePhaseHead();
+    ctx.stroke();
 
     ctx.strokeStyle = "rgba(132, 103, 255, 0.82)";
     ctx.lineWidth = Math.max(1, size * 0.032);
     ctx.beginPath();
-    ctx.moveTo(0, capsuleTop + size * 0.06);
-    ctx.lineTo(0, capsuleBottom - size * 0.06);
+    ctx.moveTo(0, headY - headR * 0.76);
+    ctx.lineTo(0, headY + headR * 0.76);
+    ctx.moveTo(0, bodyTop + size * 0.045);
+    ctx.lineTo(0, bodyBottom - size * 0.055);
     ctx.stroke();
 
   } else if (ability.id === "link") {
