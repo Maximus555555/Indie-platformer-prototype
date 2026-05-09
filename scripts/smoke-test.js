@@ -331,6 +331,77 @@ for (const enemy of debug.enemies) {
   }
 }
 
+
+// Phase Shift regression: the ability is unlocked, duration-based, can be
+// cancelled manually into cooldown, ignores enemy body blocking while active,
+// and lets the player pass through the phase-marked test barrier only while phased.
+const phaseAbility = debug.abilities.find((ability) => ability.id === "phase");
+if (!phaseAbility || !phaseAbility.unlocked) throw new Error("Expected unlocked Phase Shift ability.");
+if (!Array.isArray(debug.phaseBarriers) || debug.phaseBarriers.length !== 1) {
+  throw new Error("Expected one phase-marked barrier test setup.");
+}
+const phaseBarrier = debug.phaseBarriers[0];
+debug.setSelectedAbility("phase");
+phaseAbility.cooldownRemaining = 0;
+phaseAbility.activeRemaining = 0;
+debug.player.hp = 3;
+debug.player.isDying = false;
+debug.player.gravitySign = 1;
+debug.player.h = debug.constants.STAND_HEIGHT;
+debug.player.x = phaseBarrier.x - debug.player.w - 2;
+debug.player.y = phaseBarrier.y + phaseBarrier.h - debug.player.h;
+debug.player.vx = 220;
+debug.player.vy = 0;
+debug.player.moveAndCollide(0.1);
+if (debug.player.x > phaseBarrier.x - debug.player.w + 0.001) {
+  throw new Error("Unphased player passed through the phase barrier.");
+}
+if (!debug.activateSelectedAbility() || !debug.isPlayerPhased()) {
+  throw new Error("Phase Shift did not activate through the selected ability system.");
+}
+if (phaseAbility.cooldownRemaining > 0 || phaseAbility.activeRemaining <= 0) {
+  throw new Error("Phase Shift cooldown/timer state was incorrect immediately after activation.");
+}
+debug.player.x = phaseBarrier.x - debug.player.w - 2;
+debug.player.y = phaseBarrier.y + phaseBarrier.h - debug.player.h;
+debug.player.vx = 260;
+debug.player.vy = 0;
+debug.player.moveAndCollide(0.25);
+if (debug.player.x + debug.player.w <= phaseBarrier.x + phaseBarrier.w) {
+  throw new Error("Phased player did not pass through the phase barrier.");
+}
+const phaseEnemy = debug.enemies[0];
+if (!phaseEnemy) throw new Error("Expected an enemy for Phase Shift contact regression.");
+phaseEnemy.hp = 2;
+phaseEnemy.isDying = false;
+phaseEnemy.x = debug.player.x;
+phaseEnemy.y = debug.player.y;
+debug.player.x = phaseEnemy.x;
+debug.player.y = phaseEnemy.y;
+debug.player.hp = 3;
+debug.player.damageTimer = 0;
+debug.update(16 / 1000);
+if (debug.player.hp !== 3) {
+  throw new Error("Phased player took enemy contact damage.");
+}
+if (!debug.activateSelectedAbility() || debug.isPlayerPhased()) {
+  throw new Error("Phase Shift did not manually cancel when selected and tapped again.");
+}
+if (phaseAbility.cooldownRemaining <= 0 || phaseAbility.activeRemaining > 0) {
+  throw new Error("Phase Shift cancellation did not start cooldown and clear active time.");
+}
+if (debug.activateSelectedAbility()) {
+  throw new Error("Phase Shift activation bypassed cooldown after cancellation.");
+}
+phaseAbility.cooldownRemaining = 0;
+phaseAbility.activeRemaining = 0;
+if (!debug.activateSelectedAbility()) throw new Error("Phase Shift did not reactivate for duration expiry regression.");
+for (let elapsed = 0; elapsed < debug.constants.PHASE_SHIFT_DURATION + 0.1; elapsed += 0.1) debug.update(0.1);
+if (debug.isPlayerPhased()) throw new Error("Phase Shift did not end after its active duration.");
+if (phaseAbility.cooldownRemaining <= 0) throw new Error("Phase Shift cooldown did not start after duration expiry.");
+phaseAbility.cooldownRemaining = 0;
+phaseAbility.activeRemaining = 0;
+
 // Regression: spike hazards deal one player damage, knock the player clear,
 // and do not leave the player standing inside the spike strip.
 debug.player.x = 942;

@@ -92,6 +92,10 @@ const TIME_SLOW_DURATION = config.timeSlowDuration ?? 2.75;
 const TIME_SLOW_COOLDOWN = config.timeSlowCooldown ?? 7.0;
 const TIME_SLOW_MULTIPLIER = config.timeSlowMultiplier ?? 0.4;
 const TIME_SLOW_FADE_DURATION = 0.22;
+const PHASE_SHIFT_DURATION = config.phaseShiftDuration ?? 1.75;
+const PHASE_SHIFT_COOLDOWN = config.phaseShiftCooldown ?? 6.0;
+const PHASE_SHIFT_FLICKER_DURATION = 0.16;
+const PHASE_SHIFT_EXPOSURE_RADIUS = 96;
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
 const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
@@ -161,6 +165,9 @@ let gravityFieldActive = false;
 let activeGravityEntities = new Set();
 let timeSlowActive = false;
 let timeSlowFadeTimer = 0;
+let phaseShiftActive = false;
+let phaseCastId = 0;
+let currentPhaseExposure = new Set();
 let cameraX = 0;
 
 const platforms = [
@@ -181,6 +188,10 @@ const platforms = [
   { x: 1720, y: 390, w: 180, h: 20 },
   { x: 1900, y: 310, w: 240, h: 20 },
   { x: 1985, y: 150, w: 150, h: 20 }
+];
+
+const phaseBarriers = [
+  { x: 1525, y: 350, w: 22, h: 120 }
 ];
 
 const spikes = [
@@ -216,7 +227,7 @@ const abilities = [
   createAbility("time", "Time Slow", "Time", true, TIME_SLOW_COOLDOWN, TIME_SLOW_DURATION),
   createAbility("pulse", "Force Pulse", "Pulse", true, FORCE_PULSE_COOLDOWN),
   createAbility("anchor", "Anchor Field", "Anchor", false, 7.0),
-  createAbility("phase", "Phase Shift", "Phase", false, 5.0),
+  createAbility("phase", "Phase Shift", "Phase", true, PHASE_SHIFT_COOLDOWN, PHASE_SHIFT_DURATION),
   createAbility("link", "Energy Link", "Link", false, 8.0)
 ];
 let selectedAbilityId = "gravity";
@@ -425,6 +436,7 @@ class Entity {
     this.onSurface = false;
     this.lastGravityCastId = 0;
     this.gravityFlipVisualTimer = 0;
+    this.phaseFlickerTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
     this.forcePulseStunTimer = 0;
@@ -586,6 +598,7 @@ class Player extends Entity {
     this.lastGroundedEdge = getClosestPlatformEdge(this.lastGroundedPlatform, this.x + this.w / 2);
     this.fallRespawnGraceTimer = 0;
     this.gravityFlipVisualTimer = 0;
+    this.phaseFlickerTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
   }
@@ -634,6 +647,7 @@ class Player extends Entity {
 
     if (this.pulseTimer > 0) this.pulseTimer -= dt;
     if (this.damageTimer > 0) this.damageTimer -= dt;
+    if (this.phaseFlickerTimer > 0) this.phaseFlickerTimer = Math.max(0, this.phaseFlickerTimer - dt);
     if (this.fallRespawnGraceTimer > 0) this.fallRespawnGraceTimer -= dt;
 
     const wasOnSurface = this.onSurface;
@@ -676,8 +690,8 @@ class Player extends Entity {
     // Never expand from crouch into a platform. This is especially important on
     // the frame after a gravity flip, when the player may still be beside the
     // previous surface while the held crouch input is changing state.
-    const blockedByPlatform = platforms.some((platform) => rectsOverlap(standRect, platform));
-    const blockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(standRect, enemyRect));
+    const blockedByPlatform = getPlayerPlatformSolids().some((platform) => rectsOverlap(standRect, platform));
+    const blockedByEnemy = getPlayerEnemyCollisionRects().some((enemyRect) => rectsOverlap(standRect, enemyRect));
     if (blockedByPlatform || blockedByEnemy) return;
 
     this.isCrouching = false;
@@ -701,13 +715,13 @@ class Player extends Entity {
 
   moveAndCollide(dt) {
     this.x += this.vx * dt;
-    this.resolveHorizontalSolids(platforms, true);
-    this.resolveHorizontalSolids(getSolidEnemyRects(), true);
+    this.resolveHorizontalSolids(getPlayerPlatformSolids(), true);
+    this.resolveHorizontalSolids(getPlayerEnemyCollisionRects(), true);
 
     this.y += this.vy * dt;
     this.onSurface = false;
-    this.resolveVerticalSolids(platforms, true);
-    this.resolveVerticalSolids(getSolidEnemyRects(), false);
+    this.resolveVerticalSolids(getPlayerPlatformSolids(), true);
+    this.resolveVerticalSolids(getPlayerEnemyCollisionRects(), false);
 
     // Moving enemies or spawn/reset positions can still create an overlap after
     // the axis passes. Nudge the player along the shallowest safe axis so
@@ -760,7 +774,7 @@ class Player extends Entity {
   }
 
   resolveEnemyOverlaps() {
-    for (const solid of getSolidEnemyRects()) {
+    for (const solid of getPlayerEnemyCollisionRects()) {
       if (rectsOverlap(this, solid)) this.separateFromEnemyRect(solid);
     }
   }
@@ -837,7 +851,7 @@ class Player extends Entity {
   }
 
   firePulse() {
-    if (this.isDying || this.pulseTimer > 0) return;
+    if (this.isDying || isPlayerPhased() || this.pulseTimer > 0) return;
     this.pulseTimer = PULSE_COOLDOWN;
     this.attackTimer = ATTACK_ANIM_DURATION;
     this.attackReleaseTimer = ATTACK_RELEASE_TIME;
@@ -941,6 +955,7 @@ class Player extends Entity {
 
   beginDeath(source = null) {
     if (this.isDying) return;
+    if (phaseShiftActive) forceEndPhaseShift(false);
     this.hp = 0;
     this.isDying = true;
     this.deathTimer = 0;
@@ -1103,6 +1118,7 @@ class Player extends Entity {
 
   fullRespawn() {
     resetGravityField(true);
+    if (phaseShiftActive) forceEndPhaseShift(false);
     this.hp = this.maxHp;
     this.damageTimer = 0;
     this.placeAt(checkpoint.x, checkpoint.y);
@@ -1117,6 +1133,7 @@ class Player extends Entity {
     if (resetGravity) this.gravitySign = 1;
     this.lastGravityCastId = 0;
     this.gravityFlipVisualTimer = 0;
+    this.phaseFlickerTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
     this.isCrouching = false;
@@ -1127,6 +1144,7 @@ class Player extends Entity {
     this.attackTimer = 0;
     this.attackPulseQueued = false;
     this.attackReleaseTimer = 0;
+    this.phaseFlickerTimer = 0;
     this.recoilTimer = 0;
     this.recoilDirection = 0;
     this.isDying = false;
@@ -1294,6 +1312,8 @@ class Player extends Entity {
 
     ctx.save();
     if (this.damageTimer > 0 && Math.floor(this.damageTimer * 18) % 2 === 0) ctx.globalAlpha = 0.62;
+    if (isPlayerPhased()) ctx.globalAlpha *= 0.68 + Math.sin(this.animTime * 42) * 0.05;
+    else if (this.phaseFlickerTimer > 0 && Math.floor(this.phaseFlickerTimer * 44) % 2 === 0) ctx.globalAlpha *= 0.78;
     ctx.translate(baseX, originY);
     ctx.scale(facing * visualScale, verticalFlip * scaleY);
     const gravityFlipVisual = this.getGravityFlipVisualTransform();
@@ -1309,8 +1329,25 @@ class Player extends Entity {
     }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = 10;
+    ctx.shadowColor = isPlayerPhased() ? "rgba(137, 235, 255, 0.55)" : glow;
+    ctx.shadowBlur = isPlayerPhased() ? 14 : 10;
+
+    if (isPlayerPhased() || this.phaseFlickerTimer > 0) {
+      const flicker = this.phaseFlickerTimer > 0 ? this.phaseFlickerTimer / PHASE_SHIFT_FLICKER_DURATION : 0.35;
+      ctx.save();
+      ctx.globalAlpha *= 0.28 + flicker * 0.22;
+      ctx.strokeStyle = "rgba(134, 236, 255, 0.9)";
+      ctx.lineWidth = 1.1;
+      for (let i = 0; i < 5; i += 1) {
+        const y = 8 + i * 8 + Math.sin(this.animTime * 18 + i) * 1.2;
+        const offset = (i % 2 === 0 ? 1 : -1) * (1.8 + flicker * 2.2);
+        ctx.beginPath();
+        ctx.moveTo(-8 + offset, y);
+        ctx.lineTo(8 + offset * 0.4, y + (i % 2 === 0 ? 0.9 : -0.9));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     function strokeLimb(points, fillWidth) {
       ctx.strokeStyle = outline;
@@ -1938,6 +1975,23 @@ class Player extends Entity {
     ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+
+    if (isPlayerPhased()) {
+      ctx.save();
+      ctx.globalAlpha *= 0.42;
+      ctx.strokeStyle = "rgba(128, 99, 255, 0.9)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(1.5, -1);
+      ctx.lineTo(1.5, 50);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(202, 251, 255, 0.82)";
+      ctx.fillRect(5.5, 10 + Math.sin(this.animTime * 30) * 1.4, 8, 1.5);
+      ctx.fillRect(4.5, 31 + Math.cos(this.animTime * 28) * 1.1, 7, 1.5);
+      ctx.restore();
+    }
 
     ctx.shadowBlur = 0;
 
@@ -3822,8 +3876,10 @@ class DroneProjectile {
     }
 
     if (!player.isDying && rectsOverlap(rect, player)) {
-      player.takeDamage(1, rect);
-      this.deactivate();
+      if (!isPlayerPhased()) {
+        player.takeDamage(1, rect);
+        this.deactivate();
+      }
     }
   }
 
@@ -4076,6 +4132,18 @@ function findSafePlatformEdgeX(platform, edge, playerWidth, playerHeight, player
   return startX;
 }
 
+function isPlayerPhased() {
+  return phaseShiftActive;
+}
+
+function getPlayerPlatformSolids() {
+  return isPlayerPhased() ? platforms : [...platforms, ...phaseBarriers];
+}
+
+function getPlayerEnemyCollisionRects() {
+  return isPlayerPhased() ? [] : getSolidEnemyRects();
+}
+
 function getSolidEnemyRects() {
   return enemies
     .filter((enemy) => enemy.hp > 0)
@@ -4241,7 +4309,7 @@ function castForcePulse() {
 }
 
 const player = new Player();
-const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Jumper(2010, 265)];
+const enemies = [new Enemy(660, 435), new Drone(1085, 210), new Enemy(1590, 435), new Jumper(2010, 265)];
 
 function drawGravityMarker(entity, visualTopY = entity.y) {
   if (entity.gravitySign === 1) return;
@@ -4269,6 +4337,83 @@ function startTimedAbility(ability) {
   ability.cooldownRemaining = 0;
   ability.activeRemaining = Math.max(0, ability.activeDuration);
   ability.readyPulseTimer = 0;
+}
+
+function exposeEnemiesToPhaseShift() {
+  if (!phaseShiftActive) return;
+  const playerCenter = centerOf(player);
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || enemy.isDying || enemy.lastPhaseCastId === phaseCastId) continue;
+    if (distance(playerCenter, centerOf(enemy)) > PHASE_SHIFT_EXPOSURE_RADIUS) continue;
+    enemy.lastPhaseCastId = phaseCastId;
+    currentPhaseExposure.add(enemy);
+    // Future adaptation hook: enemies in currentPhaseExposure saw this phase_cast_id.
+  }
+}
+
+function activatePhaseShift() {
+  const ability = getAbilityById("phase");
+  if (!ability || phaseShiftActive) return false;
+  phaseCastId += 1;
+  currentPhaseExposure = new Set();
+  phaseShiftActive = true;
+  player.phaseFlickerTimer = PHASE_SHIFT_FLICKER_DURATION;
+  player.attackTimer = 0;
+  player.attackPulseQueued = false;
+  player.attackReleaseTimer = 0;
+  startTimedAbility(ability);
+  exposeEnemiesToPhaseShift();
+  return true;
+}
+
+function findNearestSafePhaseExit(overlappedBarrier) {
+  const directions = Math.abs(player.vx) > 1 ? [Math.sign(player.vx)] : [player.facing || 1];
+  directions.push(-directions[0]);
+
+  for (const direction of directions) {
+    const startX = direction > 0 ? overlappedBarrier.x + overlappedBarrier.w + 0.1 : overlappedBarrier.x - player.w - 0.1;
+    for (let step = 0; step <= player.w + 48; step += 4) {
+      const candidate = { x: startX + direction * step, y: player.y, w: player.w, h: player.h };
+      if (candidate.x < 0 || candidate.x + candidate.w > ROOM_WIDTH) continue;
+      const blockedByBarrier = phaseBarriers.some((barrier) => rectsOverlap(candidate, barrier));
+      const blockedByPlatform = platforms.some((platform) => rectsOverlap(candidate, platform));
+      if (!blockedByBarrier && !blockedByPlatform) return candidate;
+    }
+  }
+  return null;
+}
+
+function resolvePhaseBarrierExit() {
+  let moved = false;
+  for (const barrier of phaseBarriers) {
+    if (!rectsOverlap(player, barrier)) continue;
+    const safe = findNearestSafePhaseExit(barrier);
+    if (!safe) return false;
+    player.x = safe.x;
+    player.y = safe.y;
+    player.vx = 0;
+    moved = true;
+  }
+  return !moved || !phaseBarriers.some((barrier) => rectsOverlap(player, barrier));
+}
+
+function forceEndPhaseShift(startCooldown = true) {
+  const ability = getAbilityById("phase");
+  phaseShiftActive = false;
+  player.phaseFlickerTimer = PHASE_SHIFT_FLICKER_DURATION;
+  currentPhaseExposure.clear();
+  if (ability) {
+    ability.activeRemaining = 0;
+    if (startCooldown) startAbilityCooldown(ability);
+  }
+}
+
+function endPhaseShift(startCooldown = true) {
+  const ability = getAbilityById("phase");
+  if (!phaseShiftActive && (ability?.activeRemaining ?? 0) <= 0) return false;
+  if (!resolvePhaseBarrierExit()) return false;
+  forceEndPhaseShift(startCooldown);
+  return true;
 }
 
 
@@ -4375,6 +4520,15 @@ function updateAbilityCooldowns(dt) {
     if (timeAbility.activeRemaining <= 0) endTimeSlow(true);
   }
 
+  const phaseAbility = getAbilityById("phase");
+  if (phaseShiftActive && phaseAbility?.activeRemaining > 0) {
+    phaseAbility.activeRemaining = Math.max(0, phaseAbility.activeRemaining - dt);
+    exposeEnemiesToPhaseShift();
+    if (phaseAbility.activeRemaining <= 0) {
+      if (!endPhaseShift(true)) phaseAbility.activeRemaining = 0.01;
+    }
+  }
+
   timeSlowFadeTimer = Math.max(0, timeSlowFadeTimer - dt);
 }
 
@@ -4424,12 +4578,27 @@ function activateSelectedAbility() {
     return activateTimeSlow();
   }
 
+  if (ability.id === "phase") {
+    if (phaseShiftActive) return endPhaseShift(true);
+
+    if (!isAbilityReady(ability)) {
+      ability.unavailableTimer = 0.16;
+      return false;
+    }
+
+    return activatePhaseShift();
+  }
+
   if (!isAbilityReady(ability)) {
     ability.unavailableTimer = 0.16;
     return false;
   }
 
   if (ability.id === "pulse") {
+    if (isPlayerPhased()) {
+      ability.unavailableTimer = 0.16;
+      return false;
+    }
     castForcePulse();
     startAbilityCooldown(ability);
     return true;
@@ -4528,7 +4697,7 @@ function update(dt) {
   }
 
   for (const enemy of enemies) {
-    if (enemy.hp > 0 && !player.isDying && rectsTouchOrOverlap(player, enemy.getDamageRect(), 0.75)) {
+    if (enemy.hp > 0 && !player.isDying && !isPlayerPhased() && rectsTouchOrOverlap(player, enemy.getDamageRect(), 0.75)) {
       player.takeDamage(1, enemy);
     }
   }
@@ -4603,6 +4772,26 @@ function drawRoom() {
   for (const platform of platforms) {
     ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
     ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+  }
+
+  for (const barrier of phaseBarriers) {
+    ctx.save();
+    ctx.fillStyle = "rgba(112, 92, 255, 0.2)";
+    ctx.strokeStyle = "rgba(185, 245, 255, 0.86)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 7]);
+    ctx.fillRect(barrier.x, barrier.y, barrier.w, barrier.h);
+    ctx.strokeRect(barrier.x + 0.5, barrier.y + 0.5, barrier.w - 1, barrier.h - 1);
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(112, 92, 255, 0.5)";
+    ctx.lineWidth = 1;
+    for (let y = barrier.y + 12; y < barrier.y + barrier.h; y += 22) {
+      ctx.beginPath();
+      ctx.moveTo(barrier.x + 4, y);
+      ctx.lineTo(barrier.x + barrier.w - 6, y + 6);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawSpikes();
@@ -4814,13 +5003,52 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.arc(0, -r * 0.05, r * 0.58, Math.PI, 0);
     ctx.stroke();
   } else if (ability.id === "phase") {
-    ctx.setLineDash([size * 0.08, size * 0.08]);
-    ctx.strokeRect(-r * 0.66, -r * 1.08, r * 1.32, r * 2.16);
-    ctx.setLineDash([]);
+    const headR = size * 0.11;
+    const bodyTop = -size * 0.12;
+    const bodyBottom = size * 0.28;
+    const bodyW = size * 0.18;
+    const limbY = size * 0.06;
+
+    ctx.shadowColor = "rgba(137, 235, 255, 0.46)";
+    ctx.shadowBlur = size * 0.14;
+    ctx.fillStyle = "rgba(155, 236, 255, 0.95)";
+    ctx.strokeStyle = "rgba(132, 103, 255, 0.92)";
+    ctx.lineWidth = Math.max(1.2, size * 0.042);
+
     ctx.beginPath();
-    ctx.moveTo(-r * 1.05, -r * 0.35);
-    ctx.lineTo(r * 1.05, r * 0.35);
+    ctx.rect(-bodyW, bodyTop, bodyW, bodyBottom - bodyTop);
+    ctx.arc(-headR * 0.5, -size * 0.31, headR, Math.PI / 2, Math.PI * 1.5);
+    ctx.lineTo(0, -size * 0.31 - headR);
+    ctx.lineTo(0, bodyBottom);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
+
+    ctx.globalAlpha *= 0.58;
+    ctx.fillStyle = "rgba(113, 98, 255, 0.78)";
+    ctx.strokeStyle = "rgba(205, 251, 255, 0.75)";
+    ctx.setLineDash([size * 0.085, size * 0.055]);
+    ctx.beginPath();
+    ctx.rect(0, bodyTop + size * 0.01, bodyW, bodyBottom - bodyTop);
+    ctx.arc(headR * 0.5, -size * 0.31, headR, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(0, bodyBottom);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.lineWidth = Math.max(1.1, size * 0.038);
+    ctx.beginPath();
+    ctx.moveTo(0, limbY);
+    ctx.lineTo(size * 0.23, limbY - size * 0.03);
+    ctx.moveTo(0, bodyBottom);
+    ctx.lineTo(size * 0.18, size * 0.47);
+    ctx.stroke();
+
+    ctx.globalAlpha *= 0.72;
+    ctx.fillStyle = "rgba(194, 250, 255, 0.9)";
+    ctx.fillRect(size * 0.13, -size * 0.2, size * 0.2, size * 0.035);
+    ctx.fillRect(size * 0.06, size * 0.18, size * 0.23, size * 0.035);
   } else if (ability.id === "link") {
     ctx.beginPath();
     ctx.moveTo(-r * 0.78, r * 0.52);
@@ -5156,12 +5384,16 @@ window.__indiePlatformerDebug = {
   enemies,
   platforms,
   spikes,
+  phaseBarriers,
   update,
   draw,
   toggleGravityField,
   resetGravityField,
   activateTimeSlow,
   endTimeSlow,
+  activatePhaseShift,
+  endPhaseShift,
+  isPlayerPhased,
   abilities,
   activateSelectedAbility,
   setSelectedAbility: (id) => {
@@ -5176,7 +5408,7 @@ window.__indiePlatformerDebug = {
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
