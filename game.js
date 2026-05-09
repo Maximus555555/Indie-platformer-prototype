@@ -4731,7 +4731,7 @@ function drawSystemMessages() {
   if (blocking) {
     const line = blocking.lines[blocking.lineIndex];
     const text = line.slice(0, Math.floor(blocking.visibleChars));
-    const prompt = isCurrentSystemLineComplete() ? "ENTER" : "ENTER: COMPLETE";
+    const prompt = "ENTER";
     const boxWidth = Math.min(620, canvas.width - 64);
     const x = (canvas.width - boxWidth) / 2;
     drawSystemMessageBox({
