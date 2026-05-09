@@ -3501,11 +3501,12 @@ class Jumper extends Entity {
     let bestScore = Infinity;
 
     for (const platform of platforms) {
-      if (!this.isSafeLandingSurface(platform)) continue;
+      if (platform.safeForJumpers === false) continue;
       const minX = platform.x + this.w * 0.45;
       const maxX = platform.x + platform.w - this.w * 0.45;
       const landingX = clamp(targetX, minX, maxX);
       if (Math.abs(landingX - targetX) > targetWidth / 2) continue;
+      if (!this.isSafeLandingSurface(platform, landingX, this.w)) continue;
 
       const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
       const surfaceDelta = (surfaceY - surfaceEdgeY) * this.gravitySign;
@@ -3521,10 +3522,12 @@ class Jumper extends Entity {
     return bestPlatform;
   }
 
-  isSafeLandingSurface(platform) {
-    const landingSide = this.gravitySign > 0 ? "top" : "bottom";
-    const hasLandingSpikes = spikes.some((spike) => spike.platform === platform && spike.side === landingSide);
-    return !hasLandingSpikes && platform.safeForJumpers !== false;
+  isSafeLandingSurface(platform, landingX = this.x + this.w / 2, landingWidth = this.w) {
+    // Partial spike strips only make their own footprint unsafe. This keeps
+    // ceiling-landed jumpers active under reversed gravity even when another
+    // section of the same platform underside has spikes.
+    return platform.safeForJumpers !== false
+      && !hasSpikesAtSurface(platform, landingX, this.gravitySign, landingWidth);
   }
 
   launchAtPlayer() {

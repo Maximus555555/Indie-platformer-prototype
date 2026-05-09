@@ -291,6 +291,26 @@ if (!jumper.canStartAttack()) {
   throw new Error("Jumper failed to detect a player standing flush against a wall.");
 }
 
+// Regression: reversed-gravity jumpers should keep attacking from safe sections
+// of a ceiling platform even if another section of that underside has spikes.
+const ceilingPlatform = debug.platforms[0];
+debug.player.x = 448;
+debug.player.y = ceilingPlatform.y + ceilingPlatform.h + 8;
+debug.player.gravitySign = -1;
+debug.player.isDying = false;
+jumper.x = 452;
+jumper.gravitySign = -1;
+jumper.jumperState = "idle";
+jumper.recoveryDelayTimer = 0;
+jumper.attachToSurface(ceilingPlatform);
+if (!jumper.canStartAttack()) {
+  throw new Error("Reversed-gravity jumper treated an unspiked ceiling landing as unsafe.");
+}
+jumper.update(16 / 1000);
+if (jumper.jumperState !== "charging") {
+  throw new Error("Reversed-gravity jumper did not continue its jump cycle from a safe ceiling section.");
+}
+
 // Regression: if only the jumper's visible edge is on a platform edge, it
 // should still treat that lip as support instead of getting stuck airborne.
 debug.player.x = 120;
