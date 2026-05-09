@@ -121,8 +121,8 @@ if (!Array.isArray(debug.spikes) || debug.spikes.length < 2) {
   throw new Error("Expected platform-attached spike strips to exist.");
 }
 
-// Regression: spike hazards deal one player damage, use the existing safe edge
-// respawn, and do not leave the player standing inside the spike strip.
+// Regression: spike hazards deal one player damage, knock the player clear,
+// and do not leave the player standing inside the spike strip.
 debug.player.x = 942;
 debug.player.y = 420;
 debug.player.hp = 3;
@@ -134,8 +134,35 @@ debug.update(16 / 1000);
 if (debug.player.hp !== 2) {
   throw new Error(`Expected floor spikes to deal one player damage, got HP ${debug.player.hp}.`);
 }
-if (debug.player.x >= 900 && debug.player.x <= 1050) {
-  throw new Error("Player respawned inside the floor spike test area.");
+const floorSpike = debug.spikes.find((spike) => spike.side === "top");
+if (!floorSpike) throw new Error("Expected a floor spike strip for damage regression.");
+if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpike.x + floorSpike.w) {
+  throw new Error("Player recovered inside the floor spike strip.");
+}
+
+// Regression: inverted-gravity spike damage should knock the player away from
+// underside spikes without resetting gravity or placing them on top of the platform.
+const undersideSpike = debug.spikes.find((spike) => spike.side === "bottom");
+if (!undersideSpike) throw new Error("Expected an underside spike strip for gravity recovery regression.");
+debug.player.x = undersideSpike.x + 22;
+debug.player.y = undersideSpike.platform.y + undersideSpike.platform.h;
+debug.player.hp = 3;
+debug.player.gravitySign = -1;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.update(16 / 1000);
+if (debug.player.hp !== 2) {
+  throw new Error(`Expected underside spikes to deal one player damage, got HP ${debug.player.hp}.`);
+}
+if (debug.player.gravitySign !== -1) {
+  throw new Error("Underside spike damage reset inverted gravity.");
+}
+if (debug.player.y < undersideSpike.platform.y + undersideSpike.platform.h) {
+  throw new Error("Player was moved onto the top side of the platform after underside spike damage.");
+}
+if (debug.player.x + debug.player.w > undersideSpike.x && debug.player.x < undersideSpike.x + undersideSpike.w) {
+  throw new Error("Player was not pushed horizontally clear of the underside spike strip.");
 }
 
 // Regression: an enemy flipped into ceiling-attached spikes should dissolve via
