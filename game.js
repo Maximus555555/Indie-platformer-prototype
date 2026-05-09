@@ -100,7 +100,6 @@ const ANCHOR_FIELD_RADIUS = config.anchorFieldRadius ?? 160;
 const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
 const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
 const ANCHOR_FIELD_FADE_DURATION = 0.16;
-const ANCHOR_FORCE_PULSE_RESISTANCE = 0.34;
 const FORCE_PULSE_RANGE = config.forcePulseRange ?? 280;
 const FORCE_PULSE_HALF_ANGLE = Math.PI / 6;
 const FORCE_PULSE_KNOCKBACK = config.forcePulseKnockback ?? 780;
@@ -598,11 +597,18 @@ class Entity {
   receiveForcePulse(direction, speed, stunDuration, castId) {
     if (this.lastForcePulseCastId === castId || this.isDying || this.hp <= 0) return false;
     this.lastForcePulseCastId = castId;
-    if (this.anchorLocked) {
-      speed *= ANCHOR_FORCE_PULSE_RESISTANCE;
-      this.x += direction * Math.min(18, speed * 0.018);
-    }
     this.forcePulseStunTimer = Math.max(this.forcePulseStunTimer ?? 0, stunDuration);
+    this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
+    this.hitJoltX = direction * 2.6;
+    this.hitJoltY = -this.gravitySign * 1.6;
+
+    if (this.anchorLocked) {
+      // Anchored enemies can react visually, but the anchor prevents knockback
+      // from moving or dislodging them until the active window ends.
+      this.vx = 0;
+      this.vy = 0;
+      return true;
+    }
 
     // Treat the pulse as a short impulse: preserve useful existing momentum,
     // then add a small lift so grounded enemies visibly break from AI control.
@@ -615,9 +621,6 @@ class Entity {
     this.onSurface = false;
 
     this.armVerticalEdgeKill();
-    this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
-    this.hitJoltX = direction * 2.6;
-    this.hitJoltY = -this.gravitySign * 1.6;
     return true;
   }
 
@@ -4075,16 +4078,8 @@ class DroneProjectile {
   }
 
   updateAnchorFreeze() {
-    const insideAnchor = isPointInsideAnchorField({ x: this.x, y: this.y });
-    if (insideAnchor && !this.anchorFrozen) {
-      this.anchorStoredVelocity = { vx: this.vx, vy: this.vy };
-      this.vx = 0;
-      this.vy = 0;
-      this.anchorFrozen = true;
-    } else if (!insideAnchor && this.anchorFrozen) {
-      this.restoreAnchorVelocity();
-    }
-    return insideAnchor;
+    if (!anchorFieldActive && this.anchorFrozen) this.restoreAnchorVelocity();
+    return this.anchorFrozen;
   }
 
   deactivate() {
@@ -5007,13 +5002,6 @@ function getAnchorFieldOrigin() {
   return centerOf(player);
 }
 
-function syncAnchorFieldToPlayer() {
-  if (!anchorField) return;
-  const origin = getAnchorFieldOrigin();
-  anchorField.x = origin.x;
-  anchorField.y = origin.y;
-}
-
 function activateAnchorField() {
   const ability = getAbilityById("anchor");
   if (!ability || anchorFieldActive) return false;
@@ -5024,10 +5012,12 @@ function activateAnchorField() {
     radius: ANCHOR_FIELD_RADIUS,
     age: 0
   };
-  anchorFieldFade = null;
+  // The visible range is only an activation flash; the capture snapshot below
+  // decides what stays anchored for the full active duration.
+  anchorFieldFade = { ...anchorField, fadeRemaining: ANCHOR_FIELD_FADE_DURATION };
   anchorFieldActive = true;
   startTimedAbility(ability);
-  refreshAnchorFieldEffects();
+  captureAnchorFieldTargets();
   return true;
 }
 
@@ -5039,7 +5029,6 @@ function clearAnchorFieldEffects() {
 function endAnchorField(startCooldown = true) {
   const ability = getAbilityById("anchor");
   if (!anchorFieldActive && (ability?.activeRemaining ?? 0) <= 0) return false;
-  if (anchorField) anchorFieldFade = { ...anchorField, fadeRemaining: ANCHOR_FIELD_FADE_DURATION };
   anchorFieldActive = false;
   anchorField = null;
   clearAnchorFieldEffects();
@@ -5050,8 +5039,17 @@ function endAnchorField(startCooldown = true) {
   return true;
 }
 
-function refreshAnchorFieldEffects() {
+function freezeAnchorProjectile(projectile) {
+  if (!projectile?.active || projectile.anchorFrozen) return;
+  projectile.anchorStoredVelocity = { vx: projectile.vx, vy: projectile.vy };
+  projectile.vx = 0;
+  projectile.vy = 0;
+  projectile.anchorFrozen = true;
+}
+
+function captureAnchorFieldTargets() {
   if (!anchorFieldActive || !anchorField) return;
+
   for (const enemy of enemies) {
     enemy.anchorLocked = enemy.hp > 0 && !enemy.isDying && isTargetInsideAnchorField(enemy);
     if (enemy.anchorLocked) {
@@ -5063,13 +5061,15 @@ function refreshAnchorFieldEffects() {
       }
     }
   }
+
+  for (const projectile of droneProjectiles) {
+    if (isPointInsideAnchorField({ x: projectile.x, y: projectile.y })) freezeAnchorProjectile(projectile);
+  }
 }
 
 function updateAnchorField(dt) {
   if (anchorFieldActive && anchorField) {
-    syncAnchorFieldToPlayer();
     anchorField.age += dt;
-    refreshAnchorFieldEffects();
   }
 
   if (anchorFieldFade) {
@@ -6038,7 +6038,6 @@ function drawAnchorFieldInstance(field, alpha = 1) {
 }
 
 function drawAnchorFields() {
-  if (anchorFieldActive) drawAnchorFieldInstance(anchorField, 1);
   if (anchorFieldFade) {
     const alpha = clamp(anchorFieldFade.fadeRemaining / ANCHOR_FIELD_FADE_DURATION, 0, 1);
     drawAnchorFieldInstance(anchorFieldFade, alpha);

@@ -318,16 +318,35 @@ debug.draw();
 if (context.calls.some((call) => call.name === "ellipse")) {
   throw new Error("Anchor Field drew an enemy lock indicator after anchoring a Walker.");
 }
+debug.update(0.2);
+context.calls = [];
+debug.draw();
+if (context.calls.some((call) => call.name === "arc" && Math.abs(call.args[2] - debug.constants.ANCHOR_FIELD_RADIUS) < 0.01)) {
+  throw new Error("Anchor Field range stayed visible after the activation flash.");
+}
 const anchoredWalkerX = anchorWalker.x;
 anchorWalker.vx = 120;
 debug.update(0.25);
 if (Math.abs(anchorWalker.x - anchoredWalkerX) > 0.01 || anchorWalker.vx !== 0) {
   throw new Error("Anchored Walker moved while the field was active.");
 }
+const lateAnchorEnemy = debug.enemies.find((enemy) => enemy !== anchorWalker && enemy.hp > 0);
+if (!lateAnchorEnemy) throw new Error("Expected a second enemy for Anchor Field late-entry regression.");
+lateAnchorEnemy.anchorLocked = false;
+lateAnchorEnemy.hp = 2;
+lateAnchorEnemy.isDying = false;
+lateAnchorEnemy.x = debug.player.x + 80;
+lateAnchorEnemy.y = anchorWalker.y;
+debug.update(16 / 1000);
+if (lateAnchorEnemy.anchorLocked) {
+  throw new Error("Anchor Field locked an enemy that entered the range after activation.");
+}
 forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("pulse");
 if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate against an anchored enemy.");
-if (anchorWalker.x - anchoredWalkerX > 30) throw new Error("Anchored enemy did not resist Force Pulse knockback.");
+if (Math.abs(anchorWalker.x - anchoredWalkerX) > 0.01 || anchorWalker.vx !== 0) {
+  throw new Error("Anchored enemy was displaced by Force Pulse knockback.");
+}
 const drone = debug.enemies.find((enemy) => typeof enemy.fireAtPlayer === "function");
 if (!drone) throw new Error("Expected a Drone for Anchor Field projectile regression.");
 debug.player.x = 450;
@@ -339,27 +358,43 @@ drone.isDying = false;
 drone.orbitSlots.forEach((slot) => { slot.detached = false; slot.detachTimer = 0; slot.reformTimer = 0; });
 const projectileCountBeforeAnchorShot = debug.droneProjectiles.length;
 if (!drone.fireAtPlayer()) throw new Error("Drone did not spawn a projectile for Anchor Field regression.");
-const anchoredProjectile = debug.droneProjectiles.at(-1);
-if (!anchoredProjectile || debug.droneProjectiles.length !== projectileCountBeforeAnchorShot + 1) {
+const lateProjectile = debug.droneProjectiles.at(-1);
+if (!lateProjectile || debug.droneProjectiles.length !== projectileCountBeforeAnchorShot + 1) {
   throw new Error("Expected a new Drone projectile for Anchor Field regression.");
 }
-anchoredProjectile.x = debug.player.x + debug.player.w / 2 + 120;
-anchoredProjectile.y = debug.player.y + debug.player.h / 2;
-anchoredProjectile.vx = -120;
-anchoredProjectile.vy = 20;
+lateProjectile.x = anchorPlayerCenter.x + 80;
+lateProjectile.y = anchorPlayerCenter.y;
+lateProjectile.vx = -120;
+lateProjectile.vy = 20;
 debug.update(16 / 1000);
-if (!anchoredProjectile.anchorFrozen || anchoredProjectile.vx !== 0 || anchoredProjectile.vy !== 0) {
-  throw new Error("Anchor Field did not freeze a Drone projectile inside its radius.");
+if (lateProjectile.anchorFrozen) {
+  throw new Error("Anchor Field froze a projectile that entered the range after activation.");
 }
 if (!debug.setSelectedAbility("anchor")) throw new Error("Could not reselect Anchor Field for manual cancellation.");
 if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not manually cancel when selected and tapped again.");
 if (anchorAbility.cooldownRemaining <= 0 || anchorAbility.activeRemaining > 0) {
   throw new Error("Anchor Field cancellation did not start cooldown and clear active time.");
 }
-if (anchorWalker.anchorLocked || anchoredProjectile.anchorFrozen || anchoredProjectile.vx !== -120 || anchoredProjectile.vy !== 20) {
-  throw new Error("Anchor Field did not restore locked enemies and frozen projectile velocity after ending.");
+if (anchorWalker.anchorLocked || lateProjectile.anchorFrozen) {
+  throw new Error("Anchor Field did not clear locked enemies and leave uncaptured projectiles alone after ending.");
 }
 if (debug.activateSelectedAbility()) throw new Error("Anchor Field activation bypassed cooldown after cancellation.");
+anchorAbility.cooldownRemaining = 0;
+anchorAbility.activeRemaining = 0;
+
+lateProjectile.x = debug.player.x + debug.player.w / 2 + 120;
+lateProjectile.y = debug.player.y + debug.player.h / 2;
+lateProjectile.vx = -120;
+lateProjectile.vy = 20;
+debug.setSelectedAbility("anchor");
+if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not reactivate for projectile capture regression.");
+if (!lateProjectile.anchorFrozen || lateProjectile.vx !== 0 || lateProjectile.vy !== 0) {
+  throw new Error("Anchor Field did not freeze a Drone projectile inside its activation radius.");
+}
+if (!debug.activateSelectedAbility()) throw new Error("Anchor Field did not manually cancel after projectile capture regression.");
+if (lateProjectile.anchorFrozen || lateProjectile.vx !== -120 || lateProjectile.vy !== 20) {
+  throw new Error("Anchor Field did not restore a projectile captured on activation.");
+}
 anchorAbility.cooldownRemaining = 0;
 anchorAbility.activeRemaining = 0;
 
