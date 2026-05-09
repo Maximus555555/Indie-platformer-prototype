@@ -377,14 +377,12 @@ if (debug.player.hp !== 3) {
 context.calls = [];
 debug.player.gravitySign = 1;
 debug.player.draw();
-if (!context.calls.some((call) => call.name === "fill")) {
-  throw new Error("Phased player did not draw a filled dark-blue body.");
+if (context.calls.some((call) => call.name === "fill")) {
+  throw new Error("Phased player drew filled body interiors instead of outlines only.");
 }
-if (!String(context.fillStyle).includes("7, 45, 124")) {
-  throw new Error("Phased player fill was not switched to the dark-blue phase color.");
-}
-if (!context.calls.some((call) => call.name === "stroke")) {
-  throw new Error("Phased player did not draw an outline stroke.");
+const phaseStrokeCalls = context.calls.filter((call) => call.name === "stroke");
+if (phaseStrokeCalls.length < 5) {
+  throw new Error("Phased player did not draw enough outline strokes for body and limbs.");
 }
 if (!debug.activateSelectedAbility() || debug.isPlayerPhased()) {
   throw new Error("Phase Shift did not manually cancel when selected and tapped again.");
