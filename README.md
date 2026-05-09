@@ -38,8 +38,8 @@ npm run check
 - **W**: Jump
 - **S**: Crouch
 - **Space** or **mouse click**: Fire **System Pulse**
-- **Hold Q**: Preview Gravity Field range
-- **E**: Activate or deactivate Gravity Field
+- **Hold Q**: Preview the currently selected ability range
+- **E**: Activate or deactivate the selected ability
 
 ## Implemented mechanics
 
@@ -52,7 +52,7 @@ npm run check
 - Reaching 0 HP resets the player to the checkpoint with 3 HP.
 - **System Pulse** fires a glowing geometric pulse horizontally, deals 1 damage, and has a cooldown.
 - Simple enemy placeholder with 2 HP, contact damage, patrol movement, and collision boxes.
-- **Gravity Field** preview appears as a circular range outline while Q is held.
+- Holding **Q** previews the currently selected ability range, including the circular **Gravity Field** range and the **Force Pulse** cone.
 - Pressing E tags valid entities inside the range for the current cast ID and flips their gravity.
 - Pressing E again deactivates the ability and resets affected entities to normal gravity.
 - Affected entities show a small marker and retain flipped gravity even after leaving the original range.

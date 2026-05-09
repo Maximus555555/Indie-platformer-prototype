@@ -13,8 +13,15 @@ function rememberListener(type, listener) {
 }
 
 const noop = () => {};
+const recordCanvasCall = (name) => function (...args) {
+  context.calls.push({ name, args });
+};
 const context = new Proxy({
   canvas: null,
+  calls: [],
+  arc: recordCanvasCall("arc"),
+  lineTo: recordCanvasCall("lineTo"),
+  moveTo: recordCanvasCall("moveTo"),
   createLinearGradient: () => ({ addColorStop: noop }),
   createRadialGradient: () => ({ addColorStop: noop }),
   measureText: (text) => ({ width: String(text).length * 8 })
@@ -190,6 +197,23 @@ forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("gravity");
 debug.player.x = 120;
 debug.player.y = 420;
+
+// Holding Q previews the selected ability's range instead of always drawing
+// Gravity Field, so the drawn preview should swap when Force Pulse is selected.
+dispatch("keydown", keyEvent("q"));
+context.calls = [];
+debug.draw();
+if (!context.calls.some((call) => call.name === "arc" && Math.abs(call.args[2] - debug.constants.GRAVITY_FIELD_RADIUS) < 0.01)) {
+  throw new Error("Holding Q with Gravity Field selected did not draw its circular range preview.");
+}
+debug.setSelectedAbility("pulse");
+context.calls = [];
+debug.draw();
+if (!context.calls.some((call) => call.name === "arc" && Math.abs(call.args[2] - debug.constants.FORCE_PULSE_RANGE) < 0.01)) {
+  throw new Error("Holding Q with Force Pulse selected did not draw its cone range preview.");
+}
+dispatch("keyup", keyEvent("q"));
+debug.setSelectedAbility("gravity");
 
 // Holding E opens the selection wheel; keyboard navigation skips locked slots,
 // releasing confirms the highlighted unlocked ability, and that release does

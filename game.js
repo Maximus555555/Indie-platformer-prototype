@@ -4525,10 +4525,14 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
       ctx.fill();
     };
 
-    // Gravity Field uses compact, filled keyboard-arrow glyphs so the selected
-    // ability reads as an up/down gravity flip instead of thin direction lines.
+    // Gravity Field uses compact, green glowing keyboard-arrow glyphs so the
+    // selected ability reads as an up/down gravity flip instead of thin lines.
+    ctx.fillStyle = "rgba(135, 255, 198, 0.96)";
+    ctx.shadowColor = "rgba(111, 255, 184, 0.72)";
+    ctx.shadowBlur = size * 0.18;
     drawFilledArrowKey(-(arrowHeight + gap) / 2, -1);
     drawFilledArrowKey((arrowHeight + gap) / 2, 1);
+    ctx.shadowBlur = 0;
   } else if (ability.id === "time") {
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -4770,18 +4774,47 @@ function drawHud() {
   ctx.restore();
 }
 
-function drawGravityPreview() {
+function drawSelectedAbilityRangePreview() {
   if (!keys.has("q")) return;
-  const origin = centerOf(player);
+
+  const ability = getSelectedAbility();
+  if (!ability.unlocked) return;
+
   ctx.save();
-  ctx.strokeStyle = "rgba(135, 255, 198, 0.85)";
   ctx.setLineDash([10, 8]);
   ctx.lineWidth = 2;
-  ctx.shadowColor = "rgba(135, 255, 198, 0.45)";
-  ctx.shadowBlur = 15;
-  ctx.beginPath();
-  ctx.arc(origin.x, origin.y, GRAVITY_FIELD_RADIUS, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  if (ability.id === "gravity") {
+    const origin = centerOf(player);
+    ctx.strokeStyle = "rgba(135, 255, 198, 0.85)";
+    ctx.shadowColor = "rgba(135, 255, 198, 0.45)";
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, GRAVITY_FIELD_RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (ability.id === "pulse") {
+    const direction = player.facing || 1;
+    const origin = player.getForcePulseHandPoint(direction);
+    const centerAngle = direction > 0 ? 0 : Math.PI;
+    const upperAngle = centerAngle - FORCE_PULSE_HALF_ANGLE * direction;
+    const lowerAngle = centerAngle + FORCE_PULSE_HALF_ANGLE * direction;
+
+    ctx.strokeStyle = "rgba(255, 142, 158, 0.92)";
+    ctx.fillStyle = "rgba(255, 36, 64, 0.08)";
+    ctx.shadowColor = "rgba(255, 65, 95, 0.42)";
+    ctx.shadowBlur = 15;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(origin.x + Math.cos(upperAngle) * FORCE_PULSE_RANGE, origin.y + Math.sin(upperAngle) * FORCE_PULSE_RANGE);
+    ctx.arc(origin.x, origin.y, FORCE_PULSE_RANGE, upperAngle, lowerAngle, direction < 0);
+    ctx.lineTo(origin.x, origin.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
   ctx.restore();
 }
 
@@ -4790,7 +4823,7 @@ function draw() {
   ctx.save();
   ctx.translate(-cameraX, 0);
   drawRoom();
-  drawGravityPreview();
+  drawSelectedAbilityRangePreview();
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
@@ -4812,7 +4845,7 @@ function gameLoop(now) {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
-  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "e"].includes(key)) event.preventDefault();
+  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "e", "q"].includes(key)) event.preventDefault();
   if (!keys.has(key)) pressedThisFrame.add(key);
   keys.add(key);
 });
@@ -4859,7 +4892,7 @@ window.__indiePlatformerDebug = {
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN }
 };
 
 requestAnimationFrame(gameLoop);
