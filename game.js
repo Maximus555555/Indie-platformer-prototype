@@ -6207,7 +6207,7 @@ function drawAbilityWheel() {
       showReadyPulse: false
     });
 
-    ctx.font = "11px system-ui, sans-serif";
+    ctx.font = "11px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = ability.unlocked ? "rgba(238, 251, 255, 0.92)" : "rgba(160, 183, 204, 0.58)";
@@ -6222,7 +6222,7 @@ function drawAbilityWheel() {
   ctx.lineWidth = 1.4;
   ctx.stroke();
 
-  ctx.font = "10px system-ui, sans-serif";
+  ctx.font = "10px monospace";
   ctx.fillStyle = "rgba(236, 250, 255, 0.86)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
