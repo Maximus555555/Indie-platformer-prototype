@@ -247,6 +247,7 @@ const linkB = debug.enemies[1];
 const linkC = debug.enemies[3];
 if (!linkA || !linkB || !linkC) throw new Error("Expected three nearby enemies for Energy Link regression.");
 for (const enemy of [linkA, linkB, linkC]) {
+  debug.resetEnemyAdaptation(enemy);
   enemy.hp = 2;
   enemy.isDying = false;
   enemy.gravitySign = 1;
@@ -294,7 +295,10 @@ linkC.hp = 2;
 debug.player.firePulse();
 debug.update(0.09);
 if (linkA.hp !== 1 || linkB.hp !== 1 || linkC.hp !== 1) {
-  throw new Error(`Energy Link did not transfer full System Pulse damage to all linked enemies; got ${linkA.hp}, ${linkB.hp}, and ${linkC.hp}.`);
+  throw new Error(`Energy Link did not preserve first-cast full System Pulse transfer before applying adaptation to later links; got ${linkA.hp}, ${linkB.hp}, and ${linkC.hp}.`);
+}
+if (linkA.adaptationStages.energy_link !== 1 || linkB.adaptationStages.energy_link !== 1 || linkC.adaptationStages.energy_link !== 1) {
+  throw new Error("Energy Link did not record exactly one adaptation stage on each linked target.");
 }
 linkA.hp = 2;
 linkB.hp = 2;
@@ -313,8 +317,8 @@ linkC.y = 220;
 forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("pulse");
 if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activate for Energy Link transfer regression.");
-if (linkA.vx <= 300 || linkB.vx <= 300 || linkC.vx <= 300) {
-  throw new Error(`Energy Link did not transfer full Force Pulse knockback to all linked enemies; got ${linkA.vx}, ${linkB.vx}, and ${linkC.vx}.`);
+if (linkA.vx <= 280 || linkB.vx <= 300 || linkC.vx <= 300) {
+  throw new Error(`Energy Link did not transfer adapted Force Pulse knockback to all linked enemies; got ${linkA.vx}, ${linkB.vx}, and ${linkC.vx}.`);
 }
 
 // Linked enemies share other ability effects too: if one linked enemy is caught
@@ -388,6 +392,7 @@ debug.player.isDying = false;
 debug.player.damageTimer = 0;
 debug.player.fallRespawnGraceTimer = 0;
 for (const enemy of [linkA, linkB, linkC]) {
+  debug.resetEnemyAdaptation(enemy);
   enemy.hp = 2;
   enemy.isDying = false;
   enemy.gravitySign = 1;
@@ -478,6 +483,7 @@ debug.player.fullRespawn();
 // Environmental Energy Link regression: a linked enemy killed by spikes should
 // shatter every other non-boss enemy in the active link immediately.
 for (const enemy of [linkA, linkB, linkC]) {
+  debug.resetEnemyAdaptation(enemy);
   enemy.hp = 2;
   enemy.isDying = false;
   enemy.gravitySign = 1;
@@ -508,6 +514,7 @@ if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || link
   throw new Error("Energy Link did not end and start cooldown after environmental linked deaths.");
 }
 for (const enemy of [linkA, linkB, linkC]) {
+  debug.resetEnemyAdaptation(enemy);
   enemy.hp = 2;
   enemy.isDying = false;
   enemy.deathFragments = [];
@@ -541,6 +548,7 @@ if (!linkA.isDying || !linkB.isDying || !linkC.isDying) {
   throw new Error("Energy Link did not transfer lethal System Pulse damage before the source enemy died.");
 }
 for (const enemy of [linkA, linkB, linkC]) {
+  debug.resetEnemyAdaptation(enemy);
   enemy.hp = 2;
   enemy.isDying = false;
   enemy.deathFragments = [];
@@ -703,6 +711,7 @@ debug.update(16 / 1000);
 if (lateAnchorEnemy.anchorLocked) {
   throw new Error("Anchor Field locked an enemy that entered the range after activation.");
 }
+lateAnchorEnemy.hp = 0;
 forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("pulse");
 const forcePulseVisualsBeforeAnchorCast = debug.forcePulseVisuals.length;
