@@ -6683,10 +6683,10 @@ function drawStaminaBar(target) {
   const alpha = clamp(target.staminaBarAlpha ?? 0, 0, 1);
   if (alpha <= 0.01) return;
 
-  const width = 36;
+  const width = 28;
   const height = 4;
   const x = target.x + target.w / 2 - width / 2;
-  const y = target.gravitySign > 0 ? target.y - 11 : target.y + target.h + 7;
+  const y = target.gravitySign > 0 ? target.y - 18 : target.y + target.h + 14;
   const fillWidth = width * clamp((target.stamina ?? 0) / MAX_STAMINA, 0, 1);
 
   ctx.save();
