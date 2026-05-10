@@ -6924,6 +6924,15 @@ function wasAnyPressedThisFrame(inputKeys) {
   return inputKeys.some((key) => pressedThisFrame.has(key));
 }
 
+function clearInputState() {
+  keys.clear();
+  pressedThisFrame.clear();
+  eHoldTimer = 0;
+  eReleasedThisFrame = false;
+  eWheelOpenedThisHold = false;
+  if (abilityWheel.open) closeAbilityWheel(false);
+}
+
 window.addEventListener("keydown", (event) => {
   const inputKeys = getInputKeys(event);
   if (inputKeys.some((key) => RESERVED_INPUT_KEYS.includes(key))) event.preventDefault();
@@ -6939,6 +6948,8 @@ window.addEventListener("keyup", (event) => {
     if (key === "e") eReleasedThisFrame = true;
   }
 });
+
+window.addEventListener("blur", clearInputState);
 
 canvas.addEventListener("pointermove", (event) => {
   const bounds = canvas.getBoundingClientRect?.() ?? { left: 0, top: 0, width: canvas.width, height: canvas.height };
