@@ -383,6 +383,10 @@ linkAbility.activeRemaining = 0;
 debug.player.x = 500;
 debug.player.y = 420;
 debug.player.facing = 1;
+debug.player.hp = 3;
+debug.player.isDying = false;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
 for (const enemy of [linkA, linkB, linkC]) {
   enemy.hp = 2;
   enemy.isDying = false;
@@ -400,12 +404,76 @@ linkC.x = 760;
 linkC.y = 435;
 debug.setSelectedAbility("link");
 if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not reactivate for duration expiry regression.");
+debug.player.x = 120;
+debug.player.y = 420;
 for (let elapsed = 0; elapsed < debug.constants.ENERGY_LINK_DURATION + 0.1; elapsed += 0.1) debug.update(0.1);
 if (debug.getEnergyLinkState().active || linkAbility.activeRemaining > 0 || linkAbility.cooldownRemaining <= 0) {
   throw new Error("Energy Link duration expiry did not end link and start cooldown.");
 }
 linkAbility.cooldownRemaining = 0;
 linkAbility.activeRemaining = 0;
+
+// Player death regression: dying is a hard cancel that immediately negates
+// every active ability effect without leaving timed fields, links, or fade-only
+// remnants in effect for the death/respawn sequence.
+const deathPhaseAbility = debug.abilities.find((ability) => ability.id === "phase");
+const deathAnchorAbility = debug.abilities.find((ability) => ability.id === "anchor");
+if (!deathPhaseAbility || !deathAnchorAbility) throw new Error("Expected Phase Shift and Anchor Field abilities for player death cancellation regression.");
+for (const ability of [gravityAbility, timeAbilityForLink, deathPhaseAbility, deathAnchorAbility, linkAbility]) {
+  ability.cooldownRemaining = 0;
+  ability.activeRemaining = 0;
+}
+debug.resetGravityField(true);
+debug.endTimeSlow(false);
+debug.endPhaseShift(false);
+debug.endAnchorField(false);
+debug.player.x = 500;
+debug.player.y = 420;
+debug.player.hp = 1;
+debug.player.gravitySign = 1;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+for (const enemy of [linkA, linkB, linkC]) {
+  enemy.hp = 2;
+  enemy.isDying = false;
+  enemy.anchorLocked = false;
+  enemy.gravitySign = 1;
+}
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 710;
+linkB.y = 435;
+linkC.x = 760;
+linkC.y = 435;
+debug.setSelectedAbility("link");
+if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not activate for player death cancellation regression.");
+if (!debug.toggleGravityField()) throw new Error("Gravity Field did not activate for player death cancellation regression.");
+if (!debug.activateTimeSlow()) throw new Error("Time Slow did not activate for player death cancellation regression.");
+if (!debug.activatePhaseShift()) throw new Error("Phase Shift did not activate for player death cancellation regression.");
+if (!debug.activateAnchorField()) throw new Error("Anchor Field did not activate for player death cancellation regression.");
+let deathCancelState = debug.getActiveAbilityEffectState();
+if (!deathCancelState.gravityFieldActive || !deathCancelState.timeSlowActive || !deathCancelState.phaseShiftActive || !deathCancelState.anchorFieldActive || !deathCancelState.energyLinkActive) {
+  throw new Error("Could not set up every active ability before player death cancellation regression.");
+}
+debug.player.beginDeath();
+deathCancelState = debug.getActiveAbilityEffectState();
+if (deathCancelState.gravityFieldActive || deathCancelState.timeSlowActive || deathCancelState.phaseShiftActive || deathCancelState.anchorFieldActive || deathCancelState.energyLinkActive) {
+  throw new Error("Player death did not negate every active ability effect.");
+}
+if (deathCancelState.timeSlowFadeActive || deathCancelState.anchorFieldFadeActive || deathCancelState.energyLinkFadeActive) {
+  throw new Error("Player death left ability fade effects running after cancellation.");
+}
+if (debug.player.gravitySign !== 1 || [linkA, linkB, linkC].some((enemy) => enemy.gravitySign !== 1 || enemy.anchorLocked)) {
+  throw new Error("Player death did not restore gravity and clear anchor locks from affected entities.");
+}
+if ([gravityAbility, timeAbilityForLink, deathPhaseAbility, deathAnchorAbility, linkAbility].some((ability) => ability.activeRemaining > 0)) {
+  throw new Error("Player death left a timed ability activeRemaining value above zero.");
+}
+if ([gravityAbility, timeAbilityForLink, deathPhaseAbility, deathAnchorAbility, linkAbility].some((ability) => ability.cooldownRemaining > 0)) {
+  throw new Error("Player death cancellation started ability cooldowns instead of only negating effects.");
+}
+debug.player.fullRespawn();
 
 // Environmental Energy Link regression: a linked enemy killed by spikes should
 // shatter every other non-boss enemy in the active link immediately.
