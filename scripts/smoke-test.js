@@ -103,8 +103,8 @@ function keyEvent(key, code = "") {
   return { key, code, preventDefault: noop };
 }
 
-// Jump input regression: some keyboards ghost Up Arrow while holding Right and
-// Shift, so the game keeps additional keyboard-matrix-friendly jump aliases.
+// Jump input regression: if Up Arrow events arrive while Right Arrow and Shift
+// are held, the player should still jump without needing extra jump buttons.
 debug.player.x = 120;
 debug.player.y = 420;
 debug.player.vx = 0;
@@ -113,12 +113,12 @@ debug.player.gravitySign = 1;
 debug.player.onSurface = true;
 dispatch("keydown", keyEvent("ArrowRight", "ArrowRight"));
 dispatch("keydown", keyEvent("Shift", "ShiftLeft"));
-dispatch("keydown", keyEvent("z", "KeyZ"));
+dispatch("keydown", keyEvent("ArrowUp", "ArrowUp"));
 debug.update(16 / 1000);
 if (debug.player.onSurface || debug.player.vy >= -300) {
-  throw new Error("Alternate jump key did not work while holding Right Arrow and Shift.");
+  throw new Error("Up Arrow jump did not work while holding Right Arrow and Shift.");
 }
-dispatch("keyup", keyEvent("z", "KeyZ"));
+dispatch("keyup", keyEvent("ArrowUp", "ArrowUp"));
 dispatch("keyup", keyEvent("Shift", "ShiftLeft"));
 dispatch("keyup", keyEvent("ArrowRight", "ArrowRight"));
 debug.player.x = 120;

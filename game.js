@@ -173,8 +173,8 @@ const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
-const JUMP_INPUT_KEYS = ["w", "arrowup", "z", "k"];
-const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q", "z", "k"];
+const JUMP_INPUT_KEYS = ["w", "arrowup"];
+const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q"];
 const INPUT_CODE_ALIASES = new Map([
   ["ArrowUp", "arrowup"],
   ["ArrowDown", "arrowdown"],
@@ -186,8 +186,6 @@ const INPUT_CODE_ALIASES = new Map([
   ["KeyD", "d"],
   ["KeyE", "e"],
   ["KeyQ", "q"],
-  ["KeyZ", "z"],
-  ["KeyK", "k"],
   ["ShiftLeft", "shift"],
   ["ShiftRight", "shift"],
   ["Space", " "]

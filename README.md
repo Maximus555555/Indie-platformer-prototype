@@ -35,7 +35,7 @@ npm run check
 ## Controls
 
 - **A / D** or **Left / Right Arrow**: Move left and right
-- **W / Up Arrow / Z / K**: Jump
+- **W** or **Up Arrow**: Jump
 - **S** or **Down Arrow**: Crouch
 - **Space** or **mouse click**: Fire **System Pulse**
 - **Hold Q**: Preview the currently selected ability range
