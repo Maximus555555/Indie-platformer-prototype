@@ -490,7 +490,6 @@ function resetEnemyAdaptation(enemy) {
   if (!enemy?.adaptationStages) return;
   enemy.adaptationStages = createAdaptationState();
   enemy.adaptationExposures = createAdaptationExposureState();
-  enemy.latestAdaptation = null;
   enemy.phaseExposureTimer = 0;
   enemy.phaseExposureCastId = 0;
   enemy.phaseAwarenessTimer = 0;
@@ -510,7 +509,6 @@ function recordAdaptationExposure(enemy, abilityKey, castId) {
   const nextStage = Math.min(3, currentStage + 1);
   if (nextStage !== currentStage) {
     enemy.adaptationStages[abilityKey] = nextStage;
-    enemy.latestAdaptation = { ability: abilityKey, stage: nextStage, timer: 1.4 };
     if (ADAPTATION_DEBUG_LOGS) console.debug?.(`${getEnemyKind(enemy)} adapted to ${abilityKey}: Stage ${nextStage}`);
   }
   return nextStage;
@@ -572,7 +570,6 @@ class Entity {
     this.phaseAwarenessPoint = null;
     this.adaptationStages = createAdaptationState();
     this.adaptationExposures = createAdaptationExposureState();
-    this.latestAdaptation = null;
   }
 
   applyGravity(dt) {
@@ -778,7 +775,6 @@ class Entity {
   }
 
   updateAdaptationTimers(dt) {
-    if (this.latestAdaptation?.timer > 0) this.latestAdaptation.timer = Math.max(0, this.latestAdaptation.timer - dt);
     if (this.phaseAwarenessTimer > 0) this.phaseAwarenessTimer = Math.max(0, this.phaseAwarenessTimer - dt);
     if (this.gravityFieldRemaining > 0) {
       this.gravityFieldRemaining = Math.max(0, this.gravityFieldRemaining - dt);
@@ -2920,7 +2916,6 @@ class Enemy extends Entity {
     ctx.restore();
     const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
     drawGravityMarker(this, walkerVisualTopY);
-    drawAdaptationMarker(this, walkerVisualTopY - 13);
   }
 }
 
@@ -3570,7 +3565,6 @@ class Drone extends Entity {
     ctx.restore();
     const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
     drawGravityMarker(this, droneBodyTopY);
-    drawAdaptationMarker(this, droneBodyTopY - 13);
   }
 }
 
@@ -4215,7 +4209,6 @@ class Jumper extends Entity {
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
     drawGravityMarker(this, visualTopY);
-    drawAdaptationMarker(this, visualTopY - 13);
   }
 }
 
@@ -6032,63 +6025,6 @@ function drawTimeSlowField() {
 }
 
 
-function drawAdaptationMarker(enemy, yOverride = null) {
-  if (!isAdaptableEnemy(enemy) || !enemy.latestAdaptation || enemy.latestAdaptation.timer <= 0) return;
-  const { ability, stage } = enemy.latestAdaptation;
-  if (!stage) return;
-
-  const cx = enemy.x + enemy.w / 2;
-  const y = yOverride ?? enemy.y - 12;
-  const alpha = 0.38 + stage * 0.18;
-  const tickColor = `rgba(255, 255, 255, ${0.45 + stage * 0.14})`;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 1.35;
-  ctx.translate(cx, y);
-
-  if (ability === "gravity") {
-    ctx.strokeStyle = "rgba(170, 226, 255, 0.95)";
-    ctx.beginPath();
-    ctx.moveTo(-3, -5); ctx.lineTo(-3, 5); ctx.moveTo(-6, -2); ctx.lineTo(-3, -5); ctx.lineTo(0, -2);
-    ctx.moveTo(3, -5); ctx.lineTo(3, 5); ctx.moveTo(0, 2); ctx.lineTo(3, 5); ctx.lineTo(6, 2);
-    ctx.stroke();
-  } else if (ability === "force_pulse") {
-    ctx.fillStyle = "rgba(255, 88, 82, 0.9)";
-    ctx.beginPath();
-    ctx.moveTo(-6, -4); ctx.quadraticCurveTo(5, -1, 7, 0); ctx.quadraticCurveTo(5, 1, -6, 4); ctx.closePath();
-    ctx.fill();
-  } else if (ability === "time_slow") {
-    ctx.strokeStyle = "rgba(94, 236, 255, 0.96)";
-    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.moveTo(0, 0); ctx.lineTo(0, -3); ctx.moveTo(0, 0); ctx.lineTo(3, 1.5); ctx.stroke();
-  } else if (ability === "phase_shift") {
-    ctx.strokeStyle = "rgba(168, 132, 255, 0.96)";
-    ctx.beginPath(); ctx.roundRect?.(-5, -5, 10, 10, 5); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-6, -1.5); ctx.lineTo(1, -1.5); ctx.moveTo(-1, 2); ctx.lineTo(6, 2); ctx.stroke();
-  } else if (ability === "anchor_field") {
-    ctx.strokeStyle = "rgba(230, 230, 230, 0.96)";
-    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(6, 0); ctx.lineTo(0, 6); ctx.lineTo(-6, 0); ctx.closePath(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 1.8, 0, Math.PI * 2); ctx.stroke();
-  } else if (ability === "energy_link") {
-    ctx.strokeStyle = ENERGY_LINK_YELLOW;
-    ctx.fillStyle = ENERGY_LINK_YELLOW;
-    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
-    ctx.beginPath(); ctx.arc(-5, 0, 2, 0, Math.PI * 2); ctx.arc(5, 0, 2, 0, Math.PI * 2); ctx.fill();
-  }
-
-  ctx.strokeStyle = tickColor;
-  ctx.lineWidth = 1;
-  for (let i = 0; i < stage; i += 1) {
-    const x = -4 + i * 4;
-    ctx.beginPath();
-    ctx.moveTo(x, 7);
-    ctx.lineTo(x + 1.8, 7);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
 
 function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
   ctx.save();
