@@ -289,6 +289,39 @@ function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+
+function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && aEnd > bStart;
+}
+
+function findSweptVerticalCollision(body, previousY, solids) {
+  if (body.vy === 0) return null;
+
+  const previousTop = previousY;
+  const previousBottom = previousY + body.h;
+  const currentTop = body.y;
+  const currentBottom = body.y + body.h;
+  const bodyLeft = body.x;
+  const bodyRight = body.x + body.w;
+  let nearest = null;
+
+  for (const solid of solids) {
+    if (!rangesOverlap(bodyLeft, bodyRight, solid.x, solid.x + solid.w)) continue;
+
+    let candidate = null;
+    if (body.vy > 0 && previousBottom <= solid.y && currentBottom >= solid.y) {
+      candidate = { solid, y: solid.y - body.h, distance: solid.y - previousBottom };
+    } else if (body.vy < 0 && previousTop >= solid.y + solid.h && currentTop <= solid.y + solid.h) {
+      candidate = { solid, y: solid.y + solid.h, distance: previousTop - (solid.y + solid.h) };
+    }
+
+    if (!candidate || candidate.distance < -0.01) continue;
+    if (!nearest || candidate.distance < nearest.distance) nearest = candidate;
+  }
+
+  return nearest;
+}
+
 function rectsTouchOrOverlap(a, b, margin = 0) {
   return a.x <= b.x + b.w + margin
     && a.x + a.w >= b.x - margin
@@ -629,8 +662,17 @@ class Entity {
     this.resolveHorizontalEnemyContacts();
     this.resolveWorldHorizontalBounds();
 
+    const previousY = this.y;
     this.y += this.vy * dt;
     this.onSurface = false;
+
+    const sweptPlatform = findSweptVerticalCollision(this, previousY, platforms);
+    if (sweptPlatform) {
+      this.y = sweptPlatform.y;
+      if (this.vy * this.gravitySign > 0) this.onSurface = true;
+      this.vy = 0;
+    }
+
     for (const platform of platforms) {
       if (!rectsOverlap(this, platform)) continue;
 
@@ -642,6 +684,11 @@ class Entity {
         this.y = platform.y + platform.h;
       } else if (this.vy > 0) {
         this.y = platform.y - this.h;
+      } else {
+        const depth = intersectionDepth(this, platform);
+        if (depth.y <= 0) continue;
+        this.y += depth.signY * (depth.y + 0.1);
+        if (depth.signY === -this.gravitySign) this.onSurface = true;
       }
       this.vy = 0;
     }
@@ -990,10 +1037,11 @@ class Player extends Entity {
     this.resolveHorizontalSolids(getPlayerPlatformSolids(), true);
     this.resolveHorizontalSolids(getPlayerEnemyCollisionRects(), true);
 
+    const previousY = this.y;
     this.y += this.vy * dt;
     this.onSurface = false;
-    this.resolveVerticalSolids(getPlayerPlatformSolids(), true);
-    this.resolveVerticalSolids(getPlayerEnemyCollisionRects(), false);
+    this.resolveVerticalSolids(getPlayerPlatformSolids(), true, previousY);
+    this.resolveVerticalSolids(getPlayerEnemyCollisionRects(), false, previousY);
 
     // Moving enemies or spawn/reset positions can still create an overlap after
     // the axis passes. Nudge the player along the shallowest safe axis so
@@ -1011,7 +1059,19 @@ class Player extends Entity {
     }
   }
 
-  resolveVerticalSolids(solids, isPlatform) {
+  resolveVerticalSolids(solids, isPlatform, previousY = this.y) {
+    if (isPlatform) {
+      const sweptPlatform = findSweptVerticalCollision(this, previousY, solids);
+      if (sweptPlatform) {
+        this.y = sweptPlatform.y;
+        if (this.vy * this.gravitySign > 0) {
+          this.onSurface = true;
+          this.recordGroundedPlatform(sweptPlatform.solid);
+        }
+        this.vy = 0;
+      }
+    }
+
     for (const solid of solids) {
       if (!rectsOverlap(this, solid)) continue;
 
@@ -1026,6 +1086,14 @@ class Player extends Entity {
         this.y = solid.y - this.h;
       } else if (!isPlatform) {
         this.separateFromEnemyRect(solid);
+      } else {
+        const depth = intersectionDepth(this, solid);
+        if (depth.y <= 0) continue;
+        this.y += depth.signY * (depth.y + 0.1);
+        if (depth.signY === -this.gravitySign) {
+          this.onSurface = true;
+          this.recordGroundedPlatform(solid);
+        }
       }
       this.vy = 0;
     }

@@ -1105,6 +1105,37 @@ if (debug.player.x + debug.player.w > undersideSpike.x && debug.player.x < under
   throw new Error("Player was not pushed horizontally clear of the underside spike strip.");
 }
 
+// Collision regression: fast vertical movement must stop at the first platform
+// surface it crosses instead of tunneling/flipping to the opposite side between
+// frames. This covers both normal and inverted gravity landings on thin ledges.
+const thinLedge = debug.platforms[6];
+if (!thinLedge) throw new Error("Expected a thin ledge for swept platform collision regression.");
+for (const enemy of debug.enemies) {
+  enemy.hp = 0;
+  enemy.isDying = true;
+}
+debug.player.x = thinLedge.x + 24;
+debug.player.y = thinLedge.y - debug.constants.STAND_HEIGHT - 55;
+debug.player.h = debug.constants.STAND_HEIGHT;
+debug.player.gravitySign = 1;
+debug.player.vx = 0;
+debug.player.vy = 900;
+debug.player.onSurface = false;
+debug.player.isDying = false;
+debug.player.moveAndCollide(0.2);
+if (Math.abs(debug.player.y - (thinLedge.y - debug.player.h)) > 0.01 || !debug.player.onSurface) {
+  throw new Error("Fast downward player movement tunneled through a thin platform.");
+}
+debug.player.y = thinLedge.y + thinLedge.h + 25;
+debug.player.gravitySign = -1;
+debug.player.vx = 0;
+debug.player.vy = -900;
+debug.player.onSurface = false;
+debug.player.moveAndCollide(0.2);
+if (Math.abs(debug.player.y - (thinLedge.y + thinLedge.h)) > 0.01 || !debug.player.onSurface) {
+  throw new Error("Fast inverted-gravity player movement tunneled through a thin platform.");
+}
+
 // Regression: an enemy flipped into ceiling-attached spikes should dissolve via
 // its normal death state instead of landing safely on the ceiling platform.
 const walker = debug.enemies[0];
