@@ -173,6 +173,25 @@ const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
+const JUMP_INPUT_KEYS = ["w", "arrowup", "z", "k"];
+const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q", "z", "k"];
+const INPUT_CODE_ALIASES = new Map([
+  ["ArrowUp", "arrowup"],
+  ["ArrowDown", "arrowdown"],
+  ["ArrowLeft", "arrowleft"],
+  ["ArrowRight", "arrowright"],
+  ["KeyW", "w"],
+  ["KeyA", "a"],
+  ["KeyS", "s"],
+  ["KeyD", "d"],
+  ["KeyE", "e"],
+  ["KeyQ", "q"],
+  ["KeyZ", "z"],
+  ["KeyK", "k"],
+  ["ShiftLeft", "shift"],
+  ["ShiftRight", "shift"],
+  ["Space", " "]
+]);
 const pulses = [];
 const forcePulseVisuals = [];
 const droneProjectiles = [];
@@ -959,7 +978,7 @@ class Player extends Entity {
     if (input !== 0 && this.onSurface && this.isCrouching) this.crouchWalkTime += dt;
     else this.crouchWalkTime = 0;
 
-    if ((pressedThisFrame.has("w") || pressedThisFrame.has("arrowup")) && this.onSurface) {
+    if (wasAnyPressedThisFrame(JUMP_INPUT_KEYS) && this.onSurface) {
       this.vy = JUMP_VELOCITY * this.gravitySign;
       this.onSurface = false;
     }
@@ -6894,17 +6913,33 @@ function gameLoop(now) {
   requestAnimationFrame(gameLoop);
 }
 
+function getInputKeys(event) {
+  const inputKeys = new Set();
+  if (typeof event.key === "string" && event.key.length > 0) inputKeys.add(event.key.toLowerCase());
+  if (typeof event.code === "string" && INPUT_CODE_ALIASES.has(event.code)) {
+    inputKeys.add(INPUT_CODE_ALIASES.get(event.code));
+  }
+  return [...inputKeys];
+}
+
+function wasAnyPressedThisFrame(inputKeys) {
+  return inputKeys.some((key) => pressedThisFrame.has(key));
+}
+
 window.addEventListener("keydown", (event) => {
-  const key = event.key.toLowerCase();
-  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q"].includes(key)) event.preventDefault();
-  if (!keys.has(key)) pressedThisFrame.add(key);
-  keys.add(key);
+  const inputKeys = getInputKeys(event);
+  if (inputKeys.some((key) => RESERVED_INPUT_KEYS.includes(key))) event.preventDefault();
+  for (const key of inputKeys) {
+    if (!keys.has(key)) pressedThisFrame.add(key);
+    keys.add(key);
+  }
 });
 
 window.addEventListener("keyup", (event) => {
-  const key = event.key.toLowerCase();
-  keys.delete(key);
-  if (key === "e") eReleasedThisFrame = true;
+  for (const key of getInputKeys(event)) {
+    keys.delete(key);
+    if (key === "e") eReleasedThisFrame = true;
+  }
 });
 
 canvas.addEventListener("pointermove", (event) => {

@@ -99,9 +99,33 @@ function dispatch(type, event) {
   for (const listener of listeners) listener(event);
 }
 
-function keyEvent(key) {
-  return { key, preventDefault: noop };
+function keyEvent(key, code = "") {
+  return { key, code, preventDefault: noop };
 }
+
+// Jump input regression: some keyboards ghost Up Arrow while holding Right and
+// Shift, so the game keeps additional keyboard-matrix-friendly jump aliases.
+debug.player.x = 120;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.gravitySign = 1;
+debug.player.onSurface = true;
+dispatch("keydown", keyEvent("ArrowRight", "ArrowRight"));
+dispatch("keydown", keyEvent("Shift", "ShiftLeft"));
+dispatch("keydown", keyEvent("z", "KeyZ"));
+debug.update(16 / 1000);
+if (debug.player.onSurface || debug.player.vy >= -300) {
+  throw new Error("Alternate jump key did not work while holding Right Arrow and Shift.");
+}
+dispatch("keyup", keyEvent("z", "KeyZ"));
+dispatch("keyup", keyEvent("Shift", "ShiftLeft"));
+dispatch("keyup", keyEvent("ArrowRight", "ArrowRight"));
+debug.player.x = 120;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = true;
 
 // Ability UI/input regression: tapping E activates the selected Gravity Field
 // through the ability system, starts its timed active window, and delays
