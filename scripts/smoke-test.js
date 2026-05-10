@@ -300,6 +300,9 @@ if (linkA.hp !== 1 || linkB.hp !== 1 || linkC.hp !== 1) {
 if (linkA.adaptationStages.energy_link !== 1 || linkB.adaptationStages.energy_link !== 1 || linkC.adaptationStages.energy_link !== 1) {
   throw new Error("Energy Link did not record exactly one adaptation stage on each linked target.");
 }
+if (linkA.lastAdaptedAbility !== "energy_link" || linkB.lastAdaptedAbility !== "energy_link" || linkC.lastAdaptedAbility !== "energy_link") {
+  throw new Error("Energy Link adaptation did not become the active adaptation marker/glow source.");
+}
 linkA.hp = 2;
 linkB.hp = 2;
 linkC.hp = 2;
@@ -950,12 +953,13 @@ if (debug.player.hp !== 3) {
 context.calls = [];
 debug.player.gravitySign = 1;
 debug.player.draw();
-if (context.calls.some((call) => call.name === "fill")) {
-  throw new Error("Phased player drew filled body interiors instead of outlines only.");
+const phaseFillCalls = context.calls.filter((call) => call.name === "fill");
+if (phaseFillCalls.length < 2) {
+  throw new Error("Phased player did not draw the new semi-transparent violet body fill.");
 }
 const phaseStrokeCalls = context.calls.filter((call) => call.name === "stroke");
 if (phaseStrokeCalls.length < 5) {
-  throw new Error("Phased player did not draw enough outline strokes for body and limbs.");
+  throw new Error("Phased player did not draw enough violet outline strokes for body and limbs.");
 }
 if (!debug.activateSelectedAbility() || debug.isPlayerPhased()) {
   throw new Error("Phase Shift did not manually cancel when selected and tapped again.");
