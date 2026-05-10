@@ -21,6 +21,12 @@ const JUMP_VELOCITY = config.jumpVelocity ?? -460;
 const MAX_FALL_SPEED = config.maxFallSpeed ?? 900;
 const WALK_SPEED = config.walkSpeed ?? 230;
 const RUN_SPEED = config.runSpeed ?? 340;
+const MAX_STAMINA = config.maxStamina ?? 100;
+const SPRINT_STAMINA_DRAIN_RATE = config.sprintStaminaDrainRate ?? 30;
+const SPRINT_STAMINA_REGEN_DELAY = config.sprintStaminaRegenDelay ?? 0.4;
+const SPRINT_STAMINA_REGEN_RATE = config.sprintStaminaRegenRate ?? 45;
+const SPRINT_STAMINA_RESTART_THRESHOLD = config.sprintStaminaRestartThreshold ?? 15;
+const STAMINA_BAR_FADE_SPEED = 7;
 const CROUCH_SPEED = config.crouchSpeed ?? WALK_SPEED * 0.52;
 const PLAYER_WIDTH = config.playerWidth ?? 24;
 const CROUCH_HEIGHT = config.crouchHeight ?? 34;
@@ -894,6 +900,9 @@ class Player extends Entity {
     this.damageTimer = 0;
     this.isCrouching = false;
     this.isRunning = false;
+    this.stamina = MAX_STAMINA;
+    this.staminaRegenDelayTimer = 0;
+    this.staminaBarAlpha = 0;
     this.animTime = 0;
     this.walkTime = 0;
     this.crouchWalkTime = 0;
@@ -940,7 +949,7 @@ class Player extends Entity {
     this.updateCrouchShape(dt);
 
     // Held crouch has priority over sprinting and uses a slower, careful speed.
-    this.isRunning = runHeld && input !== 0 && !this.isCrouching && !wantsGroundCrouch;
+    this.updateSprintStamina(dt, runHeld && input !== 0 && !this.isCrouching && !wantsGroundCrouch);
     const inputSpeed = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
     this.vx = inputSpeed;
     if (this.recoilTimer > 0) {
@@ -1133,6 +1142,38 @@ class Player extends Entity {
     this.y += depth.signY * (depth.y + 0.1);
     if (depth.signY === -this.gravitySign) this.onSurface = true;
     this.vy = 0;
+  }
+
+  updateSprintStamina(dt, wantsSprint) {
+    const wasRunning = this.isRunning;
+    const hasEnoughStamina = wasRunning
+      ? this.stamina > 0
+      : this.stamina >= SPRINT_STAMINA_RESTART_THRESHOLD;
+
+    this.isRunning = wantsSprint && hasEnoughStamina;
+
+    if (this.isRunning) {
+      this.stamina = Math.max(0, this.stamina - SPRINT_STAMINA_DRAIN_RATE * dt);
+      this.staminaRegenDelayTimer = SPRINT_STAMINA_REGEN_DELAY;
+      if (this.stamina <= 0) this.isRunning = false;
+    }
+
+    if (!this.isRunning) {
+      const stoppedThisFrame = wasRunning;
+      if (stoppedThisFrame) this.staminaRegenDelayTimer = SPRINT_STAMINA_REGEN_DELAY;
+      if (!stoppedThisFrame && this.staminaRegenDelayTimer > 0) {
+        this.staminaRegenDelayTimer = Math.max(0, this.staminaRegenDelayTimer - dt);
+      } else if (!stoppedThisFrame) {
+        this.stamina = Math.min(MAX_STAMINA, this.stamina + SPRINT_STAMINA_REGEN_RATE * dt);
+      }
+    }
+
+    const staminaIsRelevant = this.isRunning || this.stamina < MAX_STAMINA;
+    const targetAlpha = staminaIsRelevant ? 1 : 0;
+    const alphaStep = STAMINA_BAR_FADE_SPEED * dt;
+    this.staminaBarAlpha = targetAlpha > this.staminaBarAlpha
+      ? Math.min(targetAlpha, this.staminaBarAlpha + alphaStep)
+      : Math.max(targetAlpha, this.staminaBarAlpha - alphaStep);
   }
 
   flipGravity(castId) {
@@ -1476,6 +1517,7 @@ class Player extends Entity {
     this.gravityFlipVisualFromSign = this.gravitySign;
     this.gravityFlipVisualToSign = this.gravitySign;
     this.isCrouching = false;
+    this.isRunning = false;
     this.h = STAND_HEIGHT;
     this.fallPoseBlend = 0;
     this.landTimer = 0;
@@ -2469,6 +2511,7 @@ class Player extends Entity {
 
     ctx.restore();
     drawGravityMarker(this);
+    drawStaminaBar(this);
   }
 }
 
@@ -6619,6 +6662,27 @@ function getHudPlacement(width, height) {
   return placement;
 }
 
+function drawStaminaBar(target) {
+  const alpha = clamp(target.staminaBarAlpha ?? 0, 0, 1);
+  if (alpha <= 0.01) return;
+
+  const width = 36;
+  const height = 4;
+  const x = target.x + target.w / 2 - width / 2;
+  const y = target.gravitySign > 0 ? target.y - 11 : target.y + target.h + 7;
+  const fillWidth = width * clamp((target.stamina ?? 0) / MAX_STAMINA, 0, 1);
+
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.fillStyle = "rgba(4, 12, 22, 0.56)";
+  ctx.fillRect(x, y, width, height);
+  if (fillWidth > 0) {
+    ctx.fillStyle = "rgba(185, 244, 255, 0.92)";
+    ctx.fillRect(x, y, fillWidth, height);
+  }
+  ctx.restore();
+}
+
 function drawHud() {
   const maxHp = Math.max(0, player.maxHp ?? 3);
   const currentHp = clamp(player.hp, 0, maxHp);
@@ -6975,7 +7039,7 @@ window.__indiePlatformerDebug = {
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
