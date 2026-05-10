@@ -543,68 +543,15 @@ function getLastAdaptationVisual(enemy) {
   return { abilityKey, stage, colors, level: ADAPTATION_GLOW_LEVELS[stage] ?? ADAPTATION_GLOW_LEVELS[0] };
 }
 
-function drawAdaptationGlow(enemy, rx, ry) {
+function applyAdaptationBodyGlow(enemy, extraBlur = 0) {
   const visual = getLastAdaptationVisual(enemy);
-  if (!visual) return;
+  if (!visual) return null;
 
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.lineJoin = "miter";
-  ctx.lineCap = "round";
-  ctx.shadowColor = rgbaFromComponents(visual.colors.core, visual.level.alpha + 0.1);
-  ctx.shadowBlur = visual.level.blur;
-  ctx.strokeStyle = rgbaFromComponents(visual.colors.core, visual.level.alpha);
-  ctx.lineWidth = 2 + visual.stage * 0.45;
-  ctx.beginPath();
-  ctx.moveTo(0, -ry);
-  ctx.lineTo(rx, 0);
-  ctx.lineTo(0, ry);
-  ctx.lineTo(-rx, 0);
-  ctx.closePath();
-  ctx.stroke();
-
-  if (visual.stage >= 3) {
-    ctx.shadowBlur = 5;
-    ctx.strokeStyle = rgbaFromComponents(visual.colors.edge, visual.level.edgeAlpha);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawAdaptationMarker(enemy, visualTopY = enemy.y) {
-  const visual = getLastAdaptationVisual(enemy);
-  if (!visual) return;
-
-  const cx = enemy.x + enemy.w / 2;
-  const y = visualTopY - GRAVITY_MARKER_GAP - GRAVITY_MARKER_HEIGHT - (enemy.gravitySign === -1 ? 13 : 0);
-  const size = 4.5 + visual.stage * 0.75;
-  ctx.save();
-  ctx.lineJoin = "miter";
-  ctx.shadowColor = rgbaFromComponents(visual.colors.core, 0.55);
-  ctx.shadowBlur = 5 + visual.stage * 1.5;
-  ctx.fillStyle = rgbaFromComponents(visual.colors.core, 0.72);
-  ctx.strokeStyle = rgbaFromComponents(visual.colors.edge, 0.88);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(cx, y - size);
-  ctx.lineTo(cx + size, y);
-  ctx.lineTo(cx, y + size);
-  ctx.lineTo(cx - size, y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = rgbaFromComponents(visual.colors.edge, 0.95);
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  ctx.moveTo(cx - size * 0.45, y);
-  ctx.lineTo(cx + size * 0.45, y);
-  ctx.moveTo(cx, y - size * 0.45);
-  ctx.lineTo(cx, y + size * 0.45);
-  ctx.stroke();
-  ctx.restore();
+  // Adaptation is communicated through the enemy body shadow, not a separate
+  // colored badge or outline, so the whole enemy glows with the last adapted ability.
+  ctx.shadowColor = rgbaFromComponents(visual.colors.core, Math.min(0.72, visual.level.edgeAlpha + 0.24));
+  ctx.shadowBlur = visual.level.blur + 5 + extraBlur;
+  return visual;
 }
 
 function getTimeSlowStageScale(stage) {
@@ -2956,9 +2903,8 @@ class Enemy extends Entity {
     }
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
-    drawAdaptationGlow(this, 31, 29);
+    applyAdaptationBodyGlow(this, hitFlash * 4);
     if (this.anchorLocked) drawAnchorTargetGlow(28, 28);
-    ctx.shadowBlur = 0;
     ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_PLATE_STROKE;
     ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : WALKER_PLATE_FILL;
     ctx.lineWidth = 1.8;
@@ -3018,7 +2964,6 @@ class Enemy extends Entity {
 
     ctx.restore();
     const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
-    drawAdaptationMarker(this, walkerVisualTopY);
     drawGravityMarker(this, walkerVisualTopY);
   }
 }
@@ -3662,14 +3607,14 @@ class Drone extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
-    drawAdaptationGlow(this, 29, 27);
     if (this.anchorLocked) drawAnchorTargetGlow(30, 28);
-    ctx.shadowColor = this.anchorLocked ? ANCHOR_SILVER_SHADOW : "rgba(255, 168, 35, 0.35)";
-    ctx.shadowBlur = (this.anchorLocked ? 10 : 4) + charge * 7 + hitFlash * 5;
+    if (!applyAdaptationBodyGlow(this, charge * 5 + hitFlash * 4)) {
+      ctx.shadowColor = this.anchorLocked ? ANCHOR_SILVER_SHADOW : "rgba(255, 168, 35, 0.35)";
+      ctx.shadowBlur = (this.anchorLocked ? 10 : 4) + charge * 7 + hitFlash * 5;
+    }
     this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
     ctx.restore();
     const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
-    drawAdaptationMarker(this, droneBodyTopY);
     drawGravityMarker(this, droneBodyTopY);
   }
 }
@@ -4310,12 +4255,11 @@ class Jumper extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
-    drawAdaptationGlow(this, 27, 31);
+    applyAdaptationBodyGlow(this, hitFlash * 4);
     this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag);
     ctx.restore();
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
-    drawAdaptationMarker(this, visualTopY);
     drawGravityMarker(this, visualTopY);
   }
 }
