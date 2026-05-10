@@ -4581,6 +4581,11 @@ function isEnergyLinked(enemy) {
   return getActiveEnergyLinkTargets().includes(enemy);
 }
 
+function getEnergyLinkSharedAbilityTargets(enemy) {
+  if (!isEnergyLinked(enemy)) return [enemy].filter(isValidEnergyLinkTarget);
+  return getActiveEnergyLinkTargets();
+}
+
 function clearPendingEnergyLink() {
   // Energy Link now casts immediately as a player-centered field. Keep this
   // helper as a no-op so ability switching paths can clear older pending state.
@@ -5213,14 +5218,22 @@ function activateGravityField() {
   startTimedAbility(ability);
 
   const origin = centerOf(player);
+  const affectedEntities = new Set();
+  if (distance(origin, centerOf(player)) <= GRAVITY_FIELD_RADIUS) affectedEntities.add(player);
+
   // The player can still cast while Anchor Field is active, but captured enemies
-  // are excluded so Gravity Field does not change their locked state.
-  const candidates = [player, ...enemies.filter((enemy) => enemy.hp > 0 && !enemy.anchorLocked)];
-  for (const entity of candidates) {
-    if (distance(origin, centerOf(entity)) <= GRAVITY_FIELD_RADIUS) {
-      entity.flipGravity(gravityCastId);
-      activeGravityEntities.add(entity);
-    }
+  // are excluded so Gravity Field does not change their locked state. Linked
+  // enemies share ability effects, so one linked enemy in range pulls every
+  // still-valid endpoint into the same gravity flip snapshot.
+  for (const enemy of enemies) {
+    if (!isValidEnergyLinkTarget(enemy)) continue;
+    if (distance(origin, centerOf(enemy)) > GRAVITY_FIELD_RADIUS) continue;
+    for (const linkedTarget of getEnergyLinkSharedAbilityTargets(enemy)) affectedEntities.add(linkedTarget);
+  }
+
+  for (const entity of affectedEntities) {
+    entity.flipGravity(gravityCastId);
+    activeGravityEntities.add(entity);
   }
   return true;
 }
@@ -5244,7 +5257,10 @@ function isPointInsideTimeSlow(point) {
 
 function getTimeSlowScaleForTarget(target) {
   if (!timeSlowActive || !target || target.anchorLocked) return 1;
-  return isPointInsideTimeSlow(centerOf(target)) ? TIME_SLOW_MULTIPLIER : 1;
+
+  const sharedTargets = getEnergyLinkSharedAbilityTargets(target);
+  const isSlowed = sharedTargets.some((sharedTarget) => isPointInsideTimeSlow(centerOf(sharedTarget)));
+  return isSlowed ? TIME_SLOW_MULTIPLIER : 1;
 }
 
 function getTimeSlowScaleForPoint(x, y) {
