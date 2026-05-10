@@ -463,6 +463,20 @@ const FORCE_PULSE_ADAPTATION_MULTIPLIERS = [1, 0.8, 0.6, 0.4];
 const GRAVITY_ADAPTATION_DURATION_MULTIPLIERS = [1, 0.9, 0.78, 0.62];
 const ANCHOR_ADAPTATION_DURATION_MULTIPLIERS = [1, 1, 0.75, 0.5];
 const ENERGY_LINK_ADAPTATION_TRANSFER_MULTIPLIERS = [1, 0.75, 0.5, 0.3];
+const ADAPTATION_VISUALS = {
+  gravity: { core: [124, 205, 255], edge: [190, 235, 255] },
+  force_pulse: { core: [255, 64, 89], edge: [255, 174, 184] },
+  time_slow: { core: [72, 216, 255], edge: [174, 244, 255] },
+  phase_shift: { core: [157, 93, 255], edge: [221, 196, 255] },
+  anchor_field: { core: [174, 224, 235], edge: [238, 252, 255] },
+  energy_link: { core: [255, 236, 84], edge: [255, 252, 190] }
+};
+const ADAPTATION_GLOW_LEVELS = [
+  { blur: 0, alpha: 0, edgeAlpha: 0 },
+  { blur: 7, alpha: 0.12, edgeAlpha: 0.18 },
+  { blur: 11, alpha: 0.2, edgeAlpha: 0.28 },
+  { blur: 15, alpha: 0.28, edgeAlpha: 0.38 }
+];
 
 function createAdaptationState() {
   return Object.fromEntries(ADAPTATION_ABILITIES.map((ability) => [ability, 0]));
@@ -496,6 +510,7 @@ function resetEnemyAdaptation(enemy) {
   enemy.phaseAwarenessPoint = null;
   enemy.timeSlowCastId = 0;
   enemy.timeSlowCastScale = null;
+  enemy.lastAdaptedAbility = null;
 }
 
 function recordAdaptationExposure(enemy, abilityKey, castId) {
@@ -511,7 +526,85 @@ function recordAdaptationExposure(enemy, abilityKey, castId) {
     enemy.adaptationStages[abilityKey] = nextStage;
     if (ADAPTATION_DEBUG_LOGS) console.debug?.(`${getEnemyKind(enemy)} adapted to ${abilityKey}: Stage ${nextStage}`);
   }
+  if (nextStage > 0) enemy.lastAdaptedAbility = abilityKey;
   return nextStage;
+}
+
+function rgbaFromComponents(components, alpha) {
+  return `rgba(${components[0]}, ${components[1]}, ${components[2]}, ${alpha})`;
+}
+
+function getLastAdaptationVisual(enemy) {
+  const abilityKey = enemy?.lastAdaptedAbility;
+  const stage = getAdaptationStage(enemy, abilityKey);
+  if (!abilityKey || stage <= 0) return null;
+  const colors = ADAPTATION_VISUALS[abilityKey];
+  if (!colors) return null;
+  return { abilityKey, stage, colors, level: ADAPTATION_GLOW_LEVELS[stage] ?? ADAPTATION_GLOW_LEVELS[0] };
+}
+
+function drawAdaptationGlow(enemy, rx, ry) {
+  const visual = getLastAdaptationVisual(enemy);
+  if (!visual) return;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineJoin = "miter";
+  ctx.lineCap = "round";
+  ctx.shadowColor = rgbaFromComponents(visual.colors.core, visual.level.alpha + 0.1);
+  ctx.shadowBlur = visual.level.blur;
+  ctx.strokeStyle = rgbaFromComponents(visual.colors.core, visual.level.alpha);
+  ctx.lineWidth = 2 + visual.stage * 0.45;
+  ctx.beginPath();
+  ctx.moveTo(0, -ry);
+  ctx.lineTo(rx, 0);
+  ctx.lineTo(0, ry);
+  ctx.lineTo(-rx, 0);
+  ctx.closePath();
+  ctx.stroke();
+
+  if (visual.stage >= 3) {
+    ctx.shadowBlur = 5;
+    ctx.strokeStyle = rgbaFromComponents(visual.colors.edge, visual.level.edgeAlpha);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawAdaptationMarker(enemy, visualTopY = enemy.y) {
+  const visual = getLastAdaptationVisual(enemy);
+  if (!visual) return;
+
+  const cx = enemy.x + enemy.w / 2;
+  const y = visualTopY - GRAVITY_MARKER_GAP - GRAVITY_MARKER_HEIGHT - (enemy.gravitySign === -1 ? 13 : 0);
+  const size = 4.5 + visual.stage * 0.75;
+  ctx.save();
+  ctx.lineJoin = "miter";
+  ctx.shadowColor = rgbaFromComponents(visual.colors.core, 0.55);
+  ctx.shadowBlur = 5 + visual.stage * 1.5;
+  ctx.fillStyle = rgbaFromComponents(visual.colors.core, 0.72);
+  ctx.strokeStyle = rgbaFromComponents(visual.colors.edge, 0.88);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, y - size);
+  ctx.lineTo(cx + size, y);
+  ctx.lineTo(cx, y + size);
+  ctx.lineTo(cx - size, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = rgbaFromComponents(visual.colors.edge, 0.95);
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx - size * 0.45, y);
+  ctx.lineTo(cx + size * 0.45, y);
+  ctx.moveTo(cx, y - size * 0.45);
+  ctx.lineTo(cx, y + size * 0.45);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function getTimeSlowStageScale(stage) {
@@ -570,6 +663,7 @@ class Entity {
     this.phaseAwarenessPoint = null;
     this.adaptationStages = createAdaptationState();
     this.adaptationExposures = createAdaptationExposureState();
+    this.lastAdaptedAbility = null;
   }
 
   applyGravity(dt) {
@@ -1542,14 +1636,16 @@ class Player extends Entity {
     ctx.save();
     if (this.damageTimer > 0 && Math.floor(this.damageTimer * 18) % 2 === 0) ctx.globalAlpha = 0.62;
     const phased = isPlayerPhased();
+    const phaseBodyVisible = phased;
     const phaseSnap = clamp(this.phaseFlickerTimer / PHASE_SHIFT_FLICKER_DURATION, 0, 1);
     const phaseEdgePulse = 0.5 + 0.5 * Math.sin(this.animTime * 18);
     if (phased) {
-      // Phase Shift removes the character interior entirely; keep only a
-      // readable spectral outline so the active state feels hollow.
-      outline = "rgba(5, 37, 105, 0.96)";
-      glow = "rgba(5, 30, 92, 0.38)";
-      ctx.globalAlpha *= 0.62 + phaseEdgePulse * 0.08;
+      // Phase Shift now keeps a readable, semi-transparent violet body; cyan is
+      // reserved for tiny glitch highlights so it does not read as Time Slow.
+      outline = "rgba(154, 95, 255, 0.98)";
+      fill = "rgba(203, 176, 255, 0.5)";
+      glow = "rgba(157, 93, 255, 0.48)";
+      ctx.globalAlpha *= 0.68 + phaseEdgePulse * 0.08;
     } else if (phaseSnap > 0) ctx.globalAlpha *= 0.82 + phaseEdgePulse * 0.06;
     ctx.translate(baseX, originY);
     ctx.scale(facing * visualScale, verticalFlip * scaleY);
@@ -1566,14 +1662,14 @@ class Player extends Entity {
     }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.shadowColor = phased ? "rgba(5, 37, 105, 0.5)" : glow;
-    ctx.shadowBlur = phased ? 12 : 10;
+    ctx.shadowColor = phased ? "rgba(157, 93, 255, 0.58)" : glow;
+    ctx.shadowBlur = phased ? 13 : 10;
 
-    if (!phased && phaseSnap > 0) {
-      const snapBoost = phaseSnap * phaseSnap;
+    if (phased || phaseSnap > 0) {
+      const snapBoost = phased ? 1 : phaseSnap * phaseSnap;
       ctx.save();
-      ctx.globalAlpha *= 0.18 + snapBoost * 0.18;
-      ctx.strokeStyle = "rgba(190, 248, 255, 0.86)";
+      ctx.globalAlpha *= phased ? 0.16 : 0.18 + snapBoost * 0.18;
+      ctx.strokeStyle = phased ? "rgba(190, 248, 255, 0.58)" : "rgba(190, 248, 255, 0.86)";
       ctx.lineWidth = 0.9;
       // Three calm scanline fragments suggest desynchronization without noise.
       for (let i = 0; i < 3; i += 1) {
@@ -1637,6 +1733,12 @@ class Player extends Entity {
 
       if (phased) {
         drawHollowPhaseLimb();
+        ctx.strokeStyle = fill;
+        ctx.lineWidth = fillWidth * 0.72;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+        ctx.stroke();
         return;
       }
 
@@ -1673,7 +1775,7 @@ class Player extends Entity {
       ctx.quadraticCurveTo(rx, -ry, 0, -ry);
       ctx.quadraticCurveTo(-rx, -ry, -rx, -sideHalf);
       ctx.closePath();
-      if (!phased) ctx.fill();
+      if (!phased || phaseBodyVisible) ctx.fill();
       ctx.stroke();
       ctx.restore();
     }
@@ -2281,13 +2383,13 @@ class Player extends Entity {
       ctx.restore();
     }
 
-    if (!phased && phaseSnap > 0) {
-      const snapBoost = phaseSnap * phaseSnap;
+    if (phased || phaseSnap > 0) {
+      const snapBoost = phased ? 1 : phaseSnap * phaseSnap;
       const pulseOffset = Math.sin(this.animTime * 10) * 0.35;
-      const cyanOffset = 2.4 + pulseOffset + snapBoost * 2.2;
-      const violetOffset = -2.1 + pulseOffset * 0.5 - snapBoost * 1.7;
-      drawPhaseGhostSilhouette(cyanOffset, "rgba(169, 244, 255, 0.92)", 0.22 * snapBoost);
-      drawPhaseGhostSilhouette(violetOffset, "rgba(137, 111, 255, 0.88)", 0.18 * snapBoost);
+      const violetOffset = -2.4 + pulseOffset * 0.5 - snapBoost * 1.6;
+      const paleOffset = 2.2 + pulseOffset + snapBoost * 1.5;
+      drawPhaseGhostSilhouette(violetOffset, "rgba(150, 89, 255, 0.9)", (phased ? 0.2 : 0.2 * snapBoost));
+      drawPhaseGhostSilhouette(paleOffset, "rgba(208, 184, 255, 0.86)", (phased ? 0.13 : 0.16 * snapBoost));
     }
 
     strokeLimb(pose.farLeg, 2.8);
@@ -2319,14 +2421,14 @@ class Player extends Entity {
     ctx.lineWidth = characterOutlineWidth;
     ctx.beginPath();
     ctx.arc(pose.head.x, pose.head.y, pose.head.r, 0, Math.PI * 2);
-    if (!phased) ctx.fill();
+    if (!phased || phaseBodyVisible) ctx.fill();
     ctx.stroke();
 
-    if (!phased && phaseSnap > 0) {
+    if (phased || phaseSnap > 0) {
       ctx.save();
-      const snapBoost = phaseSnap * phaseSnap;
-      ctx.globalAlpha *= snapBoost * 0.28;
-      ctx.strokeStyle = "rgba(202, 251, 255, 0.78)";
+      const snapBoost = phased ? 1 : phaseSnap * phaseSnap;
+      ctx.globalAlpha *= phased ? 0.18 : snapBoost * 0.28;
+      ctx.strokeStyle = phased ? "rgba(184, 247, 255, 0.62)" : "rgba(185, 126, 255, 0.78)";
       ctx.lineWidth = 0.9;
       ctx.beginPath();
       ctx.moveTo(-6.7 + snapBoost * 1.2, pose.head.y - pose.head.r * 0.4);
@@ -2335,7 +2437,7 @@ class Player extends Entity {
       ctx.lineTo(4.9 - snapBoost, pose.torso.y + pose.torso.ry);
       ctx.stroke();
 
-      ctx.fillStyle = "rgba(190, 248, 255, 0.82)";
+      ctx.fillStyle = phased ? "rgba(184, 247, 255, 0.64)" : "rgba(204, 172, 255, 0.82)";
       const fragments = [
         { y: 9.5, w: 7.4, h: 1.1, dx: 2.4 + snapBoost * 1.8 },
         { y: 22.5, w: 9.2, h: 1.25, dx: -1.4 - snapBoost * 1.1 },
@@ -2854,6 +2956,7 @@ class Enemy extends Entity {
     }
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
+    drawAdaptationGlow(this, 31, 29);
     if (this.anchorLocked) drawAnchorTargetGlow(28, 28);
     ctx.shadowBlur = 0;
     ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_PLATE_STROKE;
@@ -2915,6 +3018,7 @@ class Enemy extends Entity {
 
     ctx.restore();
     const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
+    drawAdaptationMarker(this, walkerVisualTopY);
     drawGravityMarker(this, walkerVisualTopY);
   }
 }
@@ -3558,12 +3662,14 @@ class Drone extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
+    drawAdaptationGlow(this, 29, 27);
     if (this.anchorLocked) drawAnchorTargetGlow(30, 28);
     ctx.shadowColor = this.anchorLocked ? ANCHOR_SILVER_SHADOW : "rgba(255, 168, 35, 0.35)";
     ctx.shadowBlur = (this.anchorLocked ? 10 : 4) + charge * 7 + hitFlash * 5;
     this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
     ctx.restore();
     const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
+    drawAdaptationMarker(this, droneBodyTopY);
     drawGravityMarker(this, droneBodyTopY);
   }
 }
@@ -4204,10 +4310,12 @@ class Jumper extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
+    drawAdaptationGlow(this, 27, 31);
     this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag);
     ctx.restore();
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
+    drawAdaptationMarker(this, visualTopY);
     drawGravityMarker(this, visualTopY);
   }
 }
@@ -6242,8 +6350,8 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
       ctx.closePath();
     }
 
-    ctx.shadowColor = "rgba(151, 238, 255, 0.5)";
-    ctx.shadowBlur = size * 0.13;
+    ctx.shadowColor = "rgba(157, 93, 255, 0.54)";
+    ctx.shadowBlur = size * 0.15;
 
     // Phase Shift reads as a split figure: solid left side, displaced translucent
     // right side. The head mirrors the body's half-phased treatment.
@@ -6251,19 +6359,19 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     ctx.save();
     tracePhaseCapsule();
     ctx.clip();
-    ctx.fillStyle = "rgba(162, 239, 255, 0.96)";
+    ctx.fillStyle = "rgba(139, 92, 255, 0.96)";
     ctx.fillRect(-bodyR, bodyTop, bodyR, bodyH);
     ctx.restore();
 
     ctx.save();
     tracePhaseHead();
     ctx.clip();
-    ctx.fillStyle = "rgba(162, 239, 255, 0.96)";
+    ctx.fillStyle = "rgba(139, 92, 255, 0.96)";
     ctx.fillRect(-headR, headY - headR, headR, headR * 2);
     ctx.restore();
 
     ctx.globalAlpha *= 0.72;
-    ctx.fillStyle = "rgba(139, 112, 255, 0.76)";
+    ctx.fillStyle = "rgba(190, 151, 255, 0.78)";
     const bodyFragments = [
       { y: bodyTop + size * 0.05, h: size * 0.1, dx: size * 0.045 },
       { y: bodyCenterY - size * 0.045, h: size * 0.13, dx: size * 0.1 },
@@ -6290,14 +6398,14 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
     }
 
     ctx.globalAlpha /= 0.72;
-    ctx.strokeStyle = "rgba(215, 253, 255, 0.86)";
+    ctx.strokeStyle = "rgba(225, 204, 255, 0.88)";
     ctx.lineWidth = Math.max(1.1, size * 0.038);
     tracePhaseCapsule();
     ctx.stroke();
     tracePhaseHead();
     ctx.stroke();
 
-    ctx.strokeStyle = "rgba(132, 103, 255, 0.82)";
+    ctx.strokeStyle = "rgba(184, 247, 255, 0.78)";
     ctx.lineWidth = Math.max(1, size * 0.032);
     ctx.beginPath();
     ctx.moveTo(0, headY - headR * 0.76);
