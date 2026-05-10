@@ -1060,7 +1060,7 @@ class Player extends Entity {
 
   beginDeath(source = null) {
     if (this.isDying) return;
-    if (phaseShiftActive) forceEndPhaseShift(false);
+    negateActiveAbilityEffects();
     this.hp = 0;
     this.isDying = true;
     this.deathTimer = 0;
@@ -1222,8 +1222,7 @@ class Player extends Entity {
   }
 
   fullRespawn() {
-    resetGravityField(true);
-    if (phaseShiftActive) forceEndPhaseShift(false);
+    negateActiveAbilityEffects();
     this.hp = this.maxHp;
     this.damageTimer = 0;
     this.placeAt(checkpoint.x, checkpoint.y);
@@ -5117,6 +5116,32 @@ function startTimedAbility(ability) {
   ability.readyPulseTimer = 0;
 }
 
+function negateActiveAbilityEffects() {
+  // Death is a hard fail state: clear every active ability effect immediately
+  // without turning that forced cancel into a player-triggered cooldown.
+  resetGravityField(true, false);
+
+  if (timeSlowActive || (getAbilityById("time")?.activeRemaining ?? 0) > 0) {
+    endTimeSlow(false);
+    timeSlowFadeTimer = 0;
+  }
+
+  if (phaseShiftActive || (getAbilityById("phase")?.activeRemaining ?? 0) > 0) {
+    forceEndPhaseShift(false);
+    player.phaseFlickerTimer = 0;
+  }
+
+  if (anchorFieldActive || (getAbilityById("anchor")?.activeRemaining ?? 0) > 0) {
+    endAnchorField(false);
+    anchorFieldFade = null;
+  }
+
+  if (energyLink?.active || (getAbilityById("link")?.activeRemaining ?? 0) > 0) {
+    endEnergyLink(false);
+    energyLinkFade = null;
+  }
+}
+
 function exposeEnemiesToPhaseShift() {
   if (!phaseShiftActive) return;
   const playerCenter = centerOf(player);
@@ -6635,6 +6660,16 @@ window.__indiePlatformerDebug = {
     targets: energyLink?.targets ?? [],
     pending: null,
     pendingTime: 0
+  }),
+  getActiveAbilityEffectState: () => ({
+    gravityFieldActive,
+    timeSlowActive,
+    phaseShiftActive,
+    anchorFieldActive,
+    energyLinkActive: Boolean(energyLink?.active),
+    timeSlowFadeActive: timeSlowFadeTimer > 0,
+    anchorFieldFadeActive: Boolean(anchorFieldFade),
+    energyLinkFadeActive: Boolean(energyLinkFade)
   }),
   checkpoint,
   safeAnchor,
