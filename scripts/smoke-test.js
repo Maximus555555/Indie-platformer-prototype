@@ -316,6 +316,62 @@ if (!debug.activateSelectedAbility()) throw new Error("Force Pulse did not activ
 if (linkA.vx <= 300 || linkB.vx <= 300 || linkC.vx <= 300) {
   throw new Error(`Energy Link did not transfer full Force Pulse knockback to all linked enemies; got ${linkA.vx}, ${linkB.vx}, and ${linkC.vx}.`);
 }
+
+// Linked enemies share other ability effects too: if one linked enemy is caught
+// by Gravity Field or Time Slow, every valid endpoint should be affected.
+for (const enemy of [linkA, linkB, linkC]) {
+  enemy.gravitySign = 1;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.forcePulseStunTimer = 0;
+  enemy.lastGravityCastId = 0;
+  enemy.idleTimer = 0;
+}
+debug.player.x = 500;
+debug.player.y = 420;
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 1060;
+linkB.y = 435;
+linkC.x = 1150;
+linkC.y = 435;
+gravityAbility.cooldownRemaining = 0;
+gravityAbility.activeRemaining = 0;
+debug.setSelectedAbility("gravity");
+if (!debug.activateSelectedAbility()) throw new Error("Gravity Field did not activate for Energy Link gravity propagation regression.");
+if (linkA.gravitySign !== -1 || linkB.gravitySign !== -1 || linkC.gravitySign !== -1) {
+  throw new Error(`Energy Link did not propagate Gravity Field to all linked enemies; got ${linkA.gravitySign}, ${linkB.gravitySign}, and ${linkC.gravitySign}.`);
+}
+if (!debug.activateSelectedAbility()) throw new Error("Gravity Field did not cancel after Energy Link gravity propagation regression.");
+if (linkA.gravitySign !== 1 || linkB.gravitySign !== 1 || linkC.gravitySign !== 1) {
+  throw new Error("Gravity Field cancellation did not restore all linked enemies affected through Energy Link.");
+}
+gravityAbility.cooldownRemaining = 0;
+gravityAbility.activeRemaining = 0;
+
+const timeAbilityForLink = debug.abilities.find((ability) => ability.id === "time");
+if (!timeAbilityForLink) throw new Error("Expected Time Slow ability for Energy Link slow propagation regression.");
+timeAbilityForLink.cooldownRemaining = 0;
+timeAbilityForLink.activeRemaining = 0;
+for (const enemy of [linkA, linkB, linkC]) enemy.idleTimer = 0;
+debug.player.x = 500;
+debug.player.y = 420;
+linkA.x = 610;
+linkA.y = 435;
+linkB.x = 1060;
+linkB.y = 435;
+linkC.x = 1150;
+linkC.y = 435;
+if (!debug.activateTimeSlow()) throw new Error("Time Slow did not activate for Energy Link slow propagation regression.");
+debug.update(1);
+if (Math.abs(linkA.idleTimer - debug.constants.TIME_SLOW_MULTIPLIER) > 0.08
+  || Math.abs(linkB.idleTimer - debug.constants.TIME_SLOW_MULTIPLIER) > 0.08
+  || Math.abs(linkC.idleTimer - debug.constants.TIME_SLOW_MULTIPLIER) > 0.08) {
+  throw new Error(`Energy Link did not propagate Time Slow to all linked enemies; got idle timers ${linkA.idleTimer}, ${linkB.idleTimer}, and ${linkC.idleTimer}.`);
+}
+debug.endTimeSlow(false);
+timeAbilityForLink.cooldownRemaining = 0;
+timeAbilityForLink.activeRemaining = 0;
 forcePulseAbility.cooldownRemaining = 0;
 debug.setSelectedAbility("link");
 if (!debug.activateSelectedAbility()) throw new Error("Energy Link did not manually cancel when selected and active.");
