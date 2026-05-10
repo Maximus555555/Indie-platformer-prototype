@@ -127,6 +127,29 @@ debug.player.vx = 0;
 debug.player.vy = 0;
 debug.player.onSurface = true;
 
+// Focus-loss regression: browsers may not send keyup after tab switches. Held
+// movement and ability-wheel state should clear instead of staying stuck. Keep
+// this setup clear of dialogue triggers so the next ability-input checks run.
+debug.player.x = 20;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = true;
+dispatch("keydown", keyEvent("ArrowRight", "ArrowRight"));
+debug.update(16 / 1000);
+if (debug.player.vx <= 0) throw new Error("Right Arrow setup did not move the player before blur regression.");
+dispatch("blur", {});
+debug.update(16 / 1000);
+if (debug.player.vx !== 0) throw new Error("Blur did not clear held movement input.");
+debug.abilityWheel.open = true;
+dispatch("blur", {});
+if (debug.abilityWheel.open) throw new Error("Blur did not close the ability wheel without selecting.");
+debug.player.x = 120;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = true;
+
 // Ability UI/input regression: tapping E activates the selected Gravity Field
 // through the ability system, starts its timed active window, and delays
 // cooldown until the field ends or is cancelled.
