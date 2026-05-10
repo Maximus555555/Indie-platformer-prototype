@@ -95,7 +95,8 @@ const TIME_SLOW_FADE_DURATION = 0.22;
 const PHASE_SHIFT_DURATION = config.phaseShiftDuration ?? 1.75;
 const PHASE_SHIFT_COOLDOWN = config.phaseShiftCooldown ?? 6.0;
 const PHASE_SHIFT_FLICKER_DURATION = 0.16;
-const PHASE_SHIFT_EXPOSURE_RADIUS = 96;
+const PHASE_SHIFT_EXPOSURE_RADIUS = 200;
+const PHASE_SHIFT_EXPOSURE_MIN_TIME = 0.24;
 const ANCHOR_FIELD_RADIUS = config.anchorFieldRadius ?? 160;
 const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
 const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
@@ -182,6 +183,9 @@ let eReleasedThisFrame = false;
 let eWheelOpenedThisHold = false;
 let gravityCastId = 0;
 let forcePulseCastId = 0;
+let timeSlowCastId = 0;
+let anchorFieldCastId = 0;
+let energyLinkCastId = 0;
 let gravityFieldActive = false;
 let activeGravityEntities = new Set();
 let timeSlowActive = false;
@@ -450,6 +454,96 @@ function shortestAngleDelta(from, to) {
   return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
+
+const ADAPTATION_ABILITIES = ["gravity", "force_pulse", "time_slow", "phase_shift", "anchor_field", "energy_link"];
+const ADAPTATION_DEBUG_LOGS = Boolean(config.adaptationDebugLogs);
+const TIME_SLOW_STAGE_MULTIPLIERS = [TIME_SLOW_MULTIPLIER, 0.55, 0.7, 1];
+const TIME_SLOW_NORMAL_SPEED_MULTIPLIERS = [1, 1, 1.15, 1.3];
+const FORCE_PULSE_ADAPTATION_MULTIPLIERS = [1, 0.8, 0.6, 0.4];
+const GRAVITY_ADAPTATION_DURATION_MULTIPLIERS = [1, 0.9, 0.78, 0.62];
+const ANCHOR_ADAPTATION_DURATION_MULTIPLIERS = [1, 1, 0.75, 0.5];
+const ENERGY_LINK_ADAPTATION_TRANSFER_MULTIPLIERS = [1, 0.75, 0.5, 0.3];
+
+function createAdaptationState() {
+  return Object.fromEntries(ADAPTATION_ABILITIES.map((ability) => [ability, 0]));
+}
+
+function createAdaptationExposureState() {
+  return Object.fromEntries(ADAPTATION_ABILITIES.map((ability) => [ability, new Set()]));
+}
+
+function getEnemyKind(enemy) {
+  if (enemy instanceof Drone) return "Drone";
+  if (enemy instanceof Jumper) return "Jumper";
+  return "Walker";
+}
+
+function isAdaptableEnemy(enemy) {
+  return Boolean(enemy?.adaptationStages) && !(enemy instanceof Player) && enemy.hp > 0 && !enemy.isDying;
+}
+
+function getAdaptationStage(enemy, abilityKey) {
+  return enemy?.adaptationStages?.[abilityKey] ?? 0;
+}
+
+function resetEnemyAdaptation(enemy) {
+  if (!enemy?.adaptationStages) return;
+  enemy.adaptationStages = createAdaptationState();
+  enemy.adaptationExposures = createAdaptationExposureState();
+  enemy.latestAdaptation = null;
+  enemy.phaseExposureTimer = 0;
+  enemy.phaseExposureCastId = 0;
+  enemy.phaseAwarenessTimer = 0;
+  enemy.phaseAwarenessPoint = null;
+  enemy.timeSlowCastId = 0;
+  enemy.timeSlowCastScale = null;
+}
+
+function recordAdaptationExposure(enemy, abilityKey, castId) {
+  if (!isAdaptableEnemy(enemy) || !abilityKey || castId === undefined || castId === null) return getAdaptationStage(enemy, abilityKey);
+  const exposures = enemy.adaptationExposures?.[abilityKey];
+  if (!exposures) return getAdaptationStage(enemy, abilityKey);
+  if (exposures.has(castId)) return getAdaptationStage(enemy, abilityKey);
+
+  exposures.add(castId);
+  const currentStage = getAdaptationStage(enemy, abilityKey);
+  const nextStage = Math.min(3, currentStage + 1);
+  if (nextStage !== currentStage) {
+    enemy.adaptationStages[abilityKey] = nextStage;
+    enemy.latestAdaptation = { ability: abilityKey, stage: nextStage, timer: 1.4 };
+    if (ADAPTATION_DEBUG_LOGS) console.debug?.(`${getEnemyKind(enemy)} adapted to ${abilityKey}: Stage ${nextStage}`);
+  }
+  return nextStage;
+}
+
+function getTimeSlowStageScale(stage) {
+  return TIME_SLOW_STAGE_MULTIPLIERS[clamp(stage, 0, 3)] ?? TIME_SLOW_MULTIPLIER;
+}
+
+function getEnemyNormalSpeedScale(enemy) {
+  return TIME_SLOW_NORMAL_SPEED_MULTIPLIERS[getAdaptationStage(enemy, "time_slow")] ?? 1;
+}
+
+function getForcePulseAdaptationScale(enemy) {
+  return FORCE_PULSE_ADAPTATION_MULTIPLIERS[getAdaptationStage(enemy, "force_pulse")] ?? 1;
+}
+
+function getGravityAdaptationDurationScale(enemy) {
+  return GRAVITY_ADAPTATION_DURATION_MULTIPLIERS[getAdaptationStage(enemy, "gravity")] ?? 1;
+}
+
+function getAnchorAdaptationDurationScale(enemy) {
+  return ANCHOR_ADAPTATION_DURATION_MULTIPLIERS[getAdaptationStage(enemy, "anchor_field")] ?? 1;
+}
+
+function getEnergyLinkTransferScale(enemy) {
+  return ENERGY_LINK_ADAPTATION_TRANSFER_MULTIPLIERS[getAdaptationStage(enemy, "energy_link")] ?? 1;
+}
+
+function getActiveEnergyLinkTransferScale(enemy) {
+  return energyLink?.transferScales?.get(enemy) ?? getEnergyLinkTransferScale(enemy);
+}
+
 class Entity {
   constructor(x, y, w, h) {
     this.x = x;
@@ -470,6 +564,15 @@ class Entity {
     this.lastForcePulseCastId = 0;
     this.verticalEdgeKillTimer = 0;
     this.anchorLocked = false;
+    this.anchorHoldRemaining = 0;
+    this.gravityFieldRemaining = 0;
+    this.phaseExposureTimer = 0;
+    this.phaseExposureCastId = 0;
+    this.phaseAwarenessTimer = 0;
+    this.phaseAwarenessPoint = null;
+    this.adaptationStages = createAdaptationState();
+    this.adaptationExposures = createAdaptationExposureState();
+    this.latestAdaptation = null;
   }
 
   applyGravity(dt) {
@@ -584,15 +687,23 @@ class Entity {
   }
 
   flipGravity(castId) {
-    if (this.lastGravityCastId === castId) return;
+    if (this.lastGravityCastId === castId) return false;
     this.lastGravityCastId = castId;
     this.gravitySign *= -1;
     this.vy = -this.vy * GRAVITY_FLIP_DAMPING;
+    if (isAdaptableEnemy(this)) {
+      const stage = recordAdaptationExposure(this, "gravity", castId);
+      this.gravityFieldRemaining = GRAVITY_FIELD_DURATION * getGravityAdaptationDurationScale(this);
+      // Higher gravity adaptation shortens the enemy-specific reversed-gravity hold.
+      if (stage >= 2) this.vy *= 0.88;
+    }
+    return true;
   }
 
   resetGravity() {
     this.lastGravityCastId = 0;
     this.onSurface = false;
+    this.gravityFieldRemaining = 0;
     if (this.gravitySign !== 1) {
       this.gravitySign = 1;
       this.vy = Math.abs(this.vy) * GRAVITY_FLIP_DAMPING;
@@ -615,6 +726,8 @@ class Entity {
     // Anchor Field freezes captured enemies out of non-projectile ability effects.
     if (this.lastForcePulseCastId === castId || this.isDying || this.hp <= 0 || this.anchorLocked) return false;
     this.lastForcePulseCastId = castId;
+    if (isAdaptableEnemy(this) && typeof castId === "number") recordAdaptationExposure(this, "force_pulse", castId);
+    const resistedSpeed = speed * getForcePulseAdaptationScale(this);
     this.forcePulseDirection = direction;
     this.forcePulseStunTimer = Math.max(this.forcePulseStunTimer ?? 0, stunDuration);
     this.hitTimer = Math.max(this.hitTimer ?? 0, stunDuration);
@@ -624,9 +737,9 @@ class Entity {
     // Treat the pulse as a short impulse: preserve useful existing momentum,
     // then add a small lift so grounded enemies visibly break from AI control.
     const existingAwaySpeed = Math.max(0, this.vx * direction);
-    const impulseSpeed = Math.max(speed, existingAwaySpeed + speed * 0.62);
+    const impulseSpeed = Math.max(resistedSpeed, existingAwaySpeed + resistedSpeed * 0.62);
     this.vx = direction * impulseSpeed;
-    this.vy -= this.gravitySign * speed * 0.18;
+    this.vy -= this.gravitySign * resistedSpeed * 0.18;
     // The shove is an impulse only; clear any stale grounded contact so each
     // enemy's gravity/collision update decides whether it is still supported.
     this.onSurface = false;
@@ -637,7 +750,15 @@ class Entity {
 
   updateAnchorHold(dt) {
     if (!this.anchorLocked) return false;
-    this.vx = 0;
+    this.anchorHoldRemaining = Math.max(0, (this.anchorHoldRemaining ?? 0) - dt);
+    if (this.anchorHoldRemaining <= 0) {
+      this.anchorLocked = false;
+      return false;
+    }
+
+    const anchorStage = getAdaptationStage(this, "anchor_field");
+    const twitch = anchorStage >= 2 ? Math.sin((this.idleTimer ?? this.hoverTimer ?? 0) * 18) * 5 * (anchorStage - 1) : 0;
+    this.vx = twitch;
     this.vy = 0;
     this.onSurface = false;
     this.updateGravityFlipVisual(dt);
@@ -654,6 +775,15 @@ class Entity {
     this.forcePulseStunTimer = Math.max(0, this.forcePulseStunTimer - dt);
     if (this.forcePulseStunTimer <= 0) this.forcePulseDirection = 0;
     return true;
+  }
+
+  updateAdaptationTimers(dt) {
+    if (this.latestAdaptation?.timer > 0) this.latestAdaptation.timer = Math.max(0, this.latestAdaptation.timer - dt);
+    if (this.phaseAwarenessTimer > 0) this.phaseAwarenessTimer = Math.max(0, this.phaseAwarenessTimer - dt);
+    if (this.gravityFieldRemaining > 0) {
+      this.gravityFieldRemaining = Math.max(0, this.gravityFieldRemaining - dt);
+      if (this.gravityFieldRemaining <= 0 && this.gravitySign !== 1) this.resetGravity();
+    }
   }
 
   getGravityFlipVisualTransform() {
@@ -2255,8 +2385,11 @@ class Enemy extends Entity {
     }
     if (this.hp <= 0) return;
 
+    updateTimeSlowExposureForEnemy(this);
+    this.updateAdaptationTimers(dt);
     const timeScale = getTimeSlowScaleForTarget(this);
-    const simDt = dt * timeScale;
+    const normalAdaptedScale = timeScale === 1 ? getEnemyNormalSpeedScale(this) : 1;
+    const simDt = dt * timeScale * normalAdaptedScale;
 
     if (this.updateAnchorHold(simDt)) return;
 
@@ -2787,6 +2920,7 @@ class Enemy extends Entity {
     ctx.restore();
     const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
     drawGravityMarker(this, walkerVisualTopY);
+    drawAdaptationMarker(this, walkerVisualTopY - 13);
   }
 }
 
@@ -2827,8 +2961,11 @@ class Drone extends Entity {
     }
     if (this.hp <= 0) return;
 
+    updateTimeSlowExposureForEnemy(this);
+    this.updateAdaptationTimers(dt);
     const timeScale = getTimeSlowScaleForTarget(this);
-    const simDt = dt * timeScale;
+    const normalAdaptedScale = timeScale === 1 ? getEnemyNormalSpeedScale(this) : 1;
+    const simDt = dt * timeScale * normalAdaptedScale;
 
     if (this.updateAnchorHold(simDt)) return;
 
@@ -3433,6 +3570,7 @@ class Drone extends Entity {
     ctx.restore();
     const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
     drawGravityMarker(this, droneBodyTopY);
+    drawAdaptationMarker(this, droneBodyTopY - 13);
   }
 }
 
@@ -3463,8 +3601,11 @@ class Jumper extends Entity {
     }
     if (this.hp <= 0) return;
 
+    updateTimeSlowExposureForEnemy(this);
+    this.updateAdaptationTimers(dt);
     const timeScale = getTimeSlowScaleForTarget(this);
-    const simDt = dt * timeScale;
+    const normalAdaptedScale = timeScale === 1 ? getEnemyNormalSpeedScale(this) : 1;
+    const simDt = dt * timeScale * normalAdaptedScale;
 
     if (this.updateAnchorHold(simDt)) return;
 
@@ -4074,6 +4215,7 @@ class Jumper extends Entity {
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
     drawGravityMarker(this, visualTopY);
+    drawAdaptationMarker(this, visualTopY - 13);
   }
 }
 
@@ -4615,7 +4757,13 @@ function beginEnergyLink(targets) {
   const validTargets = [...new Set(targets)].filter(isValidEnergyLinkTarget);
   if (!ability || validTargets.length < 2) return false;
 
+  energyLinkCastId += 1;
+  const transferScales = new Map(validTargets.map((target) => [target, getEnergyLinkTransferScale(target)]));
+  for (const target of validTargets) recordAdaptationExposure(target, "energy_link", energyLinkCastId);
+
   energyLink = {
+    castId: energyLinkCastId,
+    transferScales,
     targets: validTargets,
     // Preserve a/b for debug consumers while drawing and transfers use targets.
     a: validTargets[0],
@@ -4717,7 +4865,7 @@ function transferEnergyLinkDamage(sourceEnemy, amount, impact = null) {
   let transferred = false;
   for (const target of getActiveEnergyLinkTargets()) {
     if (target === sourceEnemy) continue;
-    target.hit(linkedDamage, { ...impact, linkedDamage: true });
+    target.hit(linkedDamage * getActiveEnergyLinkTransferScale(target), { ...impact, linkedDamage: true });
     transferred = true;
   }
 
@@ -4735,7 +4883,7 @@ function transferEnergyLinkForce(sourceEnemy, direction, speed, stunDuration, ca
     if (target === sourceEnemy || directHits?.has(target)) continue;
     const didTransfer = target.receiveForcePulse(
       direction,
-      speed * ENERGY_LINK_FORCE_TRANSFER,
+      speed * ENERGY_LINK_FORCE_TRANSFER * getActiveEnergyLinkTransferScale(target),
       stunDuration,
       `${castId}:link:${enemies.indexOf(sourceEnemy)}:${enemies.indexOf(target)}`,
     );
@@ -5142,15 +5290,31 @@ function negateActiveAbilityEffects() {
   }
 }
 
-function exposeEnemiesToPhaseShift() {
+function exposeEnemiesToPhaseShift(dt = 0) {
   if (!phaseShiftActive) return;
   const playerCenter = centerOf(player);
   for (const enemy of enemies) {
-    if (enemy.hp <= 0 || enemy.isDying || enemy.anchorLocked || enemy.lastPhaseCastId === phaseCastId) continue;
-    if (distance(playerCenter, centerOf(enemy)) > PHASE_SHIFT_EXPOSURE_RADIUS) continue;
-    enemy.lastPhaseCastId = phaseCastId;
+    if (!isAdaptableEnemy(enemy) || enemy.anchorLocked) continue;
+    if (enemy.adaptationExposures.phase_shift.has(phaseCastId)) continue;
+    if (enemy.phaseExposureCastId !== phaseCastId) {
+      enemy.phaseExposureCastId = phaseCastId;
+      enemy.phaseExposureTimer = 0;
+    }
+    if (distance(playerCenter, centerOf(enemy)) > PHASE_SHIFT_EXPOSURE_RADIUS) {
+      enemy.phaseExposureTimer = 0;
+      continue;
+    }
+
+    enemy.phaseExposureTimer = (enemy.phaseExposureTimer ?? 0) + dt;
+    if (enemy.phaseExposureTimer < PHASE_SHIFT_EXPOSURE_MIN_TIME) continue;
+    const stage = recordAdaptationExposure(enemy, "phase_shift", phaseCastId);
+    enemy.phaseAwarenessTimer = 0.7 + stage * 0.2;
+    enemy.phaseAwarenessPoint = { ...playerCenter };
+    if (stage >= 2) {
+      if ("direction" in enemy) enemy.direction = playerCenter.x < enemy.x + enemy.w / 2 ? -1 : 1;
+      if ("facing" in enemy) enemy.facing = playerCenter.x < enemy.x + enemy.w / 2 ? -1 : 1;
+    }
     currentPhaseExposure.add(enemy);
-    // Future adaptation hook: enemies in currentPhaseExposure saw this phase_cast_id.
   }
 }
 
@@ -5165,7 +5329,7 @@ function activatePhaseShift() {
   player.attackPulseQueued = false;
   player.attackReleaseTimer = 0;
   startTimedAbility(ability);
-  exposeEnemiesToPhaseShift();
+  exposeEnemiesToPhaseShift(0);
   return true;
 }
 
@@ -5280,12 +5444,24 @@ function isPointInsideTimeSlow(point) {
   return distance(getTimeSlowOrigin(), point) <= TIME_SLOW_RADIUS;
 }
 
+function updateTimeSlowExposureForEnemy(enemy) {
+  if (!timeSlowActive || !isAdaptableEnemy(enemy) || enemy.anchorLocked) return;
+  if (!isPointInsideTimeSlow(centerOf(enemy))) return;
+  if (enemy.timeSlowCastId !== timeSlowCastId) {
+    enemy.timeSlowCastId = timeSlowCastId;
+    enemy.timeSlowCastScale = getTimeSlowStageScale(getAdaptationStage(enemy, "time_slow"));
+  }
+  recordAdaptationExposure(enemy, "time_slow", timeSlowCastId);
+}
+
 function getTimeSlowScaleForTarget(target) {
   if (!timeSlowActive || !target || target.anchorLocked) return 1;
 
   const sharedTargets = getEnergyLinkSharedAbilityTargets(target);
   const isSlowed = sharedTargets.some((sharedTarget) => isPointInsideTimeSlow(centerOf(sharedTarget)));
-  return isSlowed ? TIME_SLOW_MULTIPLIER : 1;
+  if (!isSlowed) return 1;
+  if (target.timeSlowCastId === timeSlowCastId && target.timeSlowCastScale !== null) return target.timeSlowCastScale;
+  return getTimeSlowStageScale(getAdaptationStage(target, "time_slow"));
 }
 
 function getTimeSlowScaleForPoint(x, y) {
@@ -5311,7 +5487,9 @@ function activateAnchorField() {
   const ability = getAbilityById("anchor");
   if (!ability || anchorFieldActive) return false;
   const origin = getAnchorFieldOrigin();
+  anchorFieldCastId += 1;
   anchorField = {
+    castId: anchorFieldCastId,
     x: origin.x,
     y: origin.y,
     radius: ANCHOR_FIELD_RADIUS,
@@ -5327,7 +5505,10 @@ function activateAnchorField() {
 }
 
 function clearAnchorFieldEffects() {
-  for (const enemy of enemies) enemy.anchorLocked = false;
+  for (const enemy of enemies) {
+    enemy.anchorLocked = false;
+    enemy.anchorHoldRemaining = 0;
+  }
   for (const projectile of droneProjectiles) projectile.restoreAnchorVelocity?.();
 }
 
@@ -5358,6 +5539,8 @@ function captureAnchorFieldTargets() {
   for (const enemy of enemies) {
     enemy.anchorLocked = enemy.hp > 0 && !enemy.isDying && isTargetInsideAnchorField(enemy);
     if (enemy.anchorLocked) {
+      recordAdaptationExposure(enemy, "anchor_field", anchorField.castId);
+      enemy.anchorHoldRemaining = ANCHOR_FIELD_DURATION * getAnchorAdaptationDurationScale(enemy);
       enemy.vx = 0;
       enemy.vy = 0;
       if (enemy instanceof Drone) {
@@ -5386,6 +5569,7 @@ function updateAnchorField(dt) {
 function activateTimeSlow() {
   const ability = getAbilityById("time");
   if (!ability || timeSlowActive) return false;
+  timeSlowCastId += 1;
   timeSlowActive = true;
   timeSlowFadeTimer = 0;
   startTimedAbility(ability);
@@ -5430,7 +5614,7 @@ function updateAbilityCooldowns(dt) {
   const phaseAbility = getAbilityById("phase");
   if (phaseShiftActive && phaseAbility?.activeRemaining > 0) {
     phaseAbility.activeRemaining = Math.max(0, phaseAbility.activeRemaining - dt);
-    exposeEnemiesToPhaseShift();
+    exposeEnemiesToPhaseShift(0);
     if (phaseAbility.activeRemaining <= 0) {
       if (!endPhaseShift(true)) phaseAbility.activeRemaining = 0.01;
     }
@@ -5650,6 +5834,7 @@ function update(dt) {
   }
 
   updateAbilityCooldowns(dt);
+  exposeEnemiesToPhaseShift(dt);
   updateSystemMessageTriggers();
 
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
@@ -5841,6 +6026,65 @@ function drawTimeSlowField() {
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(origin.x, origin.y, radius + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * activeProgress);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+
+function drawAdaptationMarker(enemy, yOverride = null) {
+  if (!isAdaptableEnemy(enemy) || !enemy.latestAdaptation || enemy.latestAdaptation.timer <= 0) return;
+  const { ability, stage } = enemy.latestAdaptation;
+  if (!stage) return;
+
+  const cx = enemy.x + enemy.w / 2;
+  const y = yOverride ?? enemy.y - 12;
+  const alpha = 0.38 + stage * 0.18;
+  const tickColor = `rgba(255, 255, 255, ${0.45 + stage * 0.14})`;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 1.35;
+  ctx.translate(cx, y);
+
+  if (ability === "gravity") {
+    ctx.strokeStyle = "rgba(170, 226, 255, 0.95)";
+    ctx.beginPath();
+    ctx.moveTo(-3, -5); ctx.lineTo(-3, 5); ctx.moveTo(-6, -2); ctx.lineTo(-3, -5); ctx.lineTo(0, -2);
+    ctx.moveTo(3, -5); ctx.lineTo(3, 5); ctx.moveTo(0, 2); ctx.lineTo(3, 5); ctx.lineTo(6, 2);
+    ctx.stroke();
+  } else if (ability === "force_pulse") {
+    ctx.fillStyle = "rgba(255, 88, 82, 0.9)";
+    ctx.beginPath();
+    ctx.moveTo(-6, -4); ctx.quadraticCurveTo(5, -1, 7, 0); ctx.quadraticCurveTo(5, 1, -6, 4); ctx.closePath();
+    ctx.fill();
+  } else if (ability === "time_slow") {
+    ctx.strokeStyle = "rgba(94, 236, 255, 0.96)";
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.moveTo(0, 0); ctx.lineTo(0, -3); ctx.moveTo(0, 0); ctx.lineTo(3, 1.5); ctx.stroke();
+  } else if (ability === "phase_shift") {
+    ctx.strokeStyle = "rgba(168, 132, 255, 0.96)";
+    ctx.beginPath(); ctx.roundRect?.(-5, -5, 10, 10, 5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-6, -1.5); ctx.lineTo(1, -1.5); ctx.moveTo(-1, 2); ctx.lineTo(6, 2); ctx.stroke();
+  } else if (ability === "anchor_field") {
+    ctx.strokeStyle = "rgba(230, 230, 230, 0.96)";
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(6, 0); ctx.lineTo(0, 6); ctx.lineTo(-6, 0); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, 1.8, 0, Math.PI * 2); ctx.stroke();
+  } else if (ability === "energy_link") {
+    ctx.strokeStyle = ENERGY_LINK_YELLOW;
+    ctx.fillStyle = ENERGY_LINK_YELLOW;
+    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-5, 0, 2, 0, Math.PI * 2); ctx.arc(5, 0, 2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.strokeStyle = tickColor;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < stage; i += 1) {
+    const x = -4 + i * 4;
+    ctx.beginPath();
+    ctx.moveTo(x, 7);
+    ctx.lineTo(x + 1.8, 7);
     ctx.stroke();
   }
   ctx.restore();
@@ -6646,6 +6890,7 @@ window.__indiePlatformerDebug = {
     return selectAbility(ability);
   },
   castForcePulse,
+  resetEnemyAdaptation,
   forcePulseVisuals,
   droneProjectiles,
   abilityWheel,
@@ -6674,7 +6919,7 @@ window.__indiePlatformerDebug = {
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
