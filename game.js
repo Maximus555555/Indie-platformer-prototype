@@ -4207,9 +4207,12 @@ class Jumper extends Entity {
     this.attachToSurface(platform);
     this.vx = 0;
     this.vy = 0;
-    this.jumperState = "recovering";
+    // Land directly into idle so the jumper no longer plays the crouched
+    // recovery pose when it touches down after a leap.
+    this.jumperState = "idle";
     this.stateTimer = 0;
-    this.poseBlend = 1;
+    this.poseBlend = 0;
+    this.recoveryDelayTimer = JUMPER_RECOVERY_DELAY;
   }
 
   enterAirborneState() {
@@ -4463,13 +4466,13 @@ class Jumper extends Entity {
   }
 
   get crouchPose() {
-    // Crouching now uses the formerly standing leg shard layout, reversing the
-    // jumper's leg positions while keeping the existing animation blend.
+    // Keep the crouch tucked close to the surface so the charge reads as a low,
+    // grounded coil instead of lifting the jumper away from the floor.
     return {
       parts: {
-        core: { x: 0, y: -12.8, rx: 8.9, topRy: 16.2, bottomRy: 15.2, rotation: 0, scaleX: 1, scaleY: 1 },
-        leftPlate: { x: -14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: 0.62, scaleX: 1, scaleY: 1 },
-        rightPlate: { x: 14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: -0.62, scaleX: 1, scaleY: 1 }
+        core: { x: 0, y: -8.3, rx: 8.9, topRy: 16.2, bottomRy: 15.2, rotation: 0, scaleX: 1, scaleY: 1 },
+        leftPlate: { x: -14.2, y: 3.4, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: 0.62, scaleX: 1, scaleY: 1 },
+        rightPlate: { x: 14.2, y: 3.4, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: -0.62, scaleX: 1, scaleY: 1 }
       }
     };
   }
