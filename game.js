@@ -351,6 +351,8 @@ const systemAccessData = {
 
 const SYSTEM_ACCESS_SELECTION_ANIM_DURATION = 0.16;
 const SYSTEM_ACCESS_DETAILS_ANIM_DURATION = 0.18;
+const SYSTEM_ACCESS_CONFIRM_ANIM_DURATION = 0.18;
+const SYSTEM_ACCESS_DENIED_ANIM_DURATION = 0.14;
 
 const systemAccess = {
   open: false,
@@ -358,6 +360,11 @@ const systemAccess = {
   selectedAbilityId: "gravity",
   selectionAnimTimer: 0,
   detailsAnimTimer: 0,
+  confirmAnimTimer: 0,
+  detailsConfirmTimer: 0,
+  deniedAnimTimer: 0,
+  confirmAbilityId: null,
+  deniedAbilityId: null,
   deniedTimer: 0,
   logScrollOffset: 0,
   tabRects: [],
@@ -6392,6 +6399,11 @@ function openSystemAccess() {
   systemAccess.selectedAbilityId = selectedAbilityId;
   systemAccess.selectionAnimTimer = 0;
   systemAccess.detailsAnimTimer = 0;
+  systemAccess.confirmAnimTimer = 0;
+  systemAccess.detailsConfirmTimer = 0;
+  systemAccess.deniedAnimTimer = 0;
+  systemAccess.confirmAbilityId = null;
+  systemAccess.deniedAbilityId = null;
   if (abilityWheel.open) closeAbilityWheel(false);
   clearMenuBlockingInputState();
   return true;
@@ -6423,9 +6435,40 @@ function startSystemAccessSelectionAnimation() {
   systemAccess.detailsAnimTimer = SYSTEM_ACCESS_DETAILS_ANIM_DURATION;
 }
 
+function startSystemAccessConfirmAnimation(ability) {
+  if (!ability) return false;
+  systemAccess.confirmAbilityId = ability.id;
+  systemAccess.confirmAnimTimer = SYSTEM_ACCESS_CONFIRM_ANIM_DURATION;
+  systemAccess.detailsConfirmTimer = SYSTEM_ACCESS_CONFIRM_ANIM_DURATION;
+  systemAccess.deniedAnimTimer = 0;
+  systemAccess.deniedAbilityId = null;
+  return true;
+}
+
+function startSystemAccessDeniedAbilityAnimation(ability) {
+  if (!ability) return false;
+  systemAccess.deniedAbilityId = ability.id;
+  systemAccess.deniedAnimTimer = SYSTEM_ACCESS_DENIED_ANIM_DURATION;
+  systemAccess.confirmAnimTimer = 0;
+  systemAccess.confirmAbilityId = null;
+  return true;
+}
+
+function confirmSystemAccessAbility(ability) {
+  if (!ability) return false;
+  if (!ability.unlocked) return startSystemAccessDeniedAbilityAnimation(ability);
+  selectAbility(ability);
+  return startSystemAccessConfirmAnimation(ability);
+}
+
 function updateSystemAccessAnimations(dt) {
   systemAccess.selectionAnimTimer = Math.max(0, systemAccess.selectionAnimTimer - dt);
   systemAccess.detailsAnimTimer = Math.max(0, systemAccess.detailsAnimTimer - dt);
+  systemAccess.confirmAnimTimer = Math.max(0, systemAccess.confirmAnimTimer - dt);
+  systemAccess.detailsConfirmTimer = Math.max(0, systemAccess.detailsConfirmTimer - dt);
+  systemAccess.deniedAnimTimer = Math.max(0, systemAccess.deniedAnimTimer - dt);
+  if (systemAccess.confirmAnimTimer <= 0) systemAccess.confirmAbilityId = null;
+  if (systemAccess.deniedAnimTimer <= 0) systemAccess.deniedAbilityId = null;
 }
 
 function stepSystemAccessTab(delta) {
@@ -6502,8 +6545,7 @@ function handleSystemAccessKey(key) {
       return true;
     }
     if (key === "enter") {
-      const ability = abilities[index];
-      if (ability?.unlocked) selectAbility(ability);
+      confirmSystemAccessAbility(abilities[index]);
       return true;
     }
   }
@@ -7676,29 +7718,49 @@ function drawLogsTab(layout) {
 
 function drawSystemAbilityTile(ability, x, y, w, h) {
   const selected = ability.id === systemAccess.selectedAbilityId;
+  const combatSelected = ability.id === selectedAbilityId;
   const state = getAbilityInterfaceState(ability);
   const coolingDown = state === "Cooling down";
-  const active = state === "Active";
+  const abilityActive = state === "Active";
   const locked = state === "Locked";
-  const animProgress = selected
+  const selectionProgress = selected
     ? easeOutCubic(1 - systemAccess.selectionAnimTimer / SYSTEM_ACCESS_SELECTION_ANIM_DURATION)
     : 1;
-  const selectionScale = selected ? 1.03 + (1 - animProgress) * 0.025 : 1;
-  const iconScale = selected ? 1.04 + (1 - animProgress) * 0.025 : 1;
-  const borderAlpha = selected ? 0.72 + animProgress * 0.26 : 0.42;
+  const confirming = systemAccess.confirmAbilityId === ability.id && systemAccess.confirmAnimTimer > 0;
+  const confirmElapsed = confirming ? 1 - systemAccess.confirmAnimTimer / SYSTEM_ACCESS_CONFIRM_ANIM_DURATION : 1;
+  const confirmAmount = confirming ? 1 - easeOutCubic(confirmElapsed) : 0;
+  const denied = systemAccess.deniedAbilityId === ability.id && systemAccess.deniedAnimTimer > 0;
+  const deniedElapsed = denied ? 1 - systemAccess.deniedAnimTimer / SYSTEM_ACCESS_DENIED_ANIM_DURATION : 1;
+  const deniedAmount = denied ? 1 - easeOutCubic(deniedElapsed) : 0;
+  const selectionScale = selected ? 1.03 + (1 - selectionProgress) * 0.025 : 1;
+  const tileScale = selectionScale + confirmAmount * 0.04;
+  const iconScale = (selected ? 1.04 + (1 - selectionProgress) * 0.025 : 1) + confirmAmount * 0.07;
+  const borderAlpha = selected ? 0.72 + selectionProgress * 0.26 : 0.42;
   const centerX = x + w / 2;
   const centerY = y + h / 2;
 
   ctx.save();
-  ctx.translate(centerX, centerY);
-  ctx.scale(selectionScale, selectionScale);
+  ctx.translate(centerX - deniedAmount * 2, centerY);
+  ctx.scale(tileScale, tileScale);
   ctx.translate(-centerX, -centerY);
   ctx.globalAlpha = locked ? 0.45 : 1;
-  ctx.fillStyle = selected ? "rgba(54, 155, 198, 0.32)" : "rgba(6, 24, 42, 0.74)";
-  ctx.strokeStyle = selected ? `rgba(181, 243, 255, ${borderAlpha})` : "rgba(88, 172, 205, 0.42)";
-  ctx.lineWidth = selected ? 2 : 1;
-  ctx.shadowColor = active ? "rgba(126, 233, 255, 0.48)" : "transparent";
-  ctx.shadowBlur = active ? 16 : 0;
+  ctx.fillStyle = denied
+    ? `rgba(4, 16, 30, ${0.8 + deniedAmount * 0.16})`
+    : selected
+      ? `rgba(68, 178, 218, ${0.32 + confirmAmount * 0.16})`
+      : "rgba(6, 24, 42, 0.74)";
+  ctx.strokeStyle = denied
+    ? `rgba(156, 187, 205, ${0.38 + deniedAmount * 0.28})`
+    : selected
+      ? `rgba(181, 243, 255, ${Math.min(1, borderAlpha + confirmAmount * 0.35)})`
+      : "rgba(88, 172, 205, 0.42)";
+  ctx.lineWidth = selected || confirming ? 2 : 1;
+  ctx.shadowColor = confirming
+    ? `rgba(157, 239, 255, ${0.34 * confirmAmount})`
+    : abilityActive
+      ? "rgba(126, 233, 255, 0.48)"
+      : "transparent";
+  ctx.shadowBlur = confirming ? 14 * confirmAmount : abilityActive ? 16 : 0;
   fillRoundedRect(x, y, w, h, 6);
   strokeRoundedRect(x, y, w, h, 6);
   ctx.shadowBlur = 0;
@@ -7712,6 +7774,11 @@ function drawSystemAbilityTile(ability, x, y, w, h) {
     ctx.fillStyle = "rgba(0, 6, 16, 0.48)";
     ctx.fillRect(x, y + h * (1 - progress), w, h * progress);
     ctx.restore();
+  }
+
+  if (combatSelected && !locked) {
+    ctx.fillStyle = `rgba(151, 238, 255, ${selected ? 0.78 : 0.52})`;
+    fillRoundedRect(x + 18, y + h - 10, w - 36, 2, 1);
   }
 
   drawAbilitySymbol(ability, x + w / 2, y + 28, 30 * iconScale, locked ? 0.55 : 0.95);
@@ -7741,13 +7808,26 @@ function drawAbilitiesTab(layout) {
     drawSystemAbilityTile(ability, x, y, tileW, tileH);
   });
 
+  const ability = getAbilityById(systemAccess.selectedAbilityId) ?? abilities[0];
+
   ctx.fillStyle = "rgba(6, 24, 42, 0.72)";
   ctx.strokeStyle = "rgba(91, 178, 212, 0.44)";
   ctx.lineWidth = 1;
   fillRoundedRect(detailsX, layout.contentY, detailsW, layout.contentH, 8);
   strokeRoundedRect(detailsX, layout.contentY, detailsW, layout.contentH, 8);
 
-  const ability = getAbilityById(systemAccess.selectedAbilityId) ?? abilities[0];
+  if (systemAccess.confirmAbilityId === ability.id && systemAccess.detailsConfirmTimer > 0) {
+    const confirmElapsed = 1 - systemAccess.detailsConfirmTimer / SYSTEM_ACCESS_CONFIRM_ANIM_DURATION;
+    const confirmAmount = 1 - easeOutCubic(confirmElapsed);
+    ctx.save();
+    ctx.fillStyle = `rgba(126, 229, 255, ${0.12 * confirmAmount})`;
+    fillRoundedRect(detailsX + 1, layout.contentY + 1, detailsW - 2, layout.contentH - 2, 8);
+    ctx.strokeStyle = `rgba(181, 243, 255, ${0.34 * confirmAmount})`;
+    ctx.lineWidth = 1.4;
+    strokeRoundedRect(detailsX, layout.contentY, detailsW, layout.contentH, 8);
+    ctx.restore();
+  }
+
   const meta = systemAccessData.abilities[ability.id];
   const detailsProgress = easeOutCubic(1 - systemAccess.detailsAnimTimer / SYSTEM_ACCESS_DETAILS_ANIM_DURATION);
 
@@ -7945,7 +8025,7 @@ canvas.addEventListener("pointerdown", (event) => {
     if (abilityRect && systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
       const ability = getAbilityById(abilityRect.abilityId);
       selectSystemAccessAbility(ability);
-      if (ability?.unlocked) selectAbility(ability);
+      confirmSystemAccessAbility(ability);
     }
     return;
   }
