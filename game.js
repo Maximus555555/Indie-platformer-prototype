@@ -6979,9 +6979,20 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
   // Keep active ability timing as tile fill only; avoid circular timer rings for all abilities.
 
   if (pulse > 0) {
+    const readyPulseExpansion = 1 - pulse;
+    const readyPulseOutset = size * 0.14 * readyPulseExpansion;
+    // Match the icon border shape so the ready cue blooms outward instead of flashing as a square.
     ctx.strokeStyle = `rgba(246, 253, 255, ${0.5 * pulse})`;
     ctx.lineWidth = 2;
-    ctx.strokeRect(-size / 2 - 3 * pulse, -size / 2 - 3 * pulse, size + 6 * pulse, size + 6 * pulse);
+    ctx.beginPath();
+    ctx.roundRect(
+      -size / 2 - readyPulseOutset,
+      -size / 2 - readyPulseOutset,
+      size + readyPulseOutset * 2,
+      size + readyPulseOutset * 2,
+      8 + readyPulseOutset
+    );
+    ctx.stroke();
   }
 
   drawAbilitySymbol(ability, 0, 0, size, locked ? 0.55 : 1);
