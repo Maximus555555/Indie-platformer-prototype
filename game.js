@@ -4549,8 +4549,11 @@ class DroneProjectile {
     this.y += this.vy * simDt;
 
     const rect = this.getRect();
-    if (this.x < -40 || this.x > ROOM_WIDTH + 40 || this.y < -80 || this.y > bottomFallBoundary + 80
-      || this.x < cameraX - 28 || this.x > cameraX + canvas.width + 28) {
+    const worldBuffer = 480;
+    if (this.x < -worldBuffer
+      || this.x > ROOM_WIDTH + worldBuffer
+      || this.y < -worldBuffer
+      || this.y > bottomFallBoundary + worldBuffer) {
       this.deactivate();
       return;
     }
@@ -4952,8 +4955,9 @@ function getSolidEnemyRects() {
 }
 
 function findPulseEndpoint(startX, y, direction) {
-  const screenEdge = direction > 0 ? cameraX + canvas.width : cameraX;
-  let endX = clamp(screenEdge, 0, ROOM_WIDTH);
+  // System Pulse should travel until it hits world geometry, a target, or the
+  // room edge. Camera visibility must not shorten its simulation or hit range.
+  let endX = direction > 0 ? ROOM_WIDTH : 0;
   let bestDistance = Math.abs(endX - startX);
 
   function consider(rect) {
