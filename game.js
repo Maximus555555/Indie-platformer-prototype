@@ -349,10 +349,15 @@ const systemAccessData = {
   }
 };
 
+const SYSTEM_ACCESS_SELECTION_ANIM_DURATION = 0.16;
+const SYSTEM_ACCESS_DETAILS_ANIM_DURATION = 0.18;
+
 const systemAccess = {
   open: false,
   selectedTabIndex: 1,
   selectedAbilityId: "gravity",
+  selectionAnimTimer: 0,
+  detailsAnimTimer: 0,
   deniedTimer: 0,
   logScrollOffset: 0,
   tabRects: [],
@@ -6349,6 +6354,8 @@ function openSystemAccess() {
 
   systemAccess.open = true;
   systemAccess.selectedAbilityId = selectedAbilityId;
+  systemAccess.selectionAnimTimer = 0;
+  systemAccess.detailsAnimTimer = 0;
   if (abilityWheel.open) closeAbilityWheel(false);
   clearMenuBlockingInputState();
   return true;
@@ -6379,6 +6386,21 @@ function stepSystemAccessTab(delta) {
   systemAccess.selectedTabIndex = (systemAccess.selectedTabIndex + delta + systemAccessData.tabs.length) % systemAccessData.tabs.length;
 }
 
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+}
+
+function startSystemAccessSelectionAnimation() {
+  systemAccess.selectionAnimTimer = SYSTEM_ACCESS_SELECTION_ANIM_DURATION;
+  systemAccess.detailsAnimTimer = SYSTEM_ACCESS_DETAILS_ANIM_DURATION;
+}
+
+function updateSystemAccessAnimations(dt) {
+  if (!systemAccess.open) return;
+  systemAccess.selectionAnimTimer = Math.max(0, systemAccess.selectionAnimTimer - dt);
+  systemAccess.detailsAnimTimer = Math.max(0, systemAccess.detailsAnimTimer - dt);
+}
+
 function clampSystemLogScroll() {
   systemAccess.logScrollOffset = clamp(systemAccess.logScrollOffset, 0, Math.max(0, systemDialogue.logs.length - 1));
 }
@@ -6390,7 +6412,9 @@ function scrollSystemLogs(delta) {
 
 function selectSystemAccessAbility(ability) {
   if (!ability) return false;
+  if (ability.id === systemAccess.selectedAbilityId) return false;
   systemAccess.selectedAbilityId = ability.id;
+  startSystemAccessSelectionAnimation();
   return true;
 }
 
@@ -6481,6 +6505,7 @@ function getEnemyUpdateOrder() {
 function update(dt) {
   systemAccess.deniedTimer = Math.max(0, systemAccess.deniedTimer - dt);
   if (systemAccess.open) {
+    updateSystemAccessAnimations(dt);
     pressedThisFrame.clear();
     return;
   }
@@ -7490,23 +7515,14 @@ function drawSystemAccessWrappedText(text, x, y, maxWidth, lineHeight, options =
 }
 
 function drawSystemAccessTabKeyHint(key, x, y, align = "left") {
-  const w = 24;
-  const h = 18;
-  const inset = 9;
-  const boxX = align === "right" ? x - w - inset : x + inset;
-  const boxY = y + 8;
+  const inset = 12;
+  const textX = align === "right" ? x - inset : x + inset;
 
   ctx.save();
-  ctx.fillStyle = "rgba(4, 19, 34, 0.76)";
-  ctx.strokeStyle = "rgba(177, 236, 255, 0.68)";
-  ctx.lineWidth = 1;
-  fillRoundedRect(boxX, boxY, w, h, 4);
-  strokeRoundedRect(boxX, boxY, w, h, 4);
-  drawSystemAccessText(key, boxX + w / 2, boxY + 3, {
+  drawSystemAccessText(key, textX, y + 10, {
     size: 10,
-    weight: "bold",
-    align: "center",
-    color: "rgba(232, 249, 255, 0.92)"
+    align,
+    color: "rgba(184, 227, 242, 0.72)"
   });
   ctx.restore();
 }
@@ -7575,12 +7591,12 @@ function drawLogsTab(layout) {
   clampSystemLogScroll();
   const lineHeight = 16;
   const entryGap = 14;
-  const maxTextWidth = layout.contentW - 96;
+  const maxTextWidth = layout.contentW - 52;
   let y = layout.contentY + 38;
   let hiddenBelow = false;
 
   for (const entry of systemDialogue.logs.slice(systemAccess.logScrollOffset)) {
-    const prefix = `${String(entry.order).padStart(2, "0")} / ${entry.type.toUpperCase()}`;
+    const prefix = `${String(entry.order).padStart(2, "0")}.`;
     ctx.save();
     ctx.font = "12px monospace";
     const textLines = wrapSystemText(entry.text, maxTextWidth);
@@ -7596,7 +7612,7 @@ function drawLogsTab(layout) {
       color: "rgba(135, 202, 225, 0.72)"
     });
     textLines.forEach((line, index) => {
-      drawSystemAccessText(line, layout.contentX + 88, y + index * lineHeight, {
+      drawSystemAccessText(line, layout.contentX + 36, y + index * lineHeight, {
         size: 13,
         color: "rgba(232, 249, 255, 0.9)"
       });
@@ -7620,10 +7636,22 @@ function drawSystemAbilityTile(ability, x, y, w, h) {
   const coolingDown = state === "Cooling down";
   const active = state === "Active";
   const locked = state === "Locked";
+  const animProgress = selected
+    ? easeOutCubic(1 - systemAccess.selectionAnimTimer / SYSTEM_ACCESS_SELECTION_ANIM_DURATION)
+    : 1;
+  const selectionScale = selected ? 1.03 + (1 - animProgress) * 0.025 : 1;
+  const iconScale = selected ? 1.04 + (1 - animProgress) * 0.025 : 1;
+  const borderAlpha = selected ? 0.72 + animProgress * 0.26 : 0.42;
+  const centerX = x + w / 2;
+  const centerY = y + h / 2;
+
   ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.scale(selectionScale, selectionScale);
+  ctx.translate(-centerX, -centerY);
   ctx.globalAlpha = locked ? 0.45 : 1;
-  ctx.fillStyle = selected ? "rgba(41, 139, 183, 0.28)" : "rgba(6, 24, 42, 0.74)";
-  ctx.strokeStyle = selected ? "rgba(181, 243, 255, 0.98)" : "rgba(88, 172, 205, 0.42)";
+  ctx.fillStyle = selected ? "rgba(54, 155, 198, 0.32)" : "rgba(6, 24, 42, 0.74)";
+  ctx.strokeStyle = selected ? `rgba(181, 243, 255, ${borderAlpha})` : "rgba(88, 172, 205, 0.42)";
   ctx.lineWidth = selected ? 2 : 1;
   ctx.shadowColor = active ? "rgba(126, 233, 255, 0.48)" : "transparent";
   ctx.shadowBlur = active ? 16 : 0;
@@ -7642,7 +7670,7 @@ function drawSystemAbilityTile(ability, x, y, w, h) {
     ctx.restore();
   }
 
-  drawAbilitySymbol(ability, x + w / 2, y + 28, 30, locked ? 0.55 : 0.95);
+  drawAbilitySymbol(ability, x + w / 2, y + 28, 30 * iconScale, locked ? 0.55 : 0.95);
   drawSystemAccessText(ability.name.toUpperCase(), x + w / 2, y + 52, {
     size: ability.name.length > 12 ? 11 : 12,
     align: "center",
@@ -7677,6 +7705,12 @@ function drawAbilitiesTab(layout) {
 
   const ability = getAbilityById(systemAccess.selectedAbilityId) ?? abilities[0];
   const meta = systemAccessData.abilities[ability.id];
+  const detailsProgress = easeOutCubic(1 - systemAccess.detailsAnimTimer / SYSTEM_ACCESS_DETAILS_ANIM_DURATION);
+
+  ctx.save();
+  ctx.globalAlpha *= 0.35 + detailsProgress * 0.65;
+  ctx.translate((1 - detailsProgress) * 8, 0);
+
   let y = layout.contentY + 20;
   drawSystemAccessText(ability.name.toUpperCase(), detailsX + 20, y, { size: 18, weight: "bold" });
   y += 32;
@@ -7700,7 +7734,9 @@ function drawAbilitiesTab(layout) {
     y += 19;
   });
 
+  ctx.restore();
 }
+
 
 function drawSystemAccessInterface() {
   if (!systemAccess.open) return;
@@ -7849,7 +7885,7 @@ canvas.addEventListener("pointermove", (event) => {
 
   if (systemAccess.open && systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
     const hovered = systemAccess.abilityRects.find((rect) => pointInRect(pointerScreen, rect));
-    if (hovered) systemAccess.selectedAbilityId = hovered.abilityId;
+    if (hovered) selectSystemAccessAbility(getAbilityById(hovered.abilityId));
   }
 });
 
