@@ -4451,25 +4451,25 @@ class Jumper extends Entity {
   }
 
   get normalPose() {
-    // Image 1 target: tall center crystal with the lower side shards angled
-    // down and outward, preserving the floating diamond silhouette.
-    return {
-      parts: {
-        core: { x: 0, y: -12.8, rx: 8.9, topRy: 16.2, bottomRy: 15.2, rotation: 0, scaleX: 1, scaleY: 1 },
-        leftPlate: { x: -14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: 0.62, scaleX: 1, scaleY: 1 },
-        rightPlate: { x: 14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: -0.62, scaleX: 1, scaleY: 1 }
-      }
-    };
-  }
-
-  get crouchPose() {
-    // Image 2 target: a loaded spring pose where the side shards pull inward
-    // into vertical points and the center crystal hangs lower/readier to leap.
+    // Standing now uses the formerly crouched leg shard layout: vertical side
+    // points and a lower center crystal.
     return {
       parts: {
         core: { x: 0, y: -8.4, rx: 9.2, topRy: 17.8, bottomRy: 19.2, rotation: 0, scaleX: 1, scaleY: 1 },
         leftPlate: { x: -15.7, y: 0.6, rx: 5.8, topRy: 10.4, bottomRy: 16.1, rotation: 0, scaleX: 0.96, scaleY: 1.04 },
         rightPlate: { x: 15.7, y: 0.6, rx: 5.8, topRy: 10.4, bottomRy: 16.1, rotation: 0, scaleX: 0.96, scaleY: 1.04 }
+      }
+    };
+  }
+
+  get crouchPose() {
+    // Crouching now uses the formerly standing leg shard layout, reversing the
+    // jumper's leg positions while keeping the existing animation blend.
+    return {
+      parts: {
+        core: { x: 0, y: -12.8, rx: 8.9, topRy: 16.2, bottomRy: 15.2, rotation: 0, scaleX: 1, scaleY: 1 },
+        leftPlate: { x: -14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: 0.62, scaleX: 1, scaleY: 1 },
+        rightPlate: { x: 14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: -0.62, scaleX: 1, scaleY: 1 }
       }
     };
   }
