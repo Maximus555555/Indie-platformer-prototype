@@ -917,6 +917,8 @@ class Player extends Entity {
     this.damageTimer = 0;
     this.isCrouching = false;
     this.isRunning = false;
+    // Once stamina is fully exhausted, sprint input stays locked until Shift is
+    // released so movement-direction changes cannot restart sprinting.
     this.sprintExhausted = false;
     this.stamina = MAX_STAMINA;
     this.staminaRegenDelayTimer = 0;
@@ -1164,6 +1166,10 @@ class Player extends Entity {
 
   updateSprintStamina(dt, runHeld, canSprint = runHeld) {
     const wasRunning = this.isRunning;
+
+    // This lock represents a held-Shift exhaustion state, not just low stamina.
+    // It must only clear from an actual Shift release; movement changes, crouch,
+    // jumps, landing, attacks, or stamina regeneration must not unlock sprint.
     if (!runHeld) this.sprintExhausted = false;
 
     const wantsSprint = runHeld && canSprint;
@@ -1174,13 +1180,15 @@ class Player extends Entity {
     this.isRunning = wantsSprint && !this.sprintExhausted && hasEnoughStamina;
 
     if (this.isRunning) {
-      this.stamina = Math.max(0, this.stamina - SPRINT_STAMINA_DRAIN_RATE * dt);
-      this.staminaRegenDelayTimer = SPRINT_STAMINA_REGEN_DELAY;
-      if (this.stamina <= 0) {
+      const drainAmount = SPRINT_STAMINA_DRAIN_RATE * dt;
+      if (this.stamina - drainAmount <= 0) {
         this.stamina = 0;
         this.isRunning = false;
         this.sprintExhausted = true;
+      } else {
+        this.stamina -= drainAmount;
       }
+      this.staminaRegenDelayTimer = SPRINT_STAMINA_REGEN_DELAY;
     }
 
     if (!this.isRunning) {
