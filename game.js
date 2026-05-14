@@ -2247,7 +2247,7 @@ class Player extends Entity {
         return [shoulder, elbow, hand];
       }
 
-      function crouchLeg(legCycle, hipOffsetX) {
+      function crouchLeg(legCycle, hipOffsetX, standingSide) {
         const cycle = crouchWalking ? legCycle : 0;
         const frames = [
           { footX: 8, footY: modelFeetY, kneeY: 44.5, kneeForward: 6.4 },
@@ -2268,7 +2268,10 @@ class Player extends Entity {
           };
           return [hip, knee, foot];
         }), cycle);
-        const standing = restingLeg(hipOffsetX < 0 ? -1 : 1);
+        // Start from the same crossed idle stance used by the standing pose so
+        // entering crouch folds the legs from standing into crouching, rather
+        // than visually unwinding from the crouch back into idle.
+        const standing = restingLeg(standingSide);
         return folded.map((point, index) => ({
           x: mix(standing[index].x, point.x, lower),
           y: mix(standing[index].y, point.y, lower)
@@ -2287,8 +2290,8 @@ class Player extends Entity {
         torso: { x: torsoCenter.x, y: torsoCenter.y, rx: torsoRadiusX, ry: 12, rot: torsoLean },
         farArm: crouchArm(1, 0.5),
         nearArm: crouchArm(-1, 0),
-        farLeg: crouchLeg((cycle + 0.5) % 1, -1.2),
-        nearLeg: crouchLeg(cycle, 1.2)
+        farLeg: crouchLeg((cycle + 0.5) % 1, -1.2, 1),
+        nearLeg: crouchLeg(cycle, 1.2, -1)
       };
     } else if (sprinting) {
       const cycle = (this.animTime % 0.4) / 0.4;
