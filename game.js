@@ -6386,21 +6386,6 @@ function stepSystemAccessTab(delta) {
   systemAccess.selectedTabIndex = (systemAccess.selectedTabIndex + delta + systemAccessData.tabs.length) % systemAccessData.tabs.length;
 }
 
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - clamp(t, 0, 1), 3);
-}
-
-function startSystemAccessSelectionAnimation() {
-  systemAccess.selectionAnimTimer = SYSTEM_ACCESS_SELECTION_ANIM_DURATION;
-  systemAccess.detailsAnimTimer = SYSTEM_ACCESS_DETAILS_ANIM_DURATION;
-}
-
-function updateSystemAccessAnimations(dt) {
-  if (!systemAccess.open) return;
-  systemAccess.selectionAnimTimer = Math.max(0, systemAccess.selectionAnimTimer - dt);
-  systemAccess.detailsAnimTimer = Math.max(0, systemAccess.detailsAnimTimer - dt);
-}
-
 function clampSystemLogScroll() {
   systemAccess.logScrollOffset = clamp(systemAccess.logScrollOffset, 0, Math.max(0, systemDialogue.logs.length - 1));
 }
@@ -7401,7 +7386,7 @@ function drawSelectedAbilityRangePreview() {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  if (ability.id === "gravity") {
+if (ability.id === "gravity") {
     const origin = centerOf(player);
     const interiorGlow = ctx.createRadialGradient(
       origin.x,
@@ -7594,12 +7579,12 @@ function drawLogsTab(layout) {
   clampSystemLogScroll();
   const lineHeight = 16;
   const entryGap = 14;
-  const maxTextWidth = layout.contentW - 52;
+  const maxTextWidth = layout.contentW - 96;
   let y = layout.contentY + 38;
   let hiddenBelow = false;
 
   for (const entry of systemDialogue.logs.slice(systemAccess.logScrollOffset)) {
-    const prefix = `${String(entry.order).padStart(2, "0")}.`;
+    const prefix = `${String(entry.order).padStart(2, "0")} / ${entry.type.toUpperCase()}`;
     ctx.save();
     ctx.font = "12px monospace";
     const textLines = wrapSystemText(entry.text, maxTextWidth);
@@ -7615,7 +7600,7 @@ function drawLogsTab(layout) {
       color: "rgba(135, 202, 225, 0.72)"
     });
     textLines.forEach((line, index) => {
-      drawSystemAccessText(line, layout.contentX + 36, y + index * lineHeight, {
+      drawSystemAccessText(line, layout.contentX + 88, y + index * lineHeight, {
         size: 13,
         color: "rgba(232, 249, 255, 0.9)"
       });
