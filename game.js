@@ -354,6 +354,7 @@ const systemAccess = {
   selectedTabIndex: 1,
   selectedAbilityId: "gravity",
   deniedTimer: 0,
+  logScrollOffset: 0,
   tabRects: [],
   abilityRects: []
 };
@@ -5384,7 +5385,10 @@ const systemDialogue = {
   activeBlocking: null,
   blockingQueue: [],
   activeAmbient: null,
-  ambientQueue: []
+  ambientQueue: [],
+  logs: [],
+  loggedMessageKeys: new Set(),
+  nextLogOrder: 1
 };
 
 const systemMessageTriggers = [
@@ -5439,18 +5443,54 @@ function normalizeSystemLines(messages) {
   return lines.map((line) => String(line ?? "").trim()).filter(Boolean);
 }
 
-function createBlockingSystemMessage(messages) {
+function getSystemMessageType(options, blocking) {
+  if (options.type) return options.type;
+  return blocking ? "blocking" : "ambient";
+}
+
+function createSystemLogKey(text, id, type) {
+  return id ? `${id}:${type}:${text}` : `${type}:${text}`;
+}
+
+function logSystemMessageLines(lines, options = {}, type = "story") {
+  if (options.skipLog) return;
+  for (const text of lines) {
+    const key = createSystemLogKey(text, options.id, type);
+    if (systemDialogue.loggedMessageKeys.has(key)) continue;
+    systemDialogue.loggedMessageKeys.add(key);
+    systemDialogue.logs.push({
+      text,
+      id: options.id ?? null,
+      order: systemDialogue.nextLogOrder,
+      type
+    });
+    systemDialogue.nextLogOrder += 1;
+  }
+}
+
+function createBlockingSystemMessage(messages, options = {}) {
+  const type = getSystemMessageType(options, true);
   return {
     lines: normalizeSystemLines(messages),
+    id: options.id ?? null,
+    type,
+    logOptions: options,
+    logged: false,
     lineIndex: 0,
     visibleChars: 0
   };
 }
 
-function createAmbientSystemMessage(messages, duration = SYSTEM_AMBIENT_DURATION) {
+function createAmbientSystemMessage(messages, duration = SYSTEM_AMBIENT_DURATION, options = {}) {
   const lines = normalizeSystemLines(messages);
+  const type = getSystemMessageType(options, false);
   return {
     text: lines.join(" "),
+    lines,
+    id: options.id ?? null,
+    type,
+    logOptions: options,
+    logged: false,
     duration,
     age: 0,
     visibleChars: 0
@@ -5460,27 +5500,40 @@ function createAmbientSystemMessage(messages, duration = SYSTEM_AMBIENT_DURATION
 function enqueueSystemMessage(messages, options = {}) {
   const blocking = options.blocking ?? true;
   if (blocking) {
-    const message = createBlockingSystemMessage(messages);
+    const message = createBlockingSystemMessage(messages, options);
     if (message.lines.length <= 0) return false;
     systemDialogue.blockingQueue.push(message);
     startNextBlockingSystemMessage();
     return true;
   }
 
-  const message = createAmbientSystemMessage(messages, options.duration ?? SYSTEM_AMBIENT_DURATION);
+  const message = createAmbientSystemMessage(messages, options.duration ?? SYSTEM_AMBIENT_DURATION, options);
   if (!message.text) return false;
 
   // Blocking system output owns the interface. Ambient messages wait until the
   // blocking queue clears so flavor text never covers required prompts.
   if (isSystemMessageBlocking()) systemDialogue.ambientQueue.push(message);
-  else systemDialogue.activeAmbient = message;
+  else activateAmbientSystemMessage(message);
   return true;
+}
+
+function markSystemMessageLogged(message) {
+  if (!message || message.logged) return;
+  const lines = message.lines ?? (message.text ? [message.text] : []);
+  logSystemMessageLines(lines, message.logOptions ?? {}, message.type);
+  message.logged = true;
+}
+
+function activateAmbientSystemMessage(message) {
+  systemDialogue.activeAmbient = message ?? null;
+  markSystemMessageLogged(systemDialogue.activeAmbient);
 }
 
 function startNextBlockingSystemMessage() {
   if (systemDialogue.activeBlocking || systemDialogue.blockingQueue.length <= 0) return;
   systemDialogue.activeAmbient = null;
   systemDialogue.activeBlocking = systemDialogue.blockingQueue.shift();
+  markSystemMessageLogged(systemDialogue.activeBlocking);
 }
 
 function isSystemMessageBlocking() {
@@ -5525,7 +5578,7 @@ function updateSystemMessages(dt) {
   }
 
   if (!systemDialogue.activeAmbient && systemDialogue.ambientQueue.length > 0) {
-    systemDialogue.activeAmbient = systemDialogue.ambientQueue.shift();
+    activateAmbientSystemMessage(systemDialogue.ambientQueue.shift());
   }
 
   const ambient = systemDialogue.activeAmbient;
@@ -5533,7 +5586,7 @@ function updateSystemMessages(dt) {
   ambient.age += dt;
   ambient.visibleChars = Math.min(ambient.text.length, ambient.visibleChars + SYSTEM_TEXT_SPEED * dt);
   if (ambient.age >= ambient.duration) {
-    systemDialogue.activeAmbient = systemDialogue.ambientQueue.shift() ?? null;
+    activateAmbientSystemMessage(systemDialogue.ambientQueue.shift() ?? null);
   }
 }
 
@@ -5542,7 +5595,12 @@ function updateSystemMessageTriggers() {
   for (const trigger of systemMessageTriggers) {
     if (trigger.fired && !trigger.repeat) continue;
     if (!rectsOverlap(playerRect, trigger)) continue;
-    enqueueSystemMessage(trigger.messages, { blocking: trigger.blocking, duration: trigger.duration });
+    enqueueSystemMessage(trigger.messages, {
+      id: trigger.id,
+      type: trigger.type,
+      blocking: trigger.blocking,
+      duration: trigger.duration
+    });
     trigger.fired = true;
   }
 }
@@ -6283,6 +6341,7 @@ function showSystemAccessDenied() {
 
 function openSystemAccess() {
   if (systemAccess.open) return true;
+  if (isSystemMessageBlocking()) return false;
   if (!canOpenSystemAccess()) {
     showSystemAccessDenied();
     return false;
@@ -6320,6 +6379,15 @@ function stepSystemAccessTab(delta) {
   systemAccess.selectedTabIndex = (systemAccess.selectedTabIndex + delta + systemAccessData.tabs.length) % systemAccessData.tabs.length;
 }
 
+function clampSystemLogScroll() {
+  systemAccess.logScrollOffset = clamp(systemAccess.logScrollOffset, 0, Math.max(0, systemDialogue.logs.length - 1));
+}
+
+function scrollSystemLogs(delta) {
+  systemAccess.logScrollOffset += delta;
+  clampSystemLogScroll();
+}
+
 function selectSystemAccessAbility(ability) {
   if (!ability) return false;
   systemAccess.selectedAbilityId = ability.id;
@@ -6345,6 +6413,17 @@ function handleSystemAccessKey(key) {
     stepSystemAccessTab(-1);
     return true;
   }
+  if (systemAccessData.tabs[systemAccess.selectedTabIndex] === "Logs") {
+    if (key === "arrowdown") {
+      scrollSystemLogs(1);
+      return true;
+    }
+    if (key === "arrowup") {
+      scrollSystemLogs(-1);
+      return true;
+    }
+  }
+
   if (systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
     const index = Math.max(0, abilities.findIndex((ability) => ability.id === systemAccess.selectedAbilityId));
     const columns = 2;
@@ -7452,6 +7531,62 @@ function drawPlaceholderTab(layout, tab) {
   });
 }
 
+function drawLogsTab(layout) {
+  drawSystemAccessText("SYSTEM LOGS", layout.contentX, layout.contentY, {
+    size: 15,
+    color: "rgba(155, 229, 255, 0.95)"
+  });
+
+  if (systemDialogue.logs.length <= 0) {
+    drawSystemAccessText("LOG ARCHIVE EMPTY", layout.contentX, layout.contentY + 40, {
+      size: 15,
+      color: "rgba(184, 227, 242, 0.78)"
+    });
+    return;
+  }
+
+  clampSystemLogScroll();
+  const lineHeight = 16;
+  const entryGap = 14;
+  const maxTextWidth = layout.contentW - 96;
+  let y = layout.contentY + 38;
+  let hiddenBelow = false;
+
+  for (const entry of systemDialogue.logs.slice(systemAccess.logScrollOffset)) {
+    const prefix = `${String(entry.order).padStart(2, "0")} / ${entry.type.toUpperCase()}`;
+    ctx.save();
+    ctx.font = "12px monospace";
+    const textLines = wrapSystemText(entry.text, maxTextWidth);
+    ctx.restore();
+    const entryHeight = Math.max(lineHeight, textLines.length * lineHeight);
+    if (y + entryHeight > layout.contentY + layout.contentH) {
+      hiddenBelow = true;
+      break;
+    }
+
+    drawSystemAccessText(prefix, layout.contentX, y, {
+      size: 11,
+      color: "rgba(135, 202, 225, 0.72)"
+    });
+    textLines.forEach((line, index) => {
+      drawSystemAccessText(line, layout.contentX + 88, y + index * lineHeight, {
+        size: 13,
+        color: "rgba(232, 249, 255, 0.9)"
+      });
+    });
+    y += entryHeight + entryGap;
+  }
+
+  if (systemAccess.logScrollOffset > 0 || hiddenBelow) {
+    const hint = `${systemAccess.logScrollOffset > 0 ? "↑" : " "} LOG SCROLL ${hiddenBelow ? "↓" : " "}`;
+    drawSystemAccessText(hint, layout.contentX + layout.contentW, layout.contentY, {
+      size: 11,
+      align: "right",
+      color: "rgba(135, 202, 225, 0.58)"
+    });
+  }
+}
+
 function drawSystemAbilityTile(ability, x, y, w, h) {
   const selected = ability.id === systemAccess.selectedAbilityId;
   const state = getAbilityInterfaceState(ability);
@@ -7561,6 +7696,7 @@ function drawSystemAccessInterface() {
   const tab = systemAccessData.tabs[systemAccess.selectedTabIndex];
   if (tab === "Abilities") drawAbilitiesTab(layout);
   else if (tab === "Status") drawStatusTab(layout);
+  else if (tab === "Logs") drawLogsTab(layout);
   else drawPlaceholderTab(layout, tab);
   ctx.restore();
 }
@@ -7603,8 +7739,8 @@ function draw() {
   drawHud();
   drawSelectedAbilityIcon();
   drawAbilityWheel();
-  drawSystemMessages();
   drawSystemAccessDeniedMessage();
+  drawSystemMessages();
   drawSystemAccessInterface();
 }
 
