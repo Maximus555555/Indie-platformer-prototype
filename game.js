@@ -1505,11 +1505,11 @@ class Player extends Entity {
     const originY = this.gravitySign > 0
       ? surfaceY - modelFeetY * PLAYER_VISUAL_SCALE
       : surfaceY + modelFeetY * PLAYER_VISUAL_SCALE;
-    // System Pulse is released from the compact two-hand attack pose, not the
-    // fully extended Force Pulse hand. Keeping this origin nearer the torso
-    // prevents right-facing bolts from popping ahead of the player.
-    const localX = this.isCrouching ? 12.2 : 12.8;
-    const localY = this.isCrouching ? 28.6 : 21.8;
+    // System Pulse is released from the compact two-hand attack pose and should
+    // sit close to the visible hand without jumping as far forward as the fully
+    // extended Force Pulse pose.
+    const localX = this.isCrouching ? 17.0 : 16.8;
+    const localY = this.isCrouching ? 29.0 : 21.6;
     return {
       x: this.x + this.w / 2 + direction * PLAYER_VISUAL_SCALE * localX,
       y: originY + verticalFlip * PLAYER_VISUAL_SCALE * localY

@@ -31,7 +31,7 @@
     swarmHeight: 24,
     swarmHp: 1,
     swarmContactDamage: 1,
-    swarmSpeed: 80,
+    swarmSpeed: 110,
     swarmDetectionRange: 360,
     swarmSeparationDistance: 34,
     swarmSeparationForce: 95,
