@@ -5832,18 +5832,8 @@ function drawAnchorTargetMarker(x, y, alpha = 1, size = 12) {
   ctx.lineTo(x, y + tickOuter);
   ctx.stroke();
 
-  const diamond = size * 0.28;
-  ctx.fillStyle = "rgba(232, 250, 255, 0.92)";
-  ctx.strokeStyle = "rgba(118, 197, 220, 0.95)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(x, y - diamond);
-  ctx.lineTo(x + diamond, y);
-  ctx.lineTo(x, y + diamond);
-  ctx.lineTo(x - diamond, y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+  // Keep the anchor lock readable with only the outer reticle; avoid drawing a
+  // bright center diamond over enemies when the ability captures them.
   ctx.restore();
 }
 
