@@ -4319,9 +4319,11 @@ class Jumper extends Entity {
     };
     const stand = {
       coreY: -10,
-      plateOffsetX: -1.3,
-      plateOffsetY: -4.2,
-      plateRotation: -0.18
+      // Idle plates start raised and set farther from the core. The charge
+      // blend moves these rigid pieces down and inward instead of scaling them.
+      plateOffsetX: 4.8,
+      plateOffsetY: -7.2,
+      plateRotation: 0
     };
     const pose = {};
     for (const key of Object.keys(crouch)) pose[key] = stand[key] + (crouch[key] - stand[key]) * blend;
@@ -4329,14 +4331,14 @@ class Jumper extends Entity {
   }
 
   getSidePlatePoints(side) {
-    // Fixed crouched plate silhouette. Charge animation translates and rotates
-    // this exact polygon so the lower armor never squashes or resizes.
+    // Taller fixed silhouette for the lower mechanical plates. Animation only
+    // translates and rotates this polygon, preserving its sharp rigid shape.
     const platePoints = [
-      { x: 16, y: 2.3 },
-      { x: 6.6, y: 2.6 },
-      { x: 4.2, y: 9.9 },
-      { x: 19, y: 19 },
-      { x: 17.5, y: 13.7 }
+      { x: 13.2, y: -3.2 },
+      { x: 7.2, y: 5.2 },
+      { x: 4.8, y: 17.8 },
+      { x: 17.8, y: 22.3 },
+      { x: 19.4, y: 9.2 }
     ];
     return platePoints.map((point) => ({ x: side * point.x, y: point.y }));
   }
@@ -4375,7 +4377,7 @@ class Jumper extends Entity {
     ctx.translate(side * pose.plateOffsetX, pose.plateOffsetY + airShift * 1.3);
     ctx.rotate(side * (pose.plateRotation + airShift * 0.05));
     this.tracePolygon(points);
-    const gradient = ctx.createLinearGradient(side * 6, 2.3, side * 21, 19);
+    const gradient = ctx.createLinearGradient(side * 6, -3.2, side * 21, 22.3);
     gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
     gradient.addColorStop(0.52, deathFlash ? "rgba(214, 236, 255, 0.92)" : "rgba(90, 94, 226, 0.94)");
     gradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.88)" : "rgba(55, 42, 162, 0.96)");
@@ -4390,18 +4392,18 @@ class Jumper extends Entity {
     this.tracePolygon(points);
     ctx.clip();
     const glow = ctx.createRadialGradient(
-      side * 6.6,
-      9.9,
+      side * 7.2,
+      5.2,
       0.6,
-      side * 6.6,
-      9.9,
-      12
+      side * 7.2,
+      5.2,
+      13.5
     );
     glow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.42)" : "rgba(178, 117, 255, 0.34)");
     glow.addColorStop(0.55, deathFlash ? "rgba(213, 226, 255, 0.2)" : "rgba(92, 77, 255, 0.18)");
     glow.addColorStop(1, "rgba(92, 77, 255, 0)");
     ctx.fillStyle = glow;
-    ctx.fillRect(side > 0 ? 0 : -24, -8, 24, 34);
+    ctx.fillRect(side > 0 ? 0 : -25, -9, 25, 38);
     ctx.restore();
   }
 
