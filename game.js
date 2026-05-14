@@ -4338,19 +4338,26 @@ class Jumper extends Entity {
   getSidePlateDiamond(side) {
     // Fixed diamond silhouette for the lower mechanical plates. Animation only
     // translates and rotates this shape so it never squashes into a shard.
+    // The bottom point is extended to make the jumper feel sharper and more
+    // spring-loaded without changing its collision body.
     return {
       x: side * 12.4,
-      y: 9.6,
+      y: 8.7,
       rx: 7.2,
-      ry: 12.6
+      topRy: 12.6,
+      bottomRy: 16.4
     };
   }
 
   traceDiamond(x, y, rx, ry) {
+    this.traceAsymmetricDiamond(x, y, rx, ry, ry);
+  }
+
+  traceAsymmetricDiamond(x, y, rx, topRy, bottomRy) {
     ctx.beginPath();
-    ctx.moveTo(x, y - ry);
+    ctx.moveTo(x, y - topRy);
     ctx.lineTo(x + rx, y);
-    ctx.lineTo(x, y + ry);
+    ctx.lineTo(x, y + bottomRy);
     ctx.lineTo(x - rx, y);
     ctx.closePath();
   }
@@ -4379,12 +4386,12 @@ class Jumper extends Entity {
     // organic squash: the fixed diamond only translates and rotates.
     ctx.translate(side * pose.plateOffsetX, pose.plateOffsetY + airShift * 1.3);
     ctx.rotate(side * (pose.plateRotation + airShift * 0.05));
-    this.traceDiamond(diamond.x, diamond.y, diamond.rx, diamond.ry);
+    this.traceAsymmetricDiamond(diamond.x, diamond.y, diamond.rx, diamond.topRy, diamond.bottomRy);
     const gradient = ctx.createLinearGradient(
       diamond.x - side * diamond.rx,
-      diamond.y - diamond.ry,
+      diamond.y - diamond.topRy,
       diamond.x + side * diamond.rx,
-      diamond.y + diamond.ry
+      diamond.y + diamond.bottomRy
     );
     gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
     gradient.addColorStop(0.52, deathFlash ? "rgba(214, 236, 255, 0.92)" : "rgba(90, 94, 226, 0.94)");
@@ -4397,14 +4404,14 @@ class Jumper extends Entity {
 
     // A clipped inner fill gives the side diamonds a clean energized glow
     // without adding extra decorative linework or outer shadows.
-    this.traceDiamond(diamond.x, diamond.y, diamond.rx, diamond.ry);
+    this.traceAsymmetricDiamond(diamond.x, diamond.y, diamond.rx, diamond.topRy, diamond.bottomRy);
     ctx.clip();
     const glow = ctx.createRadialGradient(
       diamond.x - side * diamond.rx * 0.35,
-      diamond.y - diamond.ry * 0.35,
+      diamond.y - diamond.topRy * 0.35,
       0.6,
       diamond.x - side * diamond.rx * 0.35,
-      diamond.y - diamond.ry * 0.35,
+      diamond.y - diamond.topRy * 0.35,
       13.5
     );
     glow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.42)" : "rgba(178, 117, 255, 0.34)");
