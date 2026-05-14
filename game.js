@@ -4330,17 +4330,15 @@ class Jumper extends Entity {
     return pose;
   }
 
-  getSidePlatePoints(side) {
-    // Taller fixed silhouette for the lower mechanical plates. Animation only
-    // translates and rotates this polygon, preserving its sharp rigid shape.
-    const platePoints = [
-      { x: 13.2, y: -3.2 },
-      { x: 7.2, y: 5.2 },
-      { x: 4.8, y: 17.8 },
-      { x: 17.8, y: 22.3 },
-      { x: 19.4, y: 9.2 }
-    ];
-    return platePoints.map((point) => ({ x: side * point.x, y: point.y }));
+  getSidePlateDiamond(side) {
+    // Fixed diamond silhouette for the lower mechanical plates. Animation only
+    // translates and rotates this shape so it never squashes into a shard.
+    return {
+      x: side * 12.4,
+      y: 9.6,
+      rx: 7.2,
+      ry: 12.6
+    };
   }
 
   traceDiamond(x, y, rx, ry) {
@@ -4369,15 +4367,20 @@ class Jumper extends Entity {
   }
 
   drawSidePlate(side, pose, airShift, deathFlash = false) {
-    const points = this.getSidePlatePoints(side);
+    const diamond = this.getSidePlateDiamond(side);
 
     ctx.save();
-    // Airborne and charge motion now reads as rigid plate travel instead of
-    // organic squash: the fixed polygon only translates and rotates.
+    // Airborne and charge motion now reads as rigid diamond travel instead of
+    // organic squash: the fixed diamond only translates and rotates.
     ctx.translate(side * pose.plateOffsetX, pose.plateOffsetY + airShift * 1.3);
     ctx.rotate(side * (pose.plateRotation + airShift * 0.05));
-    this.tracePolygon(points);
-    const gradient = ctx.createLinearGradient(side * 6, -3.2, side * 21, 22.3);
+    this.traceDiamond(diamond.x, diamond.y, diamond.rx, diamond.ry);
+    const gradient = ctx.createLinearGradient(
+      diamond.x - side * diamond.rx,
+      diamond.y - diamond.ry,
+      diamond.x + side * diamond.rx,
+      diamond.y + diamond.ry
+    );
     gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
     gradient.addColorStop(0.52, deathFlash ? "rgba(214, 236, 255, 0.92)" : "rgba(90, 94, 226, 0.94)");
     gradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.88)" : "rgba(55, 42, 162, 0.96)");
@@ -4387,16 +4390,16 @@ class Jumper extends Entity {
     ctx.fill();
     ctx.stroke();
 
-    // A clipped inner fill gives the side plates a clean energized glow
+    // A clipped inner fill gives the side diamonds a clean energized glow
     // without adding extra decorative linework or outer shadows.
-    this.tracePolygon(points);
+    this.traceDiamond(diamond.x, diamond.y, diamond.rx, diamond.ry);
     ctx.clip();
     const glow = ctx.createRadialGradient(
-      side * 7.2,
-      5.2,
+      diamond.x - side * diamond.rx * 0.35,
+      diamond.y - diamond.ry * 0.35,
       0.6,
-      side * 7.2,
-      5.2,
+      diamond.x - side * diamond.rx * 0.35,
+      diamond.y - diamond.ry * 0.35,
       13.5
     );
     glow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.42)" : "rgba(178, 117, 255, 0.34)");
