@@ -349,10 +349,15 @@ const systemAccessData = {
   }
 };
 
+const SYSTEM_ACCESS_SELECTION_ANIM_DURATION = 0.16;
+const SYSTEM_ACCESS_DETAILS_ANIM_DURATION = 0.18;
+
 const systemAccess = {
   open: false,
   selectedTabIndex: 1,
   selectedAbilityId: "gravity",
+  selectionAnimTimer: 0,
+  detailsAnimTimer: 0,
   deniedTimer: 0,
   logScrollOffset: 0,
   tabRects: [],
@@ -6349,6 +6354,8 @@ function openSystemAccess() {
 
   systemAccess.open = true;
   systemAccess.selectedAbilityId = selectedAbilityId;
+  systemAccess.selectionAnimTimer = 0;
+  systemAccess.detailsAnimTimer = 0;
   if (abilityWheel.open) closeAbilityWheel(false);
   clearMenuBlockingInputState();
   return true;
@@ -6390,7 +6397,9 @@ function scrollSystemLogs(delta) {
 
 function selectSystemAccessAbility(ability) {
   if (!ability) return false;
+  if (ability.id === systemAccess.selectedAbilityId) return false;
   systemAccess.selectedAbilityId = ability.id;
+  startSystemAccessSelectionAnimation();
   return true;
 }
 
@@ -6481,6 +6490,7 @@ function getEnemyUpdateOrder() {
 function update(dt) {
   systemAccess.deniedTimer = Math.max(0, systemAccess.deniedTimer - dt);
   if (systemAccess.open) {
+    updateSystemAccessAnimations(dt);
     pressedThisFrame.clear();
     return;
   }
@@ -7376,7 +7386,7 @@ function drawSelectedAbilityRangePreview() {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  if (ability.id === "gravity") {
+if (ability.id === "gravity") {
     const origin = centerOf(player);
     const interiorGlow = ctx.createRadialGradient(
       origin.x,
@@ -7470,10 +7480,11 @@ function drawSystemAccessText(text, x, y, options = {}) {
   const size = options.size ?? 14;
   const color = options.color ?? "rgba(232, 249, 255, 0.95)";
   const align = options.align ?? "left";
+  const baseline = options.baseline ?? "top";
   ctx.font = `${options.weight ?? "normal"} ${size}px monospace`;
   ctx.fillStyle = color;
   ctx.textAlign = align;
-  ctx.textBaseline = "top";
+  ctx.textBaseline = baseline;
   ctx.fillText(text, x, y);
 }
 
@@ -7487,6 +7498,18 @@ function drawSystemAccessWrappedText(text, x, y, maxWidth, lineHeight, options =
   lines.forEach((line, index) => ctx.fillText(line, x, y + index * lineHeight));
   ctx.restore();
   return lines.length * lineHeight;
+}
+
+function drawSystemAccessTabKeyHint(key, x, y, h, align = "left") {
+  const edgeOffset = 15;
+  const hintX = align === "right" ? x - edgeOffset : x + edgeOffset;
+
+  drawSystemAccessText(key, hintX, y + h / 2, {
+    size: 8,
+    align: "center",
+    baseline: "middle",
+    color: "rgba(173, 222, 235, 0.56)"
+  });
 }
 
 function drawSystemAccessTabs(layout) {
@@ -7503,9 +7526,17 @@ function drawSystemAccessTabs(layout) {
     ctx.lineWidth = selected ? 1.6 : 1;
     fillRoundedRect(x, y, tabW, layout.tabsH, 5);
     strokeRoundedRect(x, y, tabW, layout.tabsH, 5);
-    drawSystemAccessText(tab.toUpperCase(), x + tabW / 2, y + 10, {
+    if (selected) {
+      drawSystemAccessTabKeyHint("Q", x, y, layout.tabsH, "left");
+      drawSystemAccessTabKeyHint("E", x + tabW, y, layout.tabsH, "right");
+    }
+
+    // Keep every tab title anchored to the tab rectangle center; Q/E hints and
+    // selected styling should never participate in label positioning.
+    drawSystemAccessText(tab.toUpperCase(), x + tabW / 2, y + layout.tabsH / 2, {
       size: 11,
       align: "center",
+      baseline: "middle",
       color: selected ? "rgba(235, 252, 255, 0.98)" : "rgba(139, 194, 216, 0.68)"
     });
   });
@@ -7593,10 +7624,22 @@ function drawSystemAbilityTile(ability, x, y, w, h) {
   const coolingDown = state === "Cooling down";
   const active = state === "Active";
   const locked = state === "Locked";
+  const animProgress = selected
+    ? easeOutCubic(1 - systemAccess.selectionAnimTimer / SYSTEM_ACCESS_SELECTION_ANIM_DURATION)
+    : 1;
+  const selectionScale = selected ? 1.03 + (1 - animProgress) * 0.025 : 1;
+  const iconScale = selected ? 1.04 + (1 - animProgress) * 0.025 : 1;
+  const borderAlpha = selected ? 0.72 + animProgress * 0.26 : 0.42;
+  const centerX = x + w / 2;
+  const centerY = y + h / 2;
+
   ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.scale(selectionScale, selectionScale);
+  ctx.translate(-centerX, -centerY);
   ctx.globalAlpha = locked ? 0.45 : 1;
-  ctx.fillStyle = selected ? "rgba(41, 139, 183, 0.28)" : "rgba(6, 24, 42, 0.74)";
-  ctx.strokeStyle = selected ? "rgba(181, 243, 255, 0.98)" : "rgba(88, 172, 205, 0.42)";
+  ctx.fillStyle = selected ? "rgba(54, 155, 198, 0.32)" : "rgba(6, 24, 42, 0.74)";
+  ctx.strokeStyle = selected ? `rgba(181, 243, 255, ${borderAlpha})` : "rgba(88, 172, 205, 0.42)";
   ctx.lineWidth = selected ? 2 : 1;
   ctx.shadowColor = active ? "rgba(126, 233, 255, 0.48)" : "transparent";
   ctx.shadowBlur = active ? 16 : 0;
@@ -7615,7 +7658,7 @@ function drawSystemAbilityTile(ability, x, y, w, h) {
     ctx.restore();
   }
 
-  drawAbilitySymbol(ability, x + w / 2, y + 28, 30, locked ? 0.55 : 0.95);
+  drawAbilitySymbol(ability, x + w / 2, y + 28, 30 * iconScale, locked ? 0.55 : 0.95);
   drawSystemAccessText(ability.name.toUpperCase(), x + w / 2, y + 52, {
     size: ability.name.length > 12 ? 11 : 12,
     align: "center",
@@ -7650,6 +7693,12 @@ function drawAbilitiesTab(layout) {
 
   const ability = getAbilityById(systemAccess.selectedAbilityId) ?? abilities[0];
   const meta = systemAccessData.abilities[ability.id];
+  const detailsProgress = easeOutCubic(1 - systemAccess.detailsAnimTimer / SYSTEM_ACCESS_DETAILS_ANIM_DURATION);
+
+  ctx.save();
+  ctx.globalAlpha *= 0.35 + detailsProgress * 0.65;
+  ctx.translate((1 - detailsProgress) * 8, 0);
+
   let y = layout.contentY + 20;
   drawSystemAccessText(ability.name.toUpperCase(), detailsX + 20, y, { size: 18, weight: "bold" });
   y += 32;
@@ -7673,7 +7722,9 @@ function drawAbilitiesTab(layout) {
     y += 19;
   });
 
+  ctx.restore();
 }
+
 
 function drawSystemAccessInterface() {
   if (!systemAccess.open) return;
@@ -7822,7 +7873,7 @@ canvas.addEventListener("pointermove", (event) => {
 
   if (systemAccess.open && systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
     const hovered = systemAccess.abilityRects.find((rect) => pointInRect(pointerScreen, rect));
-    if (hovered) systemAccess.selectedAbilityId = hovered.abilityId;
+    if (hovered) selectSystemAccessAbility(getAbilityById(hovered.abilityId));
   }
 });
 
