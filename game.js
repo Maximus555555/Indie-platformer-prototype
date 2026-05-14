@@ -7410,6 +7410,28 @@ function drawSystemAccessWrappedText(text, x, y, maxWidth, lineHeight, options =
   return lines.length * lineHeight;
 }
 
+function drawSystemAccessTabKeyHint(key, x, y, align = "left") {
+  const w = 24;
+  const h = 18;
+  const inset = 9;
+  const boxX = align === "right" ? x - w - inset : x + inset;
+  const boxY = y + 8;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(4, 19, 34, 0.76)";
+  ctx.strokeStyle = "rgba(177, 236, 255, 0.68)";
+  ctx.lineWidth = 1;
+  fillRoundedRect(boxX, boxY, w, h, 4);
+  strokeRoundedRect(boxX, boxY, w, h, 4);
+  drawSystemAccessText(key, boxX + w / 2, boxY + 3, {
+    size: 10,
+    weight: "bold",
+    align: "center",
+    color: "rgba(232, 249, 255, 0.92)"
+  });
+  ctx.restore();
+}
+
 function drawSystemAccessTabs(layout) {
   systemAccess.tabRects = [];
   const gap = 8;
@@ -7424,6 +7446,11 @@ function drawSystemAccessTabs(layout) {
     ctx.lineWidth = selected ? 1.6 : 1;
     fillRoundedRect(x, y, tabW, layout.tabsH, 5);
     strokeRoundedRect(x, y, tabW, layout.tabsH, 5);
+    if (selected) {
+      drawSystemAccessTabKeyHint("Q", x, y, "left");
+      drawSystemAccessTabKeyHint("E", x + tabW, y, "right");
+    }
+
     drawSystemAccessText(tab.toUpperCase(), x + tabW / 2, y + 10, {
       size: 11,
       align: "center",

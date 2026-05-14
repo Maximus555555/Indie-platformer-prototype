@@ -22,6 +22,7 @@ const context = new Proxy({
   arc: recordCanvasCall("arc"),
   fill: recordCanvasCall("fill"),
   fillRect: recordCanvasCall("fillRect"),
+  fillText: recordCanvasCall("fillText"),
   ellipse: recordCanvasCall("ellipse"),
   lineTo: recordCanvasCall("lineTo"),
   moveTo: recordCanvasCall("moveTo"),
@@ -1442,6 +1443,22 @@ debug.player.x = debug.roomHazardBounds.right - debug.player.w;
 if (debug.player.isInvalidEdgeFallState()) {
   throw new Error("Player entered fall-damage state at the right room edge.");
 }
+
+// System Access tab hint regression: the selected tab should locally display
+// exactly one Q/E keycap pair so tab switching is taught without a bottom
+// controls strip or repeated hints on every tab.
+debug.systemAccess.open = true;
+debug.systemAccess.selectedTabIndex = 1;
+context.calls = [];
+debug.draw();
+const selectedTabKeyHints = context.calls
+  .filter((call) => call.name === "fillText")
+  .map((call) => call.args[0])
+  .filter((text) => text === "Q" || text === "E");
+if (selectedTabKeyHints.filter((text) => text === "Q").length !== 1 || selectedTabKeyHints.filter((text) => text === "E").length !== 1) {
+  throw new Error(`System Access selected tab did not render one Q/E key hint pair: ${selectedTabKeyHints.join(",")}.`);
+}
+debug.systemAccess.open = false;
 
 // Gravity Field edge regression: a stale ceiling/edge recovery anchor should not
 // leave the player outside the playable room after fall damage. The fall keeps
