@@ -1272,6 +1272,36 @@ if (walker.hp !== 0 || !walker.isDying) {
   throw new Error("Walker did not enter its death state after touching ceiling spikes.");
 }
 
+// Edge hazard regression: respawn-safe bounds may be inset from the screen edge,
+// but fall damage should wait until the player actually touches the real room
+// boundary rather than the tighter respawn placement clamp.
+debug.player.hp = 3;
+debug.player.isDying = false;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.gravitySign = 1;
+debug.player.h = debug.constants.STAND_HEIGHT;
+debug.player.x = 330;
+debug.player.y = debug.bottomFallBoundary - debug.player.h + 4;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = false;
+debug.player.gravityResetEdgeHazardTimer = 0;
+if (debug.player.isInvalidEdgeFallState()) {
+  throw new Error("Player entered fall-damage state at the respawn-safe boundary instead of the real room edge.");
+}
+debug.player.y = debug.roomHazardBounds.bottom - debug.player.h + 1;
+debug.player.vy = 0;
+debug.player.onSurface = false;
+debug.player.fallRespawnGraceTimer = 0;
+if (!debug.player.isInvalidEdgeFallState()) {
+  throw new Error("Player did not enter fall-damage state at the real room edge.");
+}
+debug.player.fallOutOfWorld();
+if (debug.player.hp !== 2) {
+  throw new Error(`Player did not take fall damage at the real room edge; HP ${debug.player.hp}.`);
+}
+
 // Gravity Field edge regression: a stale ceiling/edge recovery anchor should not
 // leave the player outside the playable room after fall damage. The fall keeps
 // one HP loss, clears the invalid state, and chooses the nearest valid surface.

@@ -151,6 +151,7 @@ const ENEMY_DEATH_TOTAL_DURATION = ENEMY_DEATH_FLASH_DURATION + ENEMY_DEATH_DEST
 const FALL_BOUNDARY_OFFSET = config.fallBoundaryOffset ?? 48;
 const FALL_RESPAWN_GRACE = config.fallRespawnGrace ?? 0.22;
 const EDGE_RESPAWN_INSET = config.edgeRespawnInset ?? 18;
+const EDGE_HAZARD_OUTWARD_TOLERANCE = config.edgeHazardOutwardTolerance ?? 0;
 const GRAVITY_RESET_EDGE_HAZARD_GRACE = 0.28;
 const ROOM_WIDTH = config.roomWidth ?? 2200;
 const ENEMY_VERTICAL_EDGE_KILL_TOLERANCE = config.enemyVerticalEdgeKillTolerance ?? 4;
@@ -258,6 +259,10 @@ const spikes = [
 
 const bottomFallBoundary = config.fallBoundary
   ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
+
+// Edge hazards use the real room/screen boundary. Respawn validation keeps its
+// own tighter safe area below, so fallback placement never moves the damage line.
+const roomHazardBounds = { left: 0, top: 0, right: ROOM_WIDTH, bottom: canvas.height };
 
 function createAbility(id, name, label, unlocked, cooldownDuration, activeDuration = 0) {
   return {
@@ -1566,12 +1571,13 @@ class Player extends Entity {
   }
 
   isInvalidEdgeFallState() {
-    if (!isRespawnRectInBounds(this)) return true;
-    return this.gravityResetEdgeHazardTimer > 0 && this.touchedWorldBoundary && !this.onSurface;
+    if (this.onSurface) return false;
+    if (isRectTouchingActualRoomHazardBoundary(this)) return true;
+    return this.gravityResetEdgeHazardTimer > 0 && this.touchedWorldBoundary;
   }
 
   getCameraTargetX() {
-    if (!this.isDying && isRespawnRectInBounds(this)) return this.x + this.w / 2;
+    if (!this.isDying && isRectInsideActualRoomBounds(this)) return this.x + this.w / 2;
     return this.lastValidInBoundsPosition
       ? this.lastValidInBoundsPosition.x + this.w / 2
       : checkpoint.x + this.w / 2;
@@ -4761,6 +4767,23 @@ class ForcePulseVisual {
 }
 
 
+function isRectTouchingActualRoomHazardBoundary(rect) {
+  const bounds = roomHazardBounds;
+  const tolerance = EDGE_HAZARD_OUTWARD_TOLERANCE;
+  return rect.x <= bounds.left - tolerance
+    || rect.x + rect.w >= bounds.right + tolerance
+    || rect.y <= bounds.top - tolerance
+    || rect.y + rect.h >= bounds.bottom + tolerance;
+}
+
+function isRectInsideActualRoomBounds(rect) {
+  const bounds = roomHazardBounds;
+  return rect.x >= bounds.left
+    && rect.x + rect.w <= bounds.right
+    && rect.y >= bounds.top
+    && rect.y + rect.h <= bounds.bottom;
+}
+
 function isRespawnRectInBounds(rect) {
   return rect.x >= 0
     && rect.x + rect.w <= ROOM_WIDTH
@@ -7241,6 +7264,7 @@ window.__indiePlatformerDebug = {
   checkpoint,
   safeAnchor,
   bottomFallBoundary,
+  roomHazardBounds,
   constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
