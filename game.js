@@ -65,6 +65,7 @@ const JUMPER_LEAP_MIN_SPEED = config.jumperLeapMinSpeed ?? 130;
 const JUMPER_LEAP_MAX_SPEED = config.jumperLeapMaxSpeed ?? 180;
 const JUMPER_LEAP_IMPULSE = config.jumperLeapImpulse ?? 430;
 const JUMPER_EDGE_SUPPORT_TOLERANCE = config.jumperEdgeSupportTolerance ?? 4;
+const JUMPER_VISUAL_GROUND_CLEARANCE = 6;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -4137,7 +4138,9 @@ class Jumper extends Entity {
   updateAirborne(dt) {
     this.groundedPlatform = null;
     this.onSurface = false;
-    this.poseBlend = this.jumperState === "jumping" ? Math.max(0.25, this.poseBlend - dt * 1.8) : this.poseBlend;
+    // Once the launch starts, the visual pose eases back toward the normal
+    // crystal arrangement while physics and the collision box stay unchanged.
+    this.poseBlend = Math.max(0, this.poseBlend - dt * 2.6);
 
     this.applyGravity(dt);
     this.moveAndCollide(dt);
@@ -4222,7 +4225,7 @@ class Jumper extends Entity {
     this.groundedPlatform = null;
     this.jumperState = "jumping";
     this.stateTimer = 0;
-    this.poseBlend = 0.35;
+    this.poseBlend = 1;
   }
 
   beginLandingRecovery(platform) {
@@ -4462,40 +4465,106 @@ class Jumper extends Entity {
   }
 
   getPose(blend) {
-    const crouch = {
-      coreY: -6,
-      plateOffsetX: 0,
-      // Keep the lower diamond points just above the current stand surface.
-      // Because drawing is flipped by gravitySign, this clearance also applies
-      // when the jumper is attached to a ceiling.
-      plateOffsetY: -4,
-      plateRotation: 0.02
-    };
-    const stand = {
-      coreY: -10,
-      // Idle plates start raised and set farther from the core. The charge
-      // blend moves these rigid pieces down and inward instead of scaling them.
-      plateOffsetX: 4.8,
-      plateOffsetY: -8.5,
-      plateRotation: 0
-    };
-    const pose = {};
-    for (const key of Object.keys(crouch)) pose[key] = stand[key] + (crouch[key] - stand[key]) * blend;
+    const t = clamp(blend, 0, 1);
+    const pose = { parts: {} };
+    for (const partName of Object.keys(this.normalPose.parts)) {
+      pose.parts[partName] = this.interpolatePosePart(
+        this.normalPose.parts[partName],
+        this.crouchPose.parts[partName],
+        t
+      );
+    }
     return pose;
   }
 
-  getSidePlateDiamond(side) {
-    // Fixed diamond silhouette for the lower mechanical plates. Animation only
-    // translates and rotates this shape so it never squashes into a shard.
-    // The bottom point is extended to make the jumper feel sharper and more
-    // spring-loaded without changing its collision body.
+  get normalPose() {
+    // Image 1 target: tall center crystal with the lower side shards angled
+    // down and outward, preserving the floating diamond silhouette.
     return {
-      x: side * 12.4,
-      y: 0,
-      rx: 7.2,
-      topRy: 12.6,
-      bottomRy: 16.4
+      parts: {
+        core: { x: 0, y: -12.8, rx: 8.9, topRy: 16.2, bottomRy: 15.2, rotation: 0, scaleX: 1, scaleY: 1 },
+        leftPlate: { x: -14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: 0.62, scaleX: 1, scaleY: 1 },
+        rightPlate: { x: 14.2, y: -1.1, rx: 5.4, topRy: 7.1, bottomRy: 16.4, rotation: -0.62, scaleX: 1, scaleY: 1 }
+      }
     };
+  }
+
+  get crouchPose() {
+    // Image 2 target: a loaded spring pose where the side shards pull inward
+    // into vertical points and the center crystal hangs lower/readier to leap.
+    return {
+      parts: {
+        core: { x: 0, y: -8.4, rx: 9.2, topRy: 17.8, bottomRy: 19.2, rotation: 0, scaleX: 1, scaleY: 1 },
+        leftPlate: { x: -15.7, y: 0.6, rx: 5.8, topRy: 10.4, bottomRy: 16.1, rotation: 0, scaleX: 0.96, scaleY: 1.04 },
+        rightPlate: { x: 15.7, y: 0.6, rx: 5.8, topRy: 10.4, bottomRy: 16.1, rotation: 0, scaleX: 0.96, scaleY: 1.04 }
+      }
+    };
+  }
+
+  interpolatePosePart(from, to, t) {
+    return {
+      x: from.x + (to.x - from.x) * t,
+      y: from.y + (to.y - from.y) * t,
+      rx: from.rx + (to.rx - from.rx) * t,
+      topRy: from.topRy + (to.topRy - from.topRy) * t,
+      bottomRy: from.bottomRy + (to.bottomRy - from.bottomRy) * t,
+      rotation: from.rotation + (to.rotation - from.rotation) * t,
+      scaleX: from.scaleX + (to.scaleX - from.scaleX) * t,
+      scaleY: from.scaleY + (to.scaleY - from.scaleY) * t
+    };
+  }
+
+  getPosePartVertices(part) {
+    const cos = Math.cos(part.rotation);
+    const sin = Math.sin(part.rotation);
+    const localPoints = [
+      { x: 0, y: -part.topRy },
+      { x: part.rx, y: 0 },
+      { x: 0, y: part.bottomRy },
+      { x: -part.rx, y: 0 }
+    ];
+
+    return localPoints.map((point) => {
+      const scaledX = point.x * part.scaleX;
+      const scaledY = point.y * part.scaleY;
+      return {
+        x: part.x + scaledX * cos - scaledY * sin,
+        y: part.y + scaledX * sin + scaledY * cos
+      };
+    });
+  }
+
+  getLowestPosePoint(pose, airShift = 0, sideLag = 0) {
+    const sideAirShift = airShift + sideLag;
+    const offsets = {
+      core: -airShift * 1.4,
+      leftPlate: sideAirShift * 1.3,
+      rightPlate: sideAirShift * 1.3
+    };
+    let lowest = -Infinity;
+
+    for (const [partName, part] of Object.entries(pose.parts)) {
+      const partWithOffset = { ...part, y: part.y + (offsets[partName] ?? 0) };
+      for (const point of this.getPosePartVertices(partWithOffset)) lowest = Math.max(lowest, point.y);
+    }
+
+    return lowest;
+  }
+
+  getVisualSurfaceLocalY(originY) {
+    const platform = this.groundedPlatform ?? this.getDirectSurfacePlatformAt(this.x + this.w / 2);
+    if (!platform) return null;
+    const surfaceY = this.gravitySign > 0 ? platform.y : platform.y + platform.h;
+    return (surfaceY - originY) * this.gravitySign;
+  }
+
+  getGroundClearanceShift(pose, originY, airShift = 0, sideLag = 0) {
+    if (!this.onSurface) return 0;
+    const surfaceLocalY = this.getVisualSurfaceLocalY(originY);
+    if (surfaceLocalY === null) return 0;
+    const lowestPoint = this.getLowestPosePoint(pose, airShift, sideLag);
+    const lowestAllowed = surfaceLocalY - JUMPER_VISUAL_GROUND_CLEARANCE;
+    return Math.min(0, lowestAllowed - lowestPoint);
   }
 
   traceDiamond(x, y, rx, ry) {
@@ -4527,88 +4596,67 @@ class Jumper extends Entity {
     ctx.closePath();
   }
 
-  drawSidePlate(side, pose, airShift, deathFlash = false) {
-    const diamond = this.getSidePlateDiamond(side);
-
-    ctx.save();
-    // Airborne and charge motion now reads as rigid diamond travel instead of
-    // organic squash: the fixed diamond only translates and rotates.
-    ctx.translate(side * pose.plateOffsetX, pose.plateOffsetY + airShift * 1.3);
-    ctx.rotate(side * (pose.plateRotation + airShift * 0.05));
-    this.traceAsymmetricDiamond(diamond.x, diamond.y, diamond.rx, diamond.topRy, diamond.bottomRy);
+  drawCrystalPart(part, deathFlash = false) {
+    const vertices = this.getPosePartVertices(part);
+    this.tracePolygon(vertices);
     const gradient = ctx.createLinearGradient(
-      diamond.x - side * diamond.rx,
-      diamond.y - diamond.topRy,
-      diamond.x + side * diamond.rx,
-      diamond.y + diamond.bottomRy
+      part.x - part.rx,
+      part.y - part.topRy,
+      part.x + part.rx,
+      part.y + part.bottomRy
     );
-    gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
-    gradient.addColorStop(0.52, deathFlash ? "rgba(214, 236, 255, 0.92)" : "rgba(90, 94, 226, 0.94)");
-    gradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.88)" : "rgba(55, 42, 162, 0.96)");
+    gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(139, 220, 255, 0.98)");
+    gradient.addColorStop(0.46, deathFlash ? "rgba(218, 237, 255, 0.95)" : "rgba(63, 161, 244, 0.96)");
+    gradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(43, 79, 196, 0.97)");
     ctx.fillStyle = gradient;
-    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.9)" : "rgba(27, 24, 96, 0.92)";
-    ctx.lineWidth = 1.45;
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.95)" : "rgba(26, 80, 181, 0.95)";
+    ctx.lineWidth = 1.35;
     ctx.fill();
     ctx.stroke();
 
-    // A clipped inner fill gives the side diamonds a clean energized glow
-    // without adding extra decorative linework or outer shadows.
-    this.traceAsymmetricDiamond(diamond.x, diamond.y, diamond.rx, diamond.topRy, diamond.bottomRy);
+    this.tracePolygon(vertices);
+    ctx.save();
     ctx.clip();
-    const glow = ctx.createRadialGradient(
-      diamond.x - side * diamond.rx * 0.35,
-      diamond.y - diamond.topRy * 0.35,
-      0.6,
-      diamond.x - side * diamond.rx * 0.35,
-      diamond.y - diamond.topRy * 0.35,
-      13.5
-    );
-    glow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.42)" : "rgba(178, 117, 255, 0.34)");
-    glow.addColorStop(0.55, deathFlash ? "rgba(213, 226, 255, 0.2)" : "rgba(92, 77, 255, 0.18)");
-    glow.addColorStop(1, "rgba(92, 77, 255, 0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(side > 0 ? 0 : -25, -9, 25, 38);
+    const facetY = part.y - part.topRy * 0.04;
+    ctx.beginPath();
+    ctx.moveTo(part.x, part.y - part.topRy * part.scaleY);
+    ctx.lineTo(part.x + part.rx * part.scaleX, facetY);
+    ctx.lineTo(part.x, part.y + part.bottomRy * 0.18 * part.scaleY);
+    ctx.closePath();
+    ctx.fillStyle = deathFlash ? "rgba(255, 255, 255, 0.32)" : "rgba(110, 205, 255, 0.34)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(part.x, part.y - part.topRy * part.scaleY);
+    ctx.lineTo(part.x - part.rx * part.scaleX, facetY);
+    ctx.lineTo(part.x, part.y + part.bottomRy * 0.18 * part.scaleY);
+    ctx.closePath();
+    ctx.fillStyle = deathFlash ? "rgba(235, 245, 255, 0.22)" : "rgba(35, 100, 205, 0.26)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(part.x, part.y - part.topRy * part.scaleY + 0.8);
+    ctx.lineTo(part.x, part.y + part.bottomRy * part.scaleY - 0.8);
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.72)" : "rgba(180, 240, 255, 0.68)";
+    ctx.lineWidth = 1.05;
+    ctx.stroke();
     ctx.restore();
   }
 
-  drawJumperBody(blend, deathFlash = false, airShift = 0, sideLag = 0) {
-    const pose = this.getPose(blend);
+  drawJumperBody(blend, deathFlash = false, airShift = 0, sideLag = 0, clearanceShift = 0, pose = this.getPose(blend)) {
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
 
     ctx.save();
-    // Keep the jumper rigid: shift armor pieces around the core rather than
-    // scaling the whole body, which made the leap read as squishy.
-    ctx.translate(0, -airShift * 1.8);
+    // Keep visual clearance separate from physics: if a pose would reach the
+    // floor, only the rendered crystal cluster moves upward.
+    ctx.translate(0, clearanceShift - airShift * 1.8);
 
-    this.drawSidePlate(-1, pose, airShift + sideLag, deathFlash);
-    this.drawSidePlate(1, pose, airShift + sideLag, deathFlash);
-
-    const coreY = pose.coreY - airShift * 1.4;
-    const coreRx = 8.8;
-    const coreRy = 16.7;
-    const coreGradient = ctx.createLinearGradient(0, coreY - coreRy, 0, coreY + coreRy);
-    coreGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(121, 178, 255, 0.97)");
-    coreGradient.addColorStop(0.5, deathFlash ? "rgba(214, 236, 255, 0.96)" : "rgba(88, 90, 226, 0.97)");
-    coreGradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(48, 36, 160, 0.96)");
-    this.traceDiamond(0, coreY, coreRx, coreRy);
-    ctx.fillStyle = coreGradient;
-    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(27, 24, 96, 0.96)";
-    ctx.lineWidth = 1.5;
-    ctx.fill();
-    ctx.stroke();
-
-    this.traceDiamond(0, coreY, coreRx, coreRy);
-    ctx.save();
-    ctx.clip();
-    const coreGlow = ctx.createRadialGradient(0, coreY, 0.5, 0, coreY, coreRy * 0.8);
-    coreGlow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.48)" : "rgba(184, 113, 255, 0.42)");
-    coreGlow.addColorStop(0.58, deathFlash ? "rgba(215, 230, 255, 0.18)" : "rgba(91, 80, 255, 0.22)");
-    coreGlow.addColorStop(1, "rgba(91, 80, 255, 0)");
-    ctx.fillStyle = coreGlow;
-    ctx.fillRect(-coreRx, coreY - coreRy, coreRx * 2, coreRy * 2);
-    ctx.restore();
+    const sideAirShift = airShift + sideLag;
+    this.drawCrystalPart({ ...pose.parts.leftPlate, y: pose.parts.leftPlate.y + sideAirShift * 1.3 }, deathFlash);
+    this.drawCrystalPart({ ...pose.parts.rightPlate, y: pose.parts.rightPlate.y + sideAirShift * 1.3 }, deathFlash);
+    this.drawCrystalPart({ ...pose.parts.core, y: pose.parts.core.y - airShift * 1.4 }, deathFlash);
     ctx.restore();
   }
 
@@ -4631,8 +4679,12 @@ class Jumper extends Entity {
     const sideLag = airborne ? 0.12 : 0;
     const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.14 : 0;
 
+    const originY = cy + hoverBob + this.hitJoltY;
+    const pose = this.getPose(this.poseBlend);
+    const clearanceShift = this.getGroundClearanceShift(pose, originY, airShift, sideLag);
+
     ctx.save();
-    ctx.translate(cx + this.hitJoltX, cy + hoverBob + this.hitJoltY);
+    ctx.translate(cx + this.hitJoltX, originY);
     ctx.scale(this.facing, this.gravitySign > 0 ? 1 : -1);
     const gravityFlipVisual = this.getGravityFlipVisualTransform();
     if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
@@ -4641,7 +4693,7 @@ class Jumper extends Entity {
     }
     drawAdaptationAura(this, 32, 34, Math.abs(airShift) * 0.04 + hitFlash * 0.04);
     applyAdaptationBodyGlow(this, hitFlash * 4);
-    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag);
+    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag, clearanceShift, pose);
     ctx.restore();
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;

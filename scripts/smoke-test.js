@@ -103,6 +103,34 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 
+const visualJumper = debug.enemies.find((enemy) => enemy.constructor.name === "Jumper");
+if (!visualJumper) throw new Error("Expected a Jumper enemy for visual clearance regression.");
+const visualJumperPlatform = debug.platforms.find((platform) => visualJumper.x + visualJumper.w / 2 >= platform.x && visualJumper.x + visualJumper.w / 2 <= platform.x + platform.w && platform.y === 310);
+if (!visualJumperPlatform) throw new Error("Expected a flat platform under the Jumper clearance test.");
+visualJumper.gravitySign = 1;
+visualJumper.groundedPlatform = visualJumperPlatform;
+visualJumper.onSurface = true;
+visualJumper.attachToSurface(visualJumperPlatform);
+const collisionBeforePoseSweep = visualJumper.getCollisionRect();
+for (let step = 0; step <= 10; step += 1) {
+  const blend = step / 10;
+  const originY = visualJumper.y + visualJumper.h / 2;
+  const pose = visualJumper.getPose(blend);
+  const clearanceShift = visualJumper.getGroundClearanceShift(pose, originY, 0, 0);
+  const lowestVisualPoint = visualJumper.getLowestPosePoint(pose, 0, 0) + clearanceShift;
+  const surfaceLocalY = visualJumperPlatform.y - originY;
+  const clearance = surfaceLocalY - lowestVisualPoint;
+  if (clearance < 5.99) {
+    throw new Error(`Jumper visual clearance dropped below 6px at blend ${blend}: ${clearance}.`);
+  }
+}
+const collisionAfterPoseSweep = visualJumper.getCollisionRect();
+for (const key of ["x", "y", "w", "h"]) {
+  if (collisionAfterPoseSweep[key] !== collisionBeforePoseSweep[key]) {
+    throw new Error("Jumper visual pose sweep changed the stable collision rectangle.");
+  }
+}
+
 function dispatch(type, event) {
   const listeners = eventListeners.get(type) ?? [];
   for (const listener of listeners) listener(event);
