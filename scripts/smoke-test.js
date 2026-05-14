@@ -130,6 +130,18 @@ for (const key of ["x", "y", "w", "h"]) {
     throw new Error("Jumper visual pose sweep changed the stable collision rectangle.");
   }
 }
+const crouchPose = visualJumper.getPose(1);
+const crouchClearanceShift = visualJumper.getGroundClearanceShift(crouchPose, visualJumper.y + visualJumper.h / 2, 0, 0);
+const crouchClearance = visualJumperPlatform.y - (visualJumper.y + visualJumper.h / 2) - (visualJumper.getLowestPosePoint(crouchPose, 0, 0) + crouchClearanceShift);
+if (crouchClearance > 7) {
+  throw new Error(`Jumper crouch pose sits too high above the ground: ${crouchClearance}.`);
+}
+visualJumper.jumperState = "airborne";
+visualJumper.poseBlend = 0.75;
+visualJumper.beginLandingRecovery(visualJumperPlatform);
+if (visualJumper.jumperState !== "idle" || visualJumper.poseBlend !== 0) {
+  throw new Error("Jumper landing still entered a recovery animation pose.");
+}
 
 function dispatch(type, event) {
   const listeners = eventListeners.get(type) ?? [];
