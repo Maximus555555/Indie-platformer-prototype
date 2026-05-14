@@ -4566,7 +4566,7 @@ class Jumper extends Entity {
     ctx.closePath();
   }
 
-  drawCrystalPart(part, deathFlash = false) {
+  drawCrystalPart(part, deathFlash = false, showLighting = true) {
     const vertices = this.getPosePartVertices(part);
     this.tracePolygon(vertices);
     const gradient = ctx.createLinearGradient(
@@ -4583,6 +4583,8 @@ class Jumper extends Entity {
     ctx.lineWidth = 1.35;
     ctx.fill();
     ctx.stroke();
+
+    if (!showLighting) return;
 
     this.tracePolygon(vertices);
     ctx.save();
@@ -4624,8 +4626,9 @@ class Jumper extends Entity {
     ctx.translate(0, clearanceShift - airShift * 1.8);
 
     const sideAirShift = airShift + sideLag;
-    this.drawCrystalPart({ ...pose.parts.leftPlate, y: pose.parts.leftPlate.y + sideAirShift * 1.3 }, deathFlash);
-    this.drawCrystalPart({ ...pose.parts.rightPlate, y: pose.parts.rightPlate.y + sideAirShift * 1.3 }, deathFlash);
+    // Keep the lower side diamonds simple by omitting the extra facet lighting.
+    this.drawCrystalPart({ ...pose.parts.leftPlate, y: pose.parts.leftPlate.y + sideAirShift * 1.3 }, deathFlash, false);
+    this.drawCrystalPart({ ...pose.parts.rightPlate, y: pose.parts.rightPlate.y + sideAirShift * 1.3 }, deathFlash, false);
     this.drawCrystalPart({ ...pose.parts.core, y: pose.parts.core.y - airShift * 1.4 }, deathFlash);
     ctx.restore();
   }
