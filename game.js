@@ -68,6 +68,8 @@ const JUMPER_EDGE_SUPPORT_TOLERANCE = config.jumperEdgeSupportTolerance ?? 4;
 const JUMPER_VISUAL_GROUND_CLEARANCE = 6;
 const JUMPER_CROUCH_VISUAL_GROUND_CLEARANCE = 2;
 const JUMPER_CROUCH_SETTLE_DISTANCE = 5;
+const JUMPER_LANDING_ANIM_DURATION = 0.1;
+const JUMPER_LANDING_MIN_IMPACT_SPEED = 110;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -3986,6 +3988,7 @@ class Jumper extends Entity {
     this.hitTimer = 0;
     this.hitJoltX = 0;
     this.hitJoltY = 0;
+    this.landingTimer = 0;
     this.groundedPlatform = null;
     this.isDying = false;
     this.deathTimer = 0;
@@ -4010,6 +4013,7 @@ class Jumper extends Entity {
     this.hoverTimer += simDt;
     this.updateGravityFlipVisual(simDt);
     this.updateHitReaction(simDt);
+    this.updateLandingAnimation(simDt);
 
     this.updateVerticalEdgeKillTimer(simDt);
 
@@ -4045,6 +4049,14 @@ class Jumper extends Entity {
     else if (this.jumperState === "charging") this.updateCharging(simDt);
     else if (this.jumperState === "crouch-hold") this.updateCrouchHold(simDt);
     else if (this.jumperState === "recovering") this.updateRecovery(simDt);
+  }
+
+  updateLandingAnimation(dt) {
+    if (this.jumperState === "jumping" || this.jumperState === "airborne") {
+      this.landingTimer = 0;
+      return;
+    }
+    if (this.landingTimer > 0) this.landingTimer = Math.max(0, this.landingTimer - dt);
   }
 
   updateHitReaction(dt) {
@@ -4118,12 +4130,13 @@ class Jumper extends Entity {
     this.poseBlend = Math.max(0, this.poseBlend - dt * 2.6);
 
     this.applyGravity(dt);
+    const impactVy = this.vy;
     this.moveAndCollide(dt);
 
     if (!this.onSurface) return;
 
     const landingPlatform = this.getDirectSurfacePlatformAt(this.x + this.w / 2);
-    if (landingPlatform) this.beginLandingRecovery(landingPlatform);
+    if (landingPlatform) this.beginLandingRecovery(landingPlatform, impactVy);
     else this.enterAirborneState();
   }
 
@@ -4203,7 +4216,7 @@ class Jumper extends Entity {
     this.poseBlend = 1;
   }
 
-  beginLandingRecovery(platform) {
+  beginLandingRecovery(platform, impactVy = 0) {
     this.groundedPlatform = platform;
     this.onSurface = true;
     this.attachToSurface(platform);
@@ -4215,6 +4228,9 @@ class Jumper extends Entity {
     this.stateTimer = 0;
     this.poseBlend = 0;
     this.recoveryDelayTimer = JUMPER_RECOVERY_DELAY;
+    if (impactVy * this.gravitySign > JUMPER_LANDING_MIN_IMPACT_SPEED) {
+      this.landingTimer = JUMPER_LANDING_ANIM_DURATION;
+    }
   }
 
   enterAirborneState() {
@@ -4629,7 +4645,7 @@ class Jumper extends Entity {
     ctx.restore();
   }
 
-  drawJumperBody(blend, deathFlash = false, airShift = 0, sideLag = 0, clearanceShift = 0, pose = this.getPose(blend)) {
+  drawJumperBody(blend, deathFlash = false, airShift = 0, sideLag = 0, clearanceShift = 0, pose = this.getPose(blend), landingSquash = 0) {
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
     ctx.shadowBlur = 0;
@@ -4637,7 +4653,9 @@ class Jumper extends Entity {
     ctx.save();
     // Keep visual clearance separate from physics: if a pose would reach the
     // floor, only the rendered crystal cluster moves upward.
-    ctx.translate(0, clearanceShift - airShift * 1.8);
+    // A tiny landing squash gives the jumper impact feedback without changing collision.
+    ctx.translate(0, clearanceShift - airShift * 1.8 + landingSquash * 1.5);
+    ctx.scale(1 + landingSquash * 0.035, 1 - landingSquash * 0.055);
 
     const sideAirShift = airShift + sideLag;
     // Keep the lower side diamonds simple by omitting the extra facet lighting.
@@ -4665,6 +4683,10 @@ class Jumper extends Entity {
       : 0;
     const sideLag = airborne ? 0.12 : 0;
     const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.14 : 0;
+    const landingProgress = this.landingTimer > 0
+      ? 1 - clamp(this.landingTimer / JUMPER_LANDING_ANIM_DURATION, 0, 1)
+      : 1;
+    const landingSquash = this.landingTimer > 0 ? Math.sin(landingProgress * Math.PI) : 0;
 
     const originY = cy + hoverBob + this.hitJoltY;
     const pose = this.getPose(this.poseBlend);
@@ -4679,7 +4701,7 @@ class Jumper extends Entity {
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
     applyAdaptationBodyGlow(this, hitFlash * 4);
-    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag, clearanceShift, pose);
+    this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag, clearanceShift, pose, landingSquash);
     ctx.restore();
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
