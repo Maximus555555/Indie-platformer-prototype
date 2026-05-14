@@ -1228,4 +1228,33 @@ if (walker.hp !== 0 || !walker.isDying) {
   throw new Error("Walker did not enter its death state after touching ceiling spikes.");
 }
 
+// Gravity Field edge regression: a stale ceiling/edge recovery anchor should not
+// leave the player outside the playable room after fall damage. The fall keeps
+// one HP loss, clears the invalid state, and chooses the nearest valid surface.
+debug.player.hp = 3;
+debug.player.isDying = false;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.gravitySign = 1;
+debug.player.x = 640;
+debug.player.y = debug.bottomFallBoundary + 20;
+debug.player.vx = 120;
+debug.player.vy = 900;
+debug.player.lastGroundedPlatform = debug.platforms[0];
+debug.player.lastGroundedEdge = "right";
+debug.player.lastValidInBoundsPosition = { x: 640, y: 250 };
+debug.player.fallOutOfWorld();
+if (debug.player.hp !== 2 || debug.player.isDying) {
+  throw new Error("Gravity-reset edge fall did not apply exactly one non-lethal HP loss.");
+}
+if (debug.player.y < 0 || debug.player.y + debug.player.h > debug.bottomFallBoundary) {
+  throw new Error("Gravity-reset edge fall respawn left the player outside playable bounds.");
+}
+if (debug.player.lastGroundedPlatform === debug.platforms[0]) {
+  throw new Error("Gravity-reset edge fall reused an invalid ceiling platform as the respawn anchor.");
+}
+if (debug.player.vx !== 0 || debug.player.vy !== 0 || !debug.player.onSurface) {
+  throw new Error("Gravity-reset edge fall did not reset velocity and ground the player safely.");
+}
+
 console.log("Smoke test passed: game boots, schedules frames, and keeps a valid player state.");
