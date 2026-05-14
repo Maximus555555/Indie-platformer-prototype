@@ -4338,14 +4338,14 @@ class Jumper extends Entity {
   getSidePlateDiamond(side) {
     // Fixed diamond silhouette for the lower mechanical plates. Animation only
     // translates and rotates this shape so it never squashes into a shard.
-    // Keep these bottom diamonds narrower and taller than the center core so
-    // they read as spring-loaded jumper points without changing collision.
+    // The bottom point is extended to make the jumper feel sharper and more
+    // spring-loaded without changing its collision body.
     return {
       x: side * 12.4,
       y: 8.7,
-      rx: 6.4,
-      topRy: 14.2,
-      bottomRy: 20.2
+      rx: 7.2,
+      topRy: 12.6,
+      bottomRy: 16.4
     };
   }
 
