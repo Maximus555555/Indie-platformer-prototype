@@ -70,6 +70,16 @@ const JUMPER_CROUCH_VISUAL_GROUND_CLEARANCE = 2;
 const JUMPER_CROUCH_SETTLE_DISTANCE = 5;
 const JUMPER_LANDING_ANIM_DURATION = 0.1;
 const JUMPER_LANDING_MIN_IMPACT_SPEED = 110;
+const SWARM_WIDTH = config.swarmWidth ?? 24;
+const SWARM_HEIGHT = config.swarmHeight ?? 24;
+const SWARM_HP = config.swarmHp ?? 1;
+const SWARM_CONTACT_DAMAGE = config.swarmContactDamage ?? 1;
+const SWARM_SPEED = config.swarmSpeed ?? 80;
+const SWARM_SEPARATION_DISTANCE = config.swarmSeparationDistance ?? 34;
+const SWARM_SEPARATION_FORCE = config.swarmSeparationForce ?? 95;
+const SWARM_HOVER_AMOUNT = config.swarmHoverAmount ?? 2.5;
+const SWARM_STEER_FORCE = config.swarmSteerForce ?? 320;
+const SWARM_TURN_SPEED = config.swarmTurnSpeed ?? 9;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -634,6 +644,7 @@ function createAdaptationExposureState() {
 }
 
 function getEnemyKind(enemy) {
+  if (enemy?.constructor?.name === "Swarm") return "Swarm";
   if (enemy instanceof Drone) return "Drone";
   if (enemy instanceof Jumper) return "Jumper";
   return "Walker";
@@ -1737,6 +1748,7 @@ class Player extends Entity {
 
   fullRespawn() {
     negateActiveAbilityEffects();
+    resetEnemiesToSpawn();
     this.hp = this.maxHp;
     this.damageTimer = 0;
     this.placeAt(checkpoint.x, checkpoint.y);
@@ -3320,6 +3332,356 @@ class Enemy extends Entity {
     ctx.restore();
     const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
     drawGravityMarker(this, walkerVisualTopY);
+  }
+}
+
+
+class Swarm extends Entity {
+  constructor(x, y) {
+    super(x, y, SWARM_WIDTH, SWARM_HEIGHT);
+    this.hp = SWARM_HP;
+    this.contactDamage = SWARM_CONTACT_DAMAGE;
+    this.speed = SWARM_SPEED;
+    this.separationDistance = SWARM_SEPARATION_DISTANCE;
+    this.separationForce = SWARM_SEPARATION_FORCE;
+    this.hoverAmount = SWARM_HOVER_AMOUNT;
+    this.steerForce = SWARM_STEER_FORCE;
+    this.turnSpeed = SWARM_TURN_SPEED;
+    this.hoverTimer = Math.random() * Math.PI * 2;
+    this.rotation = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
+    this.isDying = false;
+    this.deathTimer = 0;
+    this.deathFragments = [];
+    this.blocksPlayer = false;
+  }
+
+  update(dt) {
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    updateTimeSlowExposureForEnemy(this);
+    this.updateAdaptationTimers(dt);
+    const timeScale = getTimeSlowScaleForTarget(this);
+    const normalAdaptedScale = timeScale === 1 ? getEnemyNormalSpeedScale(this) : 1;
+    const simDt = dt * timeScale * normalAdaptedScale;
+
+    if (this.updateAnchorHold(simDt)) return;
+
+    this.hoverTimer += simDt;
+    this.updateGravityFlipVisual(simDt);
+    this.updateHitReaction(simDt);
+    this.updateVerticalEdgeKillTimer(simDt);
+
+    if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideWorld()) {
+      beginEnvironmentalEnemyDeath(this);
+      return;
+    }
+
+    if (this.forcePulseStunTimer > 0) {
+      this.updateForcePulseStun(simDt);
+      this.applyGravity(simDt);
+      this.moveAndCollide(simDt);
+    } else {
+      this.updateSteering(simDt);
+      this.moveAndCollide(simDt);
+    }
+
+    if (!this.isDying && (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideWorld())) beginEnvironmentalEnemyDeath(this);
+  }
+
+  updateSteering(dt) {
+    const bodyCenter = centerOf(this);
+    const playerCenter = this.phaseAwarenessTimer > 0 && this.phaseAwarenessPoint
+      ? this.phaseAwarenessPoint
+      : centerOf(player);
+    const toPlayer = { x: playerCenter.x - bodyCenter.x, y: playerCenter.y - bodyCenter.y };
+    const distanceToPlayer = Math.max(1, Math.hypot(toPlayer.x, toPlayer.y));
+    const desired = {
+      x: (toPlayer.x / distanceToPlayer) * this.speed,
+      y: (toPlayer.y / distanceToPlayer) * this.speed
+    };
+
+    const separation = this.getSeparationVector();
+    desired.x += separation.x;
+    desired.y += separation.y;
+
+    const desiredSpeed = Math.hypot(desired.x, desired.y);
+    if (desiredSpeed > this.speed * 1.2) {
+      desired.x = desired.x / desiredSpeed * this.speed * 1.2;
+      desired.y = desired.y / desiredSpeed * this.speed * 1.2;
+    }
+
+    const steerX = clamp(desired.x - this.vx, -this.steerForce * dt, this.steerForce * dt);
+    const steerY = clamp(desired.y - this.vy, -this.steerForce * dt, this.steerForce * dt);
+    this.vx += steerX;
+    this.vy += steerY;
+
+    const currentSpeed = Math.hypot(this.vx, this.vy);
+    const maxSpeed = this.speed * 1.35;
+    if (currentSpeed > maxSpeed) {
+      this.vx = this.vx / currentSpeed * maxSpeed;
+      this.vy = this.vy / currentSpeed * maxSpeed;
+    }
+
+    this.turnToward(Math.atan2(this.vy, this.vx), dt);
+  }
+
+  getSeparationVector() {
+    let x = 0;
+    let y = 0;
+    let neighbors = 0;
+    const selfCenter = centerOf(this);
+
+    for (const enemy of enemies) {
+      if (enemy === this || !(enemy instanceof Swarm) || enemy.hp <= 0 || enemy.isDying) continue;
+      const otherCenter = centerOf(enemy);
+      const dx = selfCenter.x - otherCenter.x;
+      const dy = selfCenter.y - otherCenter.y;
+      const dist = Math.max(0.001, Math.hypot(dx, dy));
+      if (dist >= this.separationDistance) continue;
+      const strength = (1 - dist / this.separationDistance) * this.separationForce;
+      x += (dx / dist) * strength;
+      y += (dy / dist) * strength;
+      neighbors += 1;
+    }
+
+    if (neighbors > 0) {
+      x /= neighbors;
+      y /= neighbors;
+    }
+    return { x, y };
+  }
+
+  turnToward(targetAngle, dt) {
+    if (!Number.isFinite(targetAngle)) return;
+    this.rotation += shortestAngleDelta(this.rotation, targetAngle) * Math.min(1, this.turnSpeed * dt);
+  }
+
+  updateHitReaction(dt) {
+    if (this.hitTimer <= 0) {
+      this.hitJoltX = 0;
+      this.hitJoltY = 0;
+      return;
+    }
+    this.hitTimer = Math.max(0, this.hitTimer - dt);
+    const progress = this.hitTimer / 0.12;
+    this.hitJoltX = (player.facing || 1) * 1.5 * progress;
+    this.hitJoltY = -this.gravitySign * 1.5 * progress;
+  }
+
+  moveAndCollide(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.resolveWorldHorizontalBounds();
+  }
+
+  isOutsideWorld() {
+    const body = this.getCollisionRect();
+    return body.y + body.h >= bottomFallBoundary || body.y <= -120;
+  }
+
+  getCollisionRect() {
+    const insetX = 5;
+    const insetY = 5;
+    return { x: this.x + insetX, y: this.y + insetY, w: this.w - insetX * 2, h: this.h - insetY * 2 };
+  }
+
+  getDamageRect() {
+    return this.getCollisionRect();
+  }
+
+  receiveForcePulse(direction, speed, stunDuration, castId) {
+    const didReceive = super.receiveForcePulse(direction, speed, stunDuration, castId);
+    if (didReceive) this.turnToward(direction > 0 ? 0 : Math.PI, 1);
+    return didReceive;
+  }
+
+  flipGravity(castId) {
+    const previousGravitySign = this.gravitySign;
+    if (!super.flipGravity(castId)) return;
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+  }
+
+  resetGravity() {
+    const previousGravitySign = this.gravitySign;
+    super.resetGravity();
+    this.startGravityFlipVisual(previousGravitySign, this.gravitySign);
+  }
+
+  hit(amount, impact = null) {
+    if (this.isDying || this.hp <= 0) return;
+    if (impact?.armsVerticalEdgeKill) this.armVerticalEdgeKill();
+    this.hp -= amount;
+    this.hitTimer = 0.12;
+    this.hitJoltX = (player.facing || 1) * 1.5;
+    this.hitJoltY = -this.gravitySign * 1.5;
+    if (this.hp <= 0) this.beginDeath();
+  }
+
+  beginDeath() {
+    if (this.isDying) return;
+    this.hp = 0;
+    this.isDying = true;
+    this.deathTimer = 0;
+    this.clearAnchorLockedVisual(false);
+    this.vx = 0;
+    this.vy = 0;
+    this.hitTimer = 0;
+    this.hitJoltX = 0;
+    this.hitJoltY = 0;
+    this.deathFragments = this.createDeathFragments();
+    activeGravityEntities.delete(this);
+  }
+
+  updateDeath(dt) {
+    this.deathTimer += dt;
+    if (this.deathTimer >= ENEMY_DEATH_TOTAL_DURATION) {
+      this.isDying = false;
+      this.deathFragments = [];
+    }
+  }
+
+  createDeathFragments() {
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    return Array.from({ length: 8 }, (_, index) => {
+      const angle = this.rotation + index * Math.PI * 0.25;
+      const radius = index % 2 === 0 ? 8 : 5;
+      return {
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+        vx: Math.cos(angle) * (22 + index * 2),
+        vy: Math.sin(angle) * (22 + index * 2),
+        size: 2.5 + (index % 3) * 0.7,
+        rot: angle,
+        spin: (index % 2 === 0 ? 1 : -1) * (1.4 + index * 0.05)
+      };
+    });
+  }
+
+  drawSwarmBody(deathFlash = false) {
+    const half = 10;
+    const bevel = 3.4;
+
+    function traceBeveledSquare(size, cut) {
+      ctx.beginPath();
+      ctx.moveTo(-size + cut, -size);
+      ctx.lineTo(size - cut, -size);
+      ctx.lineTo(size, -size + cut);
+      ctx.lineTo(size, size - cut);
+      ctx.lineTo(size - cut, size);
+      ctx.lineTo(-size + cut, size);
+      ctx.lineTo(-size, size - cut);
+      ctx.lineTo(-size, -size + cut);
+      ctx.closePath();
+    }
+
+    ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+    traceBeveledSquare(half, bevel);
+    const bodyGradient = ctx.createLinearGradient(-half, -half, half, half);
+    bodyGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(139, 216, 255, 0.96)");
+    bodyGradient.addColorStop(0.48, deathFlash ? "rgba(226, 244, 255, 0.92)" : "rgba(66, 158, 255, 0.94)");
+    bodyGradient.addColorStop(1, deathFlash ? "rgba(165, 210, 255, 0.9)" : "rgba(42, 109, 235, 0.96)");
+    ctx.fillStyle = bodyGradient;
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.95)" : "rgba(179, 235, 255, 0.95)";
+    ctx.lineWidth = 1.3;
+    ctx.fill();
+    ctx.stroke();
+
+    traceBeveledSquare(7.1, 1.8);
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.85)" : "rgba(154, 215, 255, 0.7)";
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+
+    ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.78)" : "rgba(203, 246, 255, 0.7)";
+    ctx.lineWidth = 1.1;
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sign * -5.8, -half + 1.2);
+      ctx.lineTo(sign * -8.8, -half + bevel + 1.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(sign * 5.8, half - 1.2);
+      ctx.lineTo(sign * 8.8, half - bevel - 1.5);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = deathFlash ? "rgba(255, 255, 255, 0.72)" : "rgba(198, 242, 255, 0.38)";
+    ctx.fillRect(-3.4, -3.4, 6.8, 6.8);
+  }
+
+  drawDeath() {
+    const flashEnd = ENEMY_DEATH_FLASH_DURATION;
+    const destabilizeEnd = flashEnd + ENEMY_DEATH_DESTABILIZE_DURATION;
+    const fragmentEnd = destabilizeEnd + ENEMY_DEATH_FRAGMENT_DURATION;
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(134, 213, 255, 0.58)";
+    ctx.shadowBlur = 8;
+
+    if (this.deathTimer < destabilizeEnd) {
+      const jitter = this.deathTimer < flashEnd ? 0 : Math.sin(this.deathTimer * 122) * 0.65;
+      ctx.translate(cx + jitter, cy - jitter * 0.5);
+      ctx.rotate(this.rotation + jitter * 0.025);
+      ctx.globalAlpha = this.deathTimer < flashEnd ? 0.94 : 0.68;
+      this.drawSwarmBody(true);
+    } else {
+      const fragmentProgress = clamp((this.deathTimer - destabilizeEnd) / (fragmentEnd - destabilizeEnd), 0, 1);
+      const fadeProgress = this.deathTimer > fragmentEnd
+        ? clamp((this.deathTimer - fragmentEnd) / ENEMY_DEATH_FADE_DURATION, 0, 1)
+        : 0;
+      ctx.globalAlpha = 1 - fadeProgress;
+      for (const fragment of this.deathFragments) {
+        const travel = Math.sin(fragmentProgress * Math.PI * 0.5);
+        ctx.save();
+        ctx.translate(fragment.x + fragment.vx * travel * 0.28, fragment.y + fragment.vy * travel * 0.28);
+        ctx.rotate(fragment.rot + fragment.spin * fragmentProgress);
+        ctx.fillStyle = "rgba(147, 219, 255, 0.82)";
+        ctx.strokeStyle = "rgba(231, 250, 255, 0.72)";
+        ctx.lineWidth = 0.65;
+        ctx.fillRect(-fragment.size / 2, -fragment.size / 2, fragment.size, fragment.size);
+        ctx.strokeRect(-fragment.size / 2, -fragment.size / 2, fragment.size, fragment.size);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  draw() {
+    if (this.isDying) {
+      this.drawDeath();
+      return;
+    }
+    if (this.hp <= 0) return;
+
+    const cx = this.x + this.w / 2;
+    const cy = this.y + this.h / 2;
+    const hoverBob = Math.sin(this.hoverTimer * 3.1) * this.hoverAmount * (this.gravitySign > 0 ? -1 : 1);
+    const hitFlash = this.hitTimer > 0 ? this.hitTimer / 0.12 : 0;
+
+    ctx.save();
+    ctx.translate(cx + this.hitJoltX, cy + hoverBob + this.hitJoltY);
+    ctx.scale(1, this.gravitySign > 0 ? 1 : -1);
+    const gravityFlipVisual = this.getGravityFlipVisualTransform();
+    if (gravityFlipVisual.rotation !== 0 || gravityFlipVisual.scaleX !== 1) {
+      ctx.rotate(gravityFlipVisual.rotation);
+      ctx.scale(gravityFlipVisual.scaleX, 1);
+    }
+    ctx.rotate(this.rotation);
+    applyAdaptationBodyGlow(this, hitFlash * 2);
+    this.drawSwarmBody(hitFlash > 0.45);
+    ctx.restore();
+
+    drawGravityMarker(this, cy + hoverBob + this.hitJoltY - 12);
   }
 }
 
@@ -5160,7 +5522,7 @@ function getPlayerEnemyCollisionRects() {
 
 function getSolidEnemyRects() {
   return enemies
-    .filter((enemy) => enemy.hp > 0)
+    .filter((enemy) => enemy.hp > 0 && enemy.blocksPlayer !== false)
     .map((enemy) => enemy.getCollisionRect());
 }
 
@@ -5529,7 +5891,93 @@ function castForcePulse() {
 }
 
 const player = new Player();
-const enemies = [new Enemy(620, 435), new Enemy(720, 435), new Drone(1085, 210), new Enemy(1590, 435), new Jumper(2010, 265)];
+const enemies = [
+  new Enemy(620, 435),
+  new Enemy(720, 435),
+  new Drone(1085, 210),
+  new Enemy(1590, 435),
+  new Jumper(2010, 265),
+  new Swarm(895, 360),
+  new Swarm(930, 335),
+  new Swarm(965, 360)
+];
+const enemySpawnStates = enemies.map((enemy) => ({
+  enemy,
+  x: enemy.x,
+  y: enemy.y,
+  hp: enemy.hp,
+  gravitySign: enemy.gravitySign
+}));
+
+function resetEnemiesToSpawn() {
+  for (const spawn of enemySpawnStates) {
+    const { enemy } = spawn;
+    enemy.x = spawn.x;
+    enemy.y = spawn.y;
+    enemy.vx = 0;
+    enemy.vy = 0;
+    enemy.hp = spawn.hp;
+    enemy.gravitySign = spawn.gravitySign;
+    enemy.lastGravityCastId = 0;
+    enemy.gravityFieldRemaining = 0;
+    enemy.forcePulseStunTimer = 0;
+    enemy.forcePulseDirection = 0;
+    enemy.lastForcePulseCastId = 0;
+    enemy.verticalEdgeKillTimer = 0;
+    enemy.anchorLocked = false;
+    enemy.anchorHoldRemaining = 0;
+    enemy.anchorMarkerAlpha = 0;
+    enemy.anchorMarkerFadeRemaining = 0;
+    enemy.gravityFlipVisualTimer = 0;
+    enemy.phaseFlickerTimer = 0;
+    enemy.phaseExposureTimer = 0;
+    enemy.phaseExposureCastId = 0;
+    enemy.phaseAwarenessTimer = 0;
+    enemy.phaseAwarenessPoint = null;
+    enemy.timeSlowCastId = 0;
+    enemy.timeSlowCastScale = null;
+    enemy.hitTimer = 0;
+    enemy.hitJoltX = 0;
+    enemy.hitJoltY = 0;
+    enemy.isDying = false;
+    enemy.deathTimer = 0;
+    enemy.deathFragments = [];
+    if (enemy instanceof Enemy) {
+      enemy.direction = -1;
+      enemy.reverseCooldown = 0;
+      enemy.walkerState = "recovering";
+      enemy.landingRecoveryTimer = 0.1;
+      enemy.groundedPlatform = null;
+      enemy.idleTimer = 0;
+    } else if (enemy instanceof Drone) {
+      enemy.fireCooldown = 0.75;
+      enemy.windupTimer = 0;
+      enemy.droneState = "hovering";
+      enemy.forcePulseRecoveryTimer = 0;
+      enemy.waitingForFrontShot = false;
+      for (const slot of enemy.orbitSlots ?? []) {
+        slot.detached = false;
+        slot.detachTimer = 0;
+        slot.detachMaxTimer = 0;
+        slot.reformTimer = 0;
+      }
+    } else if (enemy instanceof Jumper) {
+      enemy.facing = -1;
+      enemy.jumperState = "idle";
+      enemy.stateTimer = 0;
+      enemy.recoveryDelayTimer = 0.12;
+      enemy.hoverTimer = 0;
+      enemy.poseBlend = 0;
+      enemy.landingTimer = 0;
+      enemy.groundedPlatform = null;
+    } else if (enemy instanceof Swarm) {
+      enemy.rotation = 0;
+      enemy.hoverTimer = 0;
+    }
+    resetEnemyAdaptation(enemy);
+  }
+}
+
 
 const systemDialogue = {
   activeBlocking: null,
@@ -6754,7 +7202,7 @@ function update(dt) {
 
   for (const enemy of enemies) {
     if (enemy.hp > 0 && !player.isDying && !isPlayerPhased() && rectsTouchOrOverlap(player, enemy.getDamageRect(), 0.75)) {
-      player.takeDamage(1, enemy);
+      player.takeDamage(enemy.contactDamage ?? 1, enemy);
     }
   }
 
