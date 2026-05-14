@@ -32,6 +32,7 @@
     swarmHp: 1,
     swarmContactDamage: 1,
     swarmSpeed: 80,
+    swarmDetectionRange: 360,
     swarmSeparationDistance: 34,
     swarmSeparationForce: 95,
     swarmHoverAmount: 2.5,
@@ -67,7 +68,7 @@
     fallBoundaryOffset: 48,
     fallRespawnGrace: 0.22,
     edgeRespawnInset: 18,
-    roomWidth: 2200,
+    roomWidth: 2800,
     checkpoint: { x: 86, y: 362 },
     safeAnchor: { x: 92, y: 362 }
   });

@@ -75,6 +75,7 @@ const SWARM_HEIGHT = config.swarmHeight ?? 24;
 const SWARM_HP = config.swarmHp ?? 1;
 const SWARM_CONTACT_DAMAGE = config.swarmContactDamage ?? 1;
 const SWARM_SPEED = config.swarmSpeed ?? 80;
+const SWARM_DETECTION_RANGE = config.swarmDetectionRange ?? 360;
 const SWARM_SEPARATION_DISTANCE = config.swarmSeparationDistance ?? 34;
 const SWARM_SEPARATION_FORCE = config.swarmSeparationForce ?? 95;
 const SWARM_HOVER_AMOUNT = config.swarmHoverAmount ?? 2.5;
@@ -169,7 +170,7 @@ const FALL_RESPAWN_GRACE = config.fallRespawnGrace ?? 0.22;
 const EDGE_RESPAWN_INSET = config.edgeRespawnInset ?? 18;
 const EDGE_HAZARD_OUTWARD_TOLERANCE = config.edgeHazardOutwardTolerance ?? 0;
 const GRAVITY_RESET_EDGE_HAZARD_GRACE = 0.28;
-const ROOM_WIDTH = config.roomWidth ?? 2200;
+const ROOM_WIDTH = config.roomWidth ?? 2800;
 const ENEMY_VERTICAL_EDGE_KILL_TOLERANCE = config.enemyVerticalEdgeKillTolerance ?? 4;
 const ENEMY_VERTICAL_EDGE_KILL_ARM_DURATION = config.enemyVerticalEdgeKillArmDuration ?? 0.9;
 const HUD_MARGIN = 20;
@@ -257,6 +258,7 @@ const platforms = [
   // and a gravity-focused zone without crowding the open air between them.
   { x: 1360, y: 470, w: 300, h: 70 },
   { x: 1780, y: 470, w: 420, h: 70 },
+  { x: 2280, y: 470, w: 520, h: 70 },
   { x: 220, y: 365, w: 150, h: 20 },
   { x: 535, y: 300, w: 190, h: 20 },
   { x: 805, y: 385, w: 155, h: 20 },
@@ -265,7 +267,12 @@ const platforms = [
   { x: 1500, y: 245, w: 210, h: 20 },
   { x: 1720, y: 390, w: 180, h: 20 },
   { x: 1900, y: 310, w: 240, h: 20 },
-  { x: 1985, y: 150, w: 150, h: 20 }
+  { x: 1985, y: 150, w: 150, h: 20 },
+  // Swarm arena: staggered shelves give the mob room to chase while proving
+  // its steering respects solid canvas platforms.
+  { x: 2240, y: 365, w: 210, h: 20 },
+  { x: 2495, y: 300, w: 190, h: 20 },
+  { x: 2635, y: 190, w: 130, h: 20 }
 ];
 
 const phaseBarriers = [];
@@ -277,7 +284,8 @@ const spikes = [
   // Ceiling strips: attached to the underside of the top platform so Gravity
   // Field can launch nearby enemies upward into clean geometric hazards.
   { platform: platforms[0], side: "bottom", x: 620, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
-  { platform: platforms[0], side: "bottom", x: 1030, w: 112, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
+  { platform: platforms[0], side: "bottom", x: 1030, w: 112, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
+  { platform: platforms[0], side: "bottom", x: 2380, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
 ];
 
 const bottomFallBoundary = config.fallBoundary
@@ -1490,7 +1498,22 @@ class Player extends Entity {
   }
 
   getPulseSpawnPoint() {
-    return this.getForwardHandPoint(this.attackFacing);
+    const direction = this.attackFacing || this.facing || 1;
+    const modelFeetY = 50;
+    const surfaceY = this.gravitySign > 0 ? this.y + this.h : this.y;
+    const verticalFlip = this.gravitySign > 0 ? 1 : -1;
+    const originY = this.gravitySign > 0
+      ? surfaceY - modelFeetY * PLAYER_VISUAL_SCALE
+      : surfaceY + modelFeetY * PLAYER_VISUAL_SCALE;
+    // System Pulse is released from the compact two-hand attack pose, not the
+    // fully extended Force Pulse hand. Keeping this origin nearer the torso
+    // prevents right-facing bolts from popping ahead of the player.
+    const localX = this.isCrouching ? 12.2 : 12.8;
+    const localY = this.isCrouching ? 28.6 : 21.8;
+    return {
+      x: this.x + this.w / 2 + direction * PLAYER_VISUAL_SCALE * localX,
+      y: originY + verticalFlip * PLAYER_VISUAL_SCALE * localY
+    };
   }
 
   getForcePulsePoseAmount() {
@@ -3342,6 +3365,7 @@ class Swarm extends Entity {
     this.hp = SWARM_HP;
     this.contactDamage = SWARM_CONTACT_DAMAGE;
     this.speed = SWARM_SPEED;
+    this.detectionRange = SWARM_DETECTION_RANGE;
     this.separationDistance = SWARM_SEPARATION_DISTANCE;
     this.separationForce = SWARM_SEPARATION_FORCE;
     this.hoverAmount = SWARM_HOVER_AMOUNT;
@@ -3402,10 +3426,21 @@ class Swarm extends Entity {
       : centerOf(player);
     const toPlayer = { x: playerCenter.x - bodyCenter.x, y: playerCenter.y - bodyCenter.y };
     const distanceToPlayer = Math.max(1, Math.hypot(toPlayer.x, toPlayer.y));
-    const desired = {
-      x: (toPlayer.x / distanceToPlayer) * this.speed,
-      y: (toPlayer.y / distanceToPlayer) * this.speed
-    };
+    const playerDetected = !player.isDying && distanceToPlayer <= this.detectionRange;
+    const desired = { x: 0, y: 0 };
+
+    if (playerDetected) {
+      desired.x = (toPlayer.x / distanceToPlayer) * this.speed;
+      desired.y = (toPlayer.y / distanceToPlayer) * this.speed;
+      // Swarm bodies have a pointed front, so aim that front at the player even
+      // when separation or platform collision bends the immediate flight path.
+      this.turnToward(Math.atan2(toPlayer.y, toPlayer.x), dt);
+    } else {
+      this.vx *= Math.max(0, 1 - dt * 3.4);
+      this.vy *= Math.max(0, 1 - dt * 3.4);
+      if (Math.hypot(this.vx, this.vy) > 1) this.turnToward(Math.atan2(this.vy, this.vx), dt);
+      return;
+    }
 
     const separation = this.getSeparationVector();
     desired.x += separation.x;
@@ -3428,8 +3463,6 @@ class Swarm extends Entity {
       this.vx = this.vx / currentSpeed * maxSpeed;
       this.vy = this.vy / currentSpeed * maxSpeed;
     }
-
-    this.turnToward(Math.atan2(this.vy, this.vx), dt);
   }
 
   getSeparationVector() {
@@ -3477,8 +3510,38 @@ class Swarm extends Entity {
 
   moveAndCollide(dt) {
     this.x += this.vx * dt;
-    this.y += this.vy * dt;
+    for (const platform of platforms) {
+      if (!rectsOverlap(this, platform)) continue;
+      if (this.vx > 0) this.x = platform.x - this.w;
+      if (this.vx < 0) this.x = platform.x + platform.w;
+      this.vx = 0;
+    }
     this.resolveWorldHorizontalBounds();
+
+    const previousY = this.y;
+    this.y += this.vy * dt;
+    this.onSurface = false;
+
+    const sweptPlatform = findSweptVerticalCollision(this, previousY, platforms);
+    if (sweptPlatform) {
+      this.y = sweptPlatform.y;
+      this.vy = 0;
+      this.onSurface = true;
+      return;
+    }
+
+    for (const platform of platforms) {
+      if (!rectsOverlap(this, platform)) continue;
+      if (this.vy > 0) this.y = platform.y - this.h;
+      else if (this.vy < 0) this.y = platform.y + platform.h;
+      else {
+        const overlapTop = Math.abs(this.y + this.h - platform.y);
+        const overlapBottom = Math.abs(this.y - (platform.y + platform.h));
+        this.y = overlapTop < overlapBottom ? platform.y - this.h : platform.y + platform.h;
+      }
+      this.vy = 0;
+      this.onSurface = true;
+    }
   }
 
   isOutsideWorld() {
@@ -5897,9 +5960,9 @@ const enemies = [
   new Drone(1085, 210),
   new Enemy(1590, 435),
   new Jumper(2010, 265),
-  new Swarm(895, 360),
-  new Swarm(930, 335),
-  new Swarm(965, 360)
+  new Swarm(2375, 330),
+  new Swarm(2410, 305),
+  new Swarm(2445, 330)
 ];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
@@ -8663,7 +8726,7 @@ window.__indiePlatformerDebug = {
   safeAnchor,
   bottomFallBoundary,
   roomHazardBounds,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
