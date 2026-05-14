@@ -245,14 +245,57 @@ dispatch("keydown", keyEvent("a", "KeyA"));
 // still held; the exhaustion lock, not stamina level, must decide restart.
 debug.player.stamina = debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD + 1;
 debug.player.staminaRegenDelayTimer = 0;
+const staminaBeforeLockedDirectionChanges = debug.player.stamina;
 debug.player.update(0.016);
 if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stamina < debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD) {
   throw new Error("Changing direction while Shift stayed held bypassed the sprint exhaustion lock.");
 }
+if (debug.player.stamina < staminaBeforeLockedDirectionChanges) {
+  throw new Error("Locked sprint drained stamina after a held-Shift direction change.");
+}
 if (Math.abs(debug.player.vx + debug.constants.WALK_SPEED) > 0.001) {
   throw new Error(`Locked sprint direction change did not use walk speed; got ${debug.player.vx}.`);
 }
+
 dispatch("keyup", keyEvent("a", "KeyA"));
+let staminaBeforeNoMovement = debug.player.stamina;
+debug.player.update(0.016);
+if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.vx !== 0 || debug.player.stamina < staminaBeforeNoMovement) {
+  throw new Error("Releasing movement while Shift stayed held altered the sprint exhaustion lock.");
+}
+dispatch("keydown", keyEvent("a", "KeyA"));
+staminaBeforeNoMovement = debug.player.stamina;
+debug.player.update(0.016);
+if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stamina < staminaBeforeNoMovement) {
+  throw new Error("Restarting movement while Shift stayed held bypassed the sprint exhaustion lock.");
+}
+if (Math.abs(debug.player.vx + debug.constants.WALK_SPEED) > 0.001) {
+  throw new Error(`Locked movement restart did not use walk speed; got ${debug.player.vx}.`);
+}
+
+// Rapidly alternate movement input while Shift stays down. Direction changes may
+// change only the sign of walk movement; they must never clear exhaustion or
+// cause a one-frame sprint drain/burst.
+for (let frame = 0; frame < 8; frame += 1) {
+  const holdLeft = frame % 2 === 0;
+  dispatch("keyup", keyEvent(holdLeft ? "d" : "a", holdLeft ? "KeyD" : "KeyA"));
+  dispatch("keydown", keyEvent(holdLeft ? "a" : "d", holdLeft ? "KeyA" : "KeyD"));
+  const staminaBeforeFrame = debug.player.stamina;
+  debug.player.update(0.016);
+  const expectedVx = (holdLeft ? -1 : 1) * debug.constants.WALK_SPEED;
+  if (!debug.getShiftIsDown()) throw new Error("Shift state was lost during rapid movement input changes.");
+  if (debug.player.isRunning || !debug.player.sprintExhausted) {
+    throw new Error("Rapid movement input changes bypassed the held-Shift sprint exhaustion lock.");
+  }
+  if (debug.player.stamina < staminaBeforeFrame) {
+    throw new Error("Locked sprint drained stamina during rapid movement input changes.");
+  }
+  if (Math.abs(debug.player.vx - expectedVx) > 0.001) {
+    throw new Error(`Locked rapid direction change used the wrong speed; got ${debug.player.vx}, expected ${expectedVx}.`);
+  }
+}
+dispatch("keyup", keyEvent("a", "KeyA"));
+dispatch("keyup", keyEvent("d", "KeyD"));
 dispatch("keyup", keyEvent("Shift", "ShiftLeft"));
 debug.player.update(0);
 if (debug.player.sprintExhausted) {
