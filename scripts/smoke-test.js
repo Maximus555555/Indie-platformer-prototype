@@ -14,7 +14,15 @@ function rememberListener(type, listener) {
 
 const noop = () => {};
 const recordCanvasCall = (name) => function (...args) {
-  context.calls.push({ name, args });
+  context.calls.push({
+    name,
+    args,
+    state: {
+      font: context.font,
+      textAlign: context.textAlign,
+      textBaseline: context.textBaseline
+    }
+  });
 };
 const context = new Proxy({
   canvas: null,
@@ -1457,6 +1465,30 @@ const selectedTabKeyHints = context.calls
   .filter((text) => text === "Q" || text === "E");
 if (selectedTabKeyHints.filter((text) => text === "Q").length !== 1 || selectedTabKeyHints.filter((text) => text === "E").length !== 1) {
   throw new Error(`System Access selected tab did not render one Q/E key hint pair: ${selectedTabKeyHints.join(",")}.`);
+}
+
+// System Access tab centering regression: every tab title should use the exact
+// center of its tab rectangle, whether selected or not, so Q/E hints and
+// selected styles never nudge the label.
+const systemAccessTabNames = ["STATUS", "ABILITIES", "UPGRADES", "INVENTORY", "LOGS", "SYSTEM"];
+for (let selectedIndex = 0; selectedIndex < systemAccessTabNames.length; selectedIndex += 1) {
+  debug.systemAccess.selectedTabIndex = selectedIndex;
+  context.calls = [];
+  debug.draw();
+  for (let tabIndex = 0; tabIndex < systemAccessTabNames.length; tabIndex += 1) {
+    const tabName = systemAccessTabNames[tabIndex];
+    const rect = debug.systemAccess.tabRects[tabIndex];
+    const labelCall = context.calls.find((call) => call.name === "fillText" && call.args[0] === tabName);
+    if (!labelCall) throw new Error(`System Access tab label was not drawn: ${tabName}.`);
+    const expectedX = rect.x + rect.w / 2;
+    const expectedY = rect.y + rect.h / 2;
+    if (Math.abs(labelCall.args[1] - expectedX) > 0.001 || Math.abs(labelCall.args[2] - expectedY) > 0.001) {
+      throw new Error(`System Access tab label ${tabName} was not centered at ${expectedX},${expectedY}; got ${labelCall.args[1]},${labelCall.args[2]}.`);
+    }
+    if (labelCall.state.textAlign !== "center" || labelCall.state.textBaseline !== "middle") {
+      throw new Error(`System Access tab label ${tabName} did not use center/middle alignment.`);
+    }
+  }
 }
 debug.systemAccess.open = false;
 

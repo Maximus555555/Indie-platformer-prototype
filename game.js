@@ -7470,10 +7470,11 @@ function drawSystemAccessText(text, x, y, options = {}) {
   const size = options.size ?? 14;
   const color = options.color ?? "rgba(232, 249, 255, 0.95)";
   const align = options.align ?? "left";
+  const baseline = options.baseline ?? "top";
   ctx.font = `${options.weight ?? "normal"} ${size}px monospace`;
   ctx.fillStyle = color;
   ctx.textAlign = align;
-  ctx.textBaseline = "top";
+  ctx.textBaseline = baseline;
   ctx.fillText(text, x, y);
 }
 
@@ -7489,13 +7490,14 @@ function drawSystemAccessWrappedText(text, x, y, maxWidth, lineHeight, options =
   return lines.length * lineHeight;
 }
 
-function drawSystemAccessTabKeyHint(key, x, y, align = "left") {
+function drawSystemAccessTabKeyHint(key, x, y, h, align = "left") {
   const edgeOffset = 15;
   const hintX = align === "right" ? x - edgeOffset : x + edgeOffset;
 
-  drawSystemAccessText(key, hintX, y + 12, {
+  drawSystemAccessText(key, hintX, y + h / 2, {
     size: 8,
     align: "center",
+    baseline: "middle",
     color: "rgba(173, 222, 235, 0.56)"
   });
 }
@@ -7515,13 +7517,16 @@ function drawSystemAccessTabs(layout) {
     fillRoundedRect(x, y, tabW, layout.tabsH, 5);
     strokeRoundedRect(x, y, tabW, layout.tabsH, 5);
     if (selected) {
-      drawSystemAccessTabKeyHint("Q", x, y, "left");
-      drawSystemAccessTabKeyHint("E", x + tabW, y, "right");
+      drawSystemAccessTabKeyHint("Q", x, y, layout.tabsH, "left");
+      drawSystemAccessTabKeyHint("E", x + tabW, y, layout.tabsH, "right");
     }
 
-    drawSystemAccessText(tab.toUpperCase(), x + tabW / 2, y + 10, {
+    // Keep every tab title anchored to the tab rectangle center; Q/E hints and
+    // selected styling should never participate in label positioning.
+    drawSystemAccessText(tab.toUpperCase(), x + tabW / 2, y + layout.tabsH / 2, {
       size: 11,
       align: "center",
+      baseline: "middle",
       color: selected ? "rgba(235, 252, 255, 0.98)" : "rgba(139, 194, 216, 0.68)"
     });
   });
