@@ -103,6 +103,16 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 
+const swarmEnemies = debug.enemies.filter((enemy) => enemy.constructor.name === "Swarm");
+if (swarmEnemies.length !== 3) throw new Error(`Expected three sandbox Swarm enemies, got ${swarmEnemies.length}.`);
+for (const swarm of swarmEnemies) {
+  if (swarm.hp !== 1 || swarm.contactDamage !== 1) throw new Error("Swarm enemies did not boot with 1 HP and 1 contact damage.");
+  if (swarm.blocksPlayer !== false) throw new Error("Swarm enemies should deal contact damage without becoming hard player blockers.");
+  if (typeof swarm.updateSteering !== "function" || typeof swarm.getSeparationVector !== "function") {
+    throw new Error("Swarm steering/separation behavior was not exposed on the enemy instance.");
+  }
+}
+
 const visualJumper = debug.enemies.find((enemy) => enemy.constructor.name === "Jumper");
 if (!visualJumper) throw new Error("Expected a Jumper enemy for visual clearance regression.");
 const visualJumperPlatform = debug.platforms.find((platform) => visualJumper.x + visualJumper.w / 2 >= platform.x && visualJumper.x + visualJumper.w / 2 <= platform.x + platform.w && platform.y === 310);
