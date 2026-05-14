@@ -4336,14 +4336,14 @@ class Jumper extends Entity {
   }
 
   getSidePlatePoints(side) {
-    // Taller fixed silhouette for the lower mechanical plates. Animation only
-    // translates and rotates this polygon, preserving its sharp rigid shape.
+    // Fixed four-point diamonds for the lower mechanical pieces. Animation only
+    // translates and rotates these points, so the silhouette never squashes or
+    // turns into a triangle/plate during the charge blend.
     const platePoints = [
       { x: 13.2, y: -3.2 },
-      { x: 7.2, y: 5.2 },
-      { x: 4.8, y: 17.8 },
-      { x: 17.8, y: 22.3 },
-      { x: 19.4, y: 9.2 }
+      { x: 19.4, y: 9.2 },
+      { x: 13.2, y: 22.3 },
+      { x: 7.0, y: 9.2 }
     ];
     return platePoints.map((point) => ({ x: side * point.x, y: point.y }));
   }
@@ -4539,8 +4539,11 @@ class DroneProjectile {
     this.y += this.vy * simDt;
 
     const rect = this.getRect();
-    if (this.x < -40 || this.x > ROOM_WIDTH + 40 || this.y < -80 || this.y > bottomFallBoundary + 80
-      || this.x < cameraX - 28 || this.x > cameraX + canvas.width + 28) {
+    const worldBuffer = 480;
+    if (this.x < -worldBuffer
+      || this.x > ROOM_WIDTH + worldBuffer
+      || this.y < -worldBuffer
+      || this.y > bottomFallBoundary + worldBuffer) {
       this.deactivate();
       return;
     }
@@ -4942,8 +4945,9 @@ function getSolidEnemyRects() {
 }
 
 function findPulseEndpoint(startX, y, direction) {
-  const screenEdge = direction > 0 ? cameraX + canvas.width : cameraX;
-  let endX = clamp(screenEdge, 0, ROOM_WIDTH);
+  // System Pulse should travel until it hits world geometry, a target, or the
+  // room edge. Camera visibility must not shorten its simulation or hit range.
+  let endX = direction > 0 ? ROOM_WIDTH : 0;
   let bestDistance = Math.abs(endX - startX);
 
   function consider(rect) {
