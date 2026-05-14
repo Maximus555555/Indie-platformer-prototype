@@ -142,6 +142,14 @@ visualJumper.beginLandingRecovery(visualJumperPlatform);
 if (visualJumper.jumperState !== "idle" || visualJumper.poseBlend !== 0) {
   throw new Error("Jumper landing still entered a recovery animation pose.");
 }
+visualJumper.beginLandingRecovery(visualJumperPlatform, 180);
+if (visualJumper.landingTimer <= 0) {
+  throw new Error("Jumper impact landing did not start its tiny squash animation.");
+}
+visualJumper.updateLandingAnimation(0.2);
+if (visualJumper.landingTimer !== 0) {
+  throw new Error("Jumper landing squash animation did not finish cleanly.");
+}
 
 function dispatch(type, event) {
   const listeners = eventListeners.get(type) ?? [];
