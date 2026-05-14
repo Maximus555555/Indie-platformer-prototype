@@ -690,38 +690,10 @@ function applyAdaptationBodyGlow(enemy, extraBlur = 0) {
   const visual = getLastAdaptationVisual(enemy);
   if (!visual) return null;
 
-  // Adaptation is communicated through a strong whole-body shadow plus a soft
-  // aura, so even the first adapted stage is readable during motion.
+  // Adaptation is communicated through a whole-body shadow so enemies stay
+  // readable without drawing an extra marker over their silhouettes.
   ctx.shadowColor = rgbaFromComponents(visual.colors.core, Math.min(0.95, visual.level.edgeAlpha + 0.24));
   ctx.shadowBlur = visual.level.blur + 9 + extraBlur;
-  return visual;
-}
-
-function drawAdaptationAura(enemy, radiusX, radiusY, extraPulse = 0) {
-  const visual = getLastAdaptationVisual(enemy);
-  if (!visual) return null;
-
-  const pulse = 0.5 + 0.5 * Math.sin((enemy.idleTimer ?? enemy.hoverTimer ?? enemy.stateTimer ?? 0) * 5.2);
-  const stageScale = 1 + visual.stage * 0.08;
-  const pulseScale = 1 + pulse * 0.05 + extraPulse;
-  const auraRadiusX = radiusX * stageScale * pulseScale;
-  const auraRadiusY = radiusY * stageScale * pulseScale;
-  const gradient = ctx.createRadialGradient(0, 0, Math.min(auraRadiusX, auraRadiusY) * 0.12, 0, 0, Math.max(auraRadiusX, auraRadiusY));
-  gradient.addColorStop(0, rgbaFromComponents(visual.colors.edge, visual.level.alpha * 0.56));
-  gradient.addColorStop(0.46, rgbaFromComponents(visual.colors.core, visual.level.alpha * 0.42));
-  gradient.addColorStop(1, rgbaFromComponents(visual.colors.core, 0));
-
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.moveTo(0, -auraRadiusY);
-  ctx.lineTo(auraRadiusX, 0);
-  ctx.lineTo(0, auraRadiusY);
-  ctx.lineTo(-auraRadiusX, 0);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
   return visual;
 }
 
@@ -3280,7 +3252,6 @@ class Enemy extends Entity {
     }
     ctx.lineJoin = "miter";
     ctx.lineCap = "butt";
-    drawAdaptationAura(this, 39, 36, hitFlash * 0.04);
     applyAdaptationBodyGlow(this, hitFlash * 4);
     ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_PLATE_STROKE;
     ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : WALKER_PLATE_FILL;
@@ -3985,7 +3956,6 @@ class Drone extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
-    drawAdaptationAura(this, 35, 33, charge * 0.08 + hitFlash * 0.04);
     if (!applyAdaptationBodyGlow(this, charge * 5 + hitFlash * 4)) {
       ctx.shadowColor = this.anchorLocked ? ANCHOR_SILVER_SHADOW : "rgba(255, 168, 35, 0.35)";
       ctx.shadowBlur = (this.anchorLocked ? 10 : 4) + charge * 7 + hitFlash * 5;
@@ -4691,7 +4661,6 @@ class Jumper extends Entity {
       ctx.rotate(gravityFlipVisual.rotation);
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
-    drawAdaptationAura(this, 32, 34, Math.abs(airShift) * 0.04 + hitFlash * 0.04);
     applyAdaptationBodyGlow(this, hitFlash * 4);
     this.drawJumperBody(this.poseBlend, hitFlash > 0.45, airShift, sideLag, clearanceShift, pose);
     ctx.restore();
