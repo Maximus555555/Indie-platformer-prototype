@@ -917,6 +917,7 @@ class Player extends Entity {
     this.damageTimer = 0;
     this.isCrouching = false;
     this.isRunning = false;
+    this.sprintExhausted = false;
     this.stamina = MAX_STAMINA;
     this.staminaRegenDelayTimer = 0;
     this.staminaBarAlpha = 0;
@@ -966,7 +967,7 @@ class Player extends Entity {
     this.updateCrouchShape(dt);
 
     // Held crouch has priority over sprinting and uses a slower, careful speed.
-    this.updateSprintStamina(dt, runHeld && input !== 0 && !this.isCrouching && !wantsGroundCrouch);
+    this.updateSprintStamina(dt, runHeld, input !== 0 && !this.isCrouching && !wantsGroundCrouch);
     const inputSpeed = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
     this.vx = inputSpeed;
     if (this.recoilTimer > 0) {
@@ -980,7 +981,7 @@ class Player extends Entity {
     }
     if (input !== 0) this.facing = input;
     this.animTime += dt;
-    if (input !== 0 && !runHeld && this.onSurface && !this.isCrouching) this.walkTime += dt;
+    if (input !== 0 && !this.isRunning && this.onSurface && !this.isCrouching) this.walkTime += dt;
     else this.walkTime = 0;
     if (input !== 0 && this.onSurface && this.isCrouching) this.crouchWalkTime += dt;
     else this.crouchWalkTime = 0;
@@ -1161,18 +1162,25 @@ class Player extends Entity {
     this.vy = 0;
   }
 
-  updateSprintStamina(dt, wantsSprint) {
+  updateSprintStamina(dt, runHeld, canSprint = runHeld) {
     const wasRunning = this.isRunning;
+    if (!runHeld) this.sprintExhausted = false;
+
+    const wantsSprint = runHeld && canSprint;
     const hasEnoughStamina = wasRunning
       ? this.stamina > 0
       : this.stamina >= SPRINT_STAMINA_RESTART_THRESHOLD;
 
-    this.isRunning = wantsSprint && hasEnoughStamina;
+    this.isRunning = wantsSprint && !this.sprintExhausted && hasEnoughStamina;
 
     if (this.isRunning) {
       this.stamina = Math.max(0, this.stamina - SPRINT_STAMINA_DRAIN_RATE * dt);
       this.staminaRegenDelayTimer = SPRINT_STAMINA_REGEN_DELAY;
-      if (this.stamina <= 0) this.isRunning = false;
+      if (this.stamina <= 0) {
+        this.stamina = 0;
+        this.isRunning = false;
+        this.sprintExhausted = true;
+      }
     }
 
     if (!this.isRunning) {
@@ -1185,7 +1193,7 @@ class Player extends Entity {
       }
     }
 
-    const staminaIsRelevant = this.isRunning || this.stamina < MAX_STAMINA;
+    const staminaIsRelevant = this.isRunning || this.sprintExhausted || this.stamina < MAX_STAMINA;
     const targetAlpha = staminaIsRelevant ? 1 : 0;
     const alphaStep = STAMINA_BAR_FADE_SPEED * dt;
     this.staminaBarAlpha = targetAlpha > this.staminaBarAlpha
@@ -1535,6 +1543,7 @@ class Player extends Entity {
     this.gravityFlipVisualToSign = this.gravitySign;
     this.isCrouching = false;
     this.isRunning = false;
+    this.sprintExhausted = false;
     this.h = STAND_HEIGHT;
     this.fallPoseBlend = 0;
     this.landTimer = 0;
