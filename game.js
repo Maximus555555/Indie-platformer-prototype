@@ -926,8 +926,17 @@ class Player extends Entity {
     this.isCrouching = false;
     this.isRunning = false;
     // Once stamina is fully exhausted, sprint input stays locked until Shift is
-    // released so movement-direction changes cannot restart sprinting.
-    this.sprintExhausted = false;
+    // released so movement-direction changes cannot restart sprinting. Keep the
+    // older sprintExhausted debug name as an alias for compatibility.
+    this._sprintLockedUntilShiftRelease = false;
+    Object.defineProperty(this, "sprintLockedUntilShiftRelease", {
+      get: () => this._sprintLockedUntilShiftRelease,
+      set: (value) => { this._sprintLockedUntilShiftRelease = Boolean(value); }
+    });
+    Object.defineProperty(this, "sprintExhausted", {
+      get: () => this._sprintLockedUntilShiftRelease,
+      set: (value) => { this._sprintLockedUntilShiftRelease = Boolean(value); }
+    });
     this.stamina = MAX_STAMINA;
     this.staminaRegenDelayTimer = 0;
     this.staminaBarAlpha = 0;
@@ -981,7 +990,11 @@ class Player extends Entity {
 
     // Held crouch has priority over sprinting and uses a slower, careful speed.
     this.updateSprintStamina(dt, runHeld, input !== 0 && !this.isCrouching && !wantsGroundCrouch);
-    const inputSpeed = input * (this.isCrouching ? CROUCH_SPEED : (this.isRunning ? RUN_SPEED : WALK_SPEED));
+    if (this.sprintLockedUntilShiftRelease) this.isRunning = false;
+    const moveSpeed = this.isCrouching
+      ? CROUCH_SPEED
+      : (this.isRunning && !this.sprintLockedUntilShiftRelease ? RUN_SPEED : WALK_SPEED);
+    const inputSpeed = input * moveSpeed;
     this.vx = inputSpeed;
     if (this.recoilTimer > 0) {
       const recoilProgress = clamp(this.recoilTimer / DAMAGE_RECOIL_DURATION, 0, 1);
@@ -1191,16 +1204,16 @@ class Player extends Entity {
     // This lock represents a held-Shift exhaustion state, not just low stamina.
     // It must only clear from an actual Shift release; movement changes, crouch,
     // jumps, landing, attacks, or stamina regeneration must not unlock sprint.
-    if (!runHeld) this.sprintExhausted = false;
+    if (!runHeld) this.sprintLockedUntilShiftRelease = false;
 
     const wantsSprint = runHeld && canSprint;
     const hasEnoughStamina = wasRunning
       ? this.stamina > 0
       : this.stamina >= SPRINT_STAMINA_RESTART_THRESHOLD;
 
-    this.isRunning = wantsSprint && !this.sprintExhausted && hasEnoughStamina;
+    this.isRunning = wantsSprint && !this.sprintLockedUntilShiftRelease && hasEnoughStamina;
 
-    if (this.sprintExhausted) {
+    if (this.sprintLockedUntilShiftRelease) {
       // Exhaustion lock is absolute for this frame: no stamina drain, no sprint
       // movement, and no animation may observe a stale running state.
       this.isRunning = false;
@@ -1211,7 +1224,7 @@ class Player extends Entity {
       if (this.stamina - drainAmount <= 0) {
         this.stamina = 0;
         this.isRunning = false;
-        this.sprintExhausted = true;
+        this.sprintLockedUntilShiftRelease = true;
       } else {
         this.stamina -= drainAmount;
       }
@@ -1228,9 +1241,9 @@ class Player extends Entity {
       }
     }
 
-    if (this.sprintExhausted) this.isRunning = false;
+    if (this.sprintLockedUntilShiftRelease) this.isRunning = false;
 
-    const staminaIsRelevant = this.isRunning || this.sprintExhausted || this.stamina < MAX_STAMINA;
+    const staminaIsRelevant = this.isRunning || this.sprintLockedUntilShiftRelease || this.stamina < MAX_STAMINA;
     const targetAlpha = staminaIsRelevant ? 1 : 0;
     const alphaStep = STAMINA_BAR_FADE_SPEED * dt;
     this.staminaBarAlpha = targetAlpha > this.staminaBarAlpha
@@ -1620,7 +1633,6 @@ class Player extends Entity {
     this.gravityFlipVisualToSign = this.gravitySign;
     this.isCrouching = false;
     this.isRunning = false;
-    this.sprintExhausted = false;
     this.h = STAND_HEIGHT;
     this.fallPoseBlend = 0;
     this.landTimer = 0;
