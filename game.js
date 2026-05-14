@@ -175,6 +175,9 @@ const ABILITY_READY_PULSE_DURATION = 0.22;
 const SYSTEM_TEXT_SPEED = 48;
 const SYSTEM_AMBIENT_DURATION = 3.2;
 const SYSTEM_AMBIENT_FADE = 0.45;
+const SYSTEM_ACCESS_COMBAT_RADIUS = 520;
+const SYSTEM_ACCESS_DENIED_DURATION = 1.15;
+
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
 const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
@@ -183,7 +186,7 @@ const keys = new Set();
 const pressedThisFrame = new Set();
 let shiftIsDown = false;
 const JUMP_INPUT_KEYS = ["w", "arrowup"];
-const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q"];
+const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "escape", "tab", "e", "q", "i"];
 const INPUT_CODE_ALIASES = new Map([
   ["ArrowUp", "arrowup"],
   ["ArrowDown", "arrowdown"],
@@ -195,6 +198,9 @@ const INPUT_CODE_ALIASES = new Map([
   ["KeyD", "d"],
   ["KeyE", "e"],
   ["KeyQ", "q"],
+  ["KeyI", "i"],
+  ["Tab", "tab"],
+  ["Escape", "escape"],
   ["ShiftLeft", "shift"],
   ["ShiftRight", "shift"],
   ["Space", " "]
@@ -298,6 +304,59 @@ const abilityWheel = {
 };
 // Mouse-driven wheel selection will be restored behind a future settings toggle.
 const MOUSE_ABILITY_WHEEL_SELECTION_ENABLED = false;
+
+
+const systemAccessData = {
+  tabs: ["Status", "Abilities", "Upgrades", "Inventory", "Logs", "System"],
+  placeholders: {
+    Status: "STATUS DATA UNAVAILABLE",
+    Upgrades: "UPGRADE TREE LOCKED",
+    Inventory: "INVENTORY EMPTY",
+    Logs: "LOG ARCHIVE EMPTY",
+    System: "OPTIONS UNAVAILABLE\nSAVE DATA UNAVAILABLE\nEXIT INTERFACE"
+  },
+  abilities: {
+    gravity: {
+      description: "Reverses gravity for affected entities in a nearby field.",
+      effects: ["Nearby field", "Entity gravity reversal", "Auto-reset on duration end"],
+      values: () => [`Cooldown: ${formatSeconds(GRAVITY_FIELD_COOLDOWN)}`, `Duration: ${formatSeconds(GRAVITY_FIELD_DURATION)}`, `Radius: ${Math.round(GRAVITY_FIELD_RADIUS)} px`]
+    },
+    time: {
+      description: "Slows enemies and enemy projectiles while the player remains unaffected.",
+      effects: ["Enemy slow field", "Projectile slow field", "Player unaffected"],
+      values: () => [`Cooldown: ${formatSeconds(TIME_SLOW_COOLDOWN)}`, `Duration: ${formatSeconds(TIME_SLOW_DURATION)}`, `Radius: ${Math.round(TIME_SLOW_RADIUS)} px`, `Slow: ${Math.round(TIME_SLOW_MULTIPLIER * 100)}% speed`]
+    },
+    pulse: {
+      description: "Releases a red force cone from the player’s hand, shoving enemies away.",
+      effects: ["Forward cone", "Enemy knockback", "Brief stun"],
+      values: () => [`Cooldown: ${formatSeconds(FORCE_PULSE_COOLDOWN)}`, `Range: ${Math.round(FORCE_PULSE_RANGE)} px`, `Force: ${Math.round(FORCE_PULSE_KNOCKBACK)}`]
+    },
+    anchor: {
+      description: "Places a stabilization field that locks enemies and freezes enemy projectiles.",
+      effects: ["Enemy lock", "Projectile freeze", "Localized field"],
+      values: () => [`Cooldown: ${formatSeconds(ANCHOR_FIELD_COOLDOWN)}`, `Duration: ${formatSeconds(ANCHOR_FIELD_DURATION)}`, `Radius: ${Math.round(ANCHOR_FIELD_RADIUS)} px`]
+    },
+    phase: {
+      description: "Temporarily desynchronizes the player, allowing passage through enemies and phase barriers.",
+      effects: ["Enemy pass-through", "Phase barrier traversal", "Temporary exposure window"],
+      values: () => [`Cooldown: ${formatSeconds(PHASE_SHIFT_COOLDOWN)}`, `Duration: ${formatSeconds(PHASE_SHIFT_DURATION)}`, `Exposure radius: ${Math.round(PHASE_SHIFT_EXPOSURE_RADIUS)} px`]
+    },
+    link: {
+      description: "Links two enemies so damage and force partially transfer between them.",
+      effects: ["Two-target link", "Damage transfer", "Force transfer"],
+      values: () => [`Cooldown: ${formatSeconds(ENERGY_LINK_COOLDOWN)}`, `Duration: ${formatSeconds(ENERGY_LINK_DURATION)}`, `Range: ${Math.round(ENERGY_LINK_RANGE)} px`, `Transfer: ${Math.round(ENERGY_LINK_DAMAGE_TRANSFER * 100)}%`]
+    }
+  }
+};
+
+const systemAccess = {
+  open: false,
+  selectedTabIndex: 1,
+  selectedAbilityId: "gravity",
+  deniedTimer: 0,
+  tabRects: [],
+  abilityRects: []
+};
 
 function getSelectedAbility() {
   return abilities.find((ability) => ability.id === selectedAbilityId) ?? abilities[0];
@@ -6174,6 +6233,144 @@ function updateAbilityInput(dt) {
   eReleasedThisFrame = false;
 }
 
+
+function formatSeconds(value) {
+  return `${Number(value).toFixed(value % 1 === 0 ? 0 : 1)}s`;
+}
+
+function getSystemAccessLayout() {
+  const w = Math.min(canvas.width * 0.88, 860);
+  const h = Math.min(canvas.height * 0.82, 460);
+  const x = (canvas.width - w) / 2;
+  const y = (canvas.height - h) / 2;
+  return {
+    x,
+    y,
+    w,
+    h,
+    headerH: 58,
+    tabsY: y + 62,
+    tabsH: 34,
+    contentX: x + 28,
+    contentY: y + 112,
+    contentW: w - 56,
+    contentH: h - 138
+  };
+}
+
+function isEnemyThreatNearSystemAccess() {
+  const origin = centerOf(player);
+  return enemies.some((enemy) => enemy.hp > 0 && !enemy.isDying && distance(origin, centerOf(enemy)) <= SYSTEM_ACCESS_COMBAT_RADIUS);
+}
+
+function isProjectileThreatNearSystemAccess() {
+  const origin = centerOf(player);
+  return droneProjectiles.some((projectile) => projectile.active && distance(origin, projectile) <= SYSTEM_ACCESS_COMBAT_RADIUS);
+}
+
+function canOpenSystemAccess() {
+  return !player.isDying
+    && !isSystemMessageBlocking()
+    && !isEnemyThreatNearSystemAccess()
+    && !isProjectileThreatNearSystemAccess()
+    && player.damageTimer <= 0
+    && player.attackTimer <= 0;
+}
+
+function showSystemAccessDenied() {
+  systemAccess.deniedTimer = SYSTEM_ACCESS_DENIED_DURATION;
+}
+
+function openSystemAccess() {
+  if (systemAccess.open) return true;
+  if (!canOpenSystemAccess()) {
+    showSystemAccessDenied();
+    return false;
+  }
+
+  systemAccess.open = true;
+  systemAccess.selectedAbilityId = selectedAbilityId;
+  if (abilityWheel.open) closeAbilityWheel(false);
+  clearMenuBlockingInputState();
+  return true;
+}
+
+function closeSystemAccess() {
+  if (!systemAccess.open) return false;
+  systemAccess.open = false;
+  clearMenuBlockingInputState();
+  return true;
+}
+
+function toggleSystemAccess() {
+  if (systemAccess.open) return closeSystemAccess();
+  return openSystemAccess();
+}
+
+function clearMenuBlockingInputState() {
+  keys.clear();
+  pressedThisFrame.clear();
+  shiftIsDown = false;
+  eHoldTimer = 0;
+  eReleasedThisFrame = false;
+  eWheelOpenedThisHold = false;
+}
+
+function stepSystemAccessTab(delta) {
+  systemAccess.selectedTabIndex = (systemAccess.selectedTabIndex + delta + systemAccessData.tabs.length) % systemAccessData.tabs.length;
+}
+
+function selectSystemAccessAbility(ability) {
+  if (!ability) return false;
+  systemAccess.selectedAbilityId = ability.id;
+  return true;
+}
+
+function handleSystemAccessKey(key) {
+  if (key === "escape") {
+    closeSystemAccess();
+    return true;
+  }
+  if (key === "tab" || key === "i") {
+    toggleSystemAccess();
+    return true;
+  }
+  if (!systemAccess.open) return false;
+
+  if (key === "arrowright" || key === "d") {
+    stepSystemAccessTab(1);
+    return true;
+  }
+  if (key === "arrowleft" || key === "a") {
+    stepSystemAccessTab(-1);
+    return true;
+  }
+  if (systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
+    const index = abilities.findIndex((ability) => ability.id === systemAccess.selectedAbilityId);
+    const columns = 2;
+    let nextIndex = index;
+    if (key === "arrowdown" || key === "s") nextIndex = Math.min(abilities.length - 1, index + columns);
+    if (key === "arrowup" || key === "w") nextIndex = Math.max(0, index - columns);
+    if (nextIndex !== index) {
+      selectSystemAccessAbility(abilities[nextIndex]);
+      return true;
+    }
+    if (key === "enter") {
+      const ability = abilities[index];
+      if (ability?.unlocked) selectAbility(ability);
+      return true;
+    }
+  }
+  return true;
+}
+
+function getAbilityInterfaceState(ability) {
+  if (!ability.unlocked) return "Locked";
+  if (ability.activeRemaining > 0) return "Active";
+  if (ability.cooldownRemaining > 0) return "Cooling down";
+  return "Ready";
+}
+
 function getEnemyUpdateOrder() {
   return enemies
     .map((enemy, index) => ({ enemy, index }))
@@ -6200,6 +6397,12 @@ function getEnemyUpdateOrder() {
 }
 
 function update(dt) {
+  systemAccess.deniedTimer = Math.max(0, systemAccess.deniedTimer - dt);
+  if (systemAccess.open) {
+    pressedThisFrame.clear();
+    return;
+  }
+
   updateSystemMessages(dt);
   if (isSystemMessageBlocking()) {
     if (abilityWheel.open) closeAbilityWheel(false);
@@ -7157,6 +7360,227 @@ function drawSelectedAbilityRangePreview() {
   ctx.restore();
 }
 
+
+function fillRoundedRect(x, y, w, h, radius = 0) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, radius);
+  ctx.fill();
+}
+
+function strokeRoundedRect(x, y, w, h, radius = 0) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, radius);
+  ctx.stroke();
+}
+
+function drawSystemAccessText(text, x, y, options = {}) {
+  const size = options.size ?? 14;
+  const color = options.color ?? "rgba(232, 249, 255, 0.95)";
+  const align = options.align ?? "left";
+  ctx.font = `${options.weight ?? "normal"} ${size}px monospace`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = "top";
+  ctx.fillText(text, x, y);
+}
+
+function drawSystemAccessWrappedText(text, x, y, maxWidth, lineHeight, options = {}) {
+  ctx.save();
+  ctx.font = `${options.weight ?? "normal"} ${options.size ?? 14}px monospace`;
+  ctx.fillStyle = options.color ?? "rgba(232, 249, 255, 0.92)";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  const lines = String(text).split("\n").flatMap((line) => wrapSystemText(line, maxWidth));
+  lines.forEach((line, index) => ctx.fillText(line, x, y + index * lineHeight));
+  ctx.restore();
+  return lines.length * lineHeight;
+}
+
+function drawSystemAccessTabs(layout) {
+  systemAccess.tabRects = [];
+  const gap = 8;
+  const tabW = (layout.w - 56 - gap * (systemAccessData.tabs.length - 1)) / systemAccessData.tabs.length;
+  systemAccessData.tabs.forEach((tab, index) => {
+    const x = layout.x + 28 + index * (tabW + gap);
+    const y = layout.tabsY;
+    const selected = index === systemAccess.selectedTabIndex;
+    systemAccess.tabRects.push({ x, y, w: tabW, h: layout.tabsH, tabIndex: index });
+    ctx.fillStyle = selected ? "rgba(54, 163, 211, 0.26)" : "rgba(7, 28, 48, 0.56)";
+    ctx.strokeStyle = selected ? "rgba(168, 236, 255, 0.95)" : "rgba(91, 156, 190, 0.34)";
+    ctx.lineWidth = selected ? 1.6 : 1;
+    fillRoundedRect(x, y, tabW, layout.tabsH, 5);
+    strokeRoundedRect(x, y, tabW, layout.tabsH, 5);
+    drawSystemAccessText(tab.toUpperCase(), x + tabW / 2, y + 10, {
+      size: 11,
+      align: "center",
+      color: selected ? "rgba(235, 252, 255, 0.98)" : "rgba(139, 194, 216, 0.68)"
+    });
+  });
+}
+
+function drawStatusTab(layout) {
+  const lines = [
+    `HEALTH: ${Math.max(0, player.hp)} / ${player.maxHp}`,
+    `STAMINA: ${Math.round(player.stamina)} / ${MAX_STAMINA}`,
+    `SELECTED ABILITY: ${getSelectedAbility().name.toUpperCase()}`,
+    `ACTIVE EFFECTS: ${abilities.filter((ability) => ability.activeRemaining > 0).map((ability) => ability.name.toUpperCase()).join(", ") || "NONE"}`,
+    "AREA: LOCAL SANDBOX"
+  ];
+  drawSystemAccessText("PLAYER STATUS", layout.contentX, layout.contentY, { size: 15, color: "rgba(155, 229, 255, 0.95)" });
+  lines.forEach((line, index) => drawSystemAccessText(line, layout.contentX, layout.contentY + 38 + index * 28, { size: 14 }));
+}
+
+function drawPlaceholderTab(layout, tab) {
+  const text = systemAccessData.placeholders[tab] ?? "DATA UNAVAILABLE";
+  drawSystemAccessWrappedText(text, layout.contentX, layout.contentY, layout.contentW - 20, 28, {
+    size: 16,
+    color: "rgba(184, 227, 242, 0.82)"
+  });
+}
+
+function drawSystemAbilityTile(ability, x, y, w, h) {
+  const selected = ability.id === systemAccess.selectedAbilityId;
+  const state = getAbilityInterfaceState(ability);
+  const coolingDown = state === "Cooling down";
+  const active = state === "Active";
+  const locked = state === "Locked";
+  ctx.save();
+  ctx.globalAlpha = locked ? 0.45 : 1;
+  ctx.fillStyle = selected ? "rgba(41, 139, 183, 0.28)" : "rgba(6, 24, 42, 0.74)";
+  ctx.strokeStyle = selected ? "rgba(181, 243, 255, 0.98)" : "rgba(88, 172, 205, 0.42)";
+  ctx.lineWidth = selected ? 2 : 1;
+  ctx.shadowColor = active ? "rgba(126, 233, 255, 0.48)" : "transparent";
+  ctx.shadowBlur = active ? 16 : 0;
+  fillRoundedRect(x, y, w, h, 6);
+  strokeRoundedRect(x, y, w, h, 6);
+  ctx.shadowBlur = 0;
+
+  if (coolingDown) {
+    const progress = clamp(ability.cooldownRemaining / Math.max(ability.cooldownDuration, 0.01), 0, 1);
+    ctx.fillStyle = "rgba(0, 6, 16, 0.48)";
+    ctx.fillRect(x, y + h * (1 - progress), w, h * progress);
+  }
+
+  drawAbilitySymbol(ability, x + 34, y + 34, 34, locked ? 0.55 : 0.95);
+  drawSystemAccessText(ability.name.toUpperCase(), x + 68, y + 19, { size: 12, color: locked ? "rgba(150, 177, 190, 0.62)" : "rgba(234, 250, 255, 0.96)" });
+  drawSystemAccessText(state.toUpperCase(), x + 68, y + 43, { size: 11, color: active ? "rgba(126, 233, 255, 0.95)" : "rgba(145, 210, 232, 0.72)" });
+  ctx.restore();
+}
+
+function drawAbilitiesTab(layout) {
+  const gridW = Math.min(390, layout.contentW * 0.5);
+  const detailsX = layout.contentX + gridW + 24;
+  const detailsW = layout.contentW - gridW - 24;
+  const tileGap = 12;
+  const tileW = (gridW - tileGap) / 2;
+  const tileH = 78;
+  systemAccess.abilityRects = [];
+
+  abilities.forEach((ability, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = layout.contentX + col * (tileW + tileGap);
+    const y = layout.contentY + row * (tileH + tileGap);
+    systemAccess.abilityRects.push({ x, y, w: tileW, h: tileH, abilityId: ability.id });
+    drawSystemAbilityTile(ability, x, y, tileW, tileH);
+  });
+
+  ctx.fillStyle = "rgba(6, 24, 42, 0.72)";
+  ctx.strokeStyle = "rgba(91, 178, 212, 0.44)";
+  ctx.lineWidth = 1;
+  fillRoundedRect(detailsX, layout.contentY, detailsW, layout.contentH, 8);
+  strokeRoundedRect(detailsX, layout.contentY, detailsW, layout.contentH, 8);
+
+  const ability = getAbilityById(systemAccess.selectedAbilityId) ?? abilities[0];
+  const meta = systemAccessData.abilities[ability.id];
+  let y = layout.contentY + 20;
+  drawSystemAccessText(ability.name.toUpperCase(), detailsX + 20, y, { size: 18, weight: "bold" });
+  y += 32;
+  y += drawSystemAccessWrappedText(meta.description, detailsX + 20, y, detailsW - 40, 18, { size: 13, color: "rgba(210, 239, 248, 0.88)" }) + 12;
+
+  drawSystemAccessText("CURRENT STATE", detailsX + 20, y, { size: 11, color: "rgba(155, 229, 255, 0.82)" });
+  drawSystemAccessText(getAbilityInterfaceState(ability).toUpperCase(), detailsX + 150, y, { size: 11, color: "rgba(235, 252, 255, 0.95)" });
+  y += 26;
+
+  const values = meta.values();
+  values.forEach((line) => {
+    drawSystemAccessText(line.toUpperCase(), detailsX + 20, y, { size: 12, color: "rgba(190, 229, 242, 0.86)" });
+    y += 20;
+  });
+  y += 8;
+
+  drawSystemAccessText("KEY EFFECTS", detailsX + 20, y, { size: 11, color: "rgba(155, 229, 255, 0.82)" });
+  y += 22;
+  meta.effects.forEach((effect) => {
+    drawSystemAccessText(`• ${effect}`.toUpperCase(), detailsX + 24, y, { size: 12, color: "rgba(221, 246, 252, 0.88)" });
+    y += 19;
+  });
+
+  ctx.strokeStyle = "rgba(91, 178, 212, 0.24)";
+  ctx.beginPath();
+  ctx.moveTo(detailsX + 20, layout.contentY + layout.contentH - 54);
+  ctx.lineTo(detailsX + detailsW - 20, layout.contentY + layout.contentH - 54);
+  ctx.stroke();
+  drawSystemAccessText("UPGRADES: NONE", detailsX + 20, layout.contentY + layout.contentH - 36, { size: 12, color: "rgba(155, 229, 255, 0.76)" });
+}
+
+function drawSystemAccessInterface() {
+  if (!systemAccess.open) return;
+  const layout = getSystemAccessLayout();
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "rgba(0, 8, 18, 0.56)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "rgba(3, 16, 31, 0.92)";
+  ctx.strokeStyle = "rgba(122, 213, 242, 0.72)";
+  ctx.lineWidth = 1.4;
+  fillRoundedRect(layout.x, layout.y, layout.w, layout.h, 10);
+  strokeRoundedRect(layout.x, layout.y, layout.w, layout.h, 10);
+
+  ctx.strokeStyle = "rgba(122, 213, 242, 0.18)";
+  for (let x = layout.x + 24; x < layout.x + layout.w - 20; x += 32) {
+    ctx.beginPath();
+    ctx.moveTo(x, layout.contentY - 6);
+    ctx.lineTo(x, layout.y + layout.h - 22);
+    ctx.stroke();
+  }
+
+  drawSystemAccessText("SYSTEM ACCESS", layout.x + 28, layout.y + 20, { size: 20, weight: "bold", color: "rgba(238, 253, 255, 0.98)" });
+  drawSystemAccessText("LOCAL INTERFACE", layout.x + layout.w - 28, layout.y + 26, { size: 11, align: "right", color: "rgba(155, 229, 255, 0.72)" });
+  drawSystemAccessTabs(layout);
+
+  const tab = systemAccessData.tabs[systemAccess.selectedTabIndex];
+  if (tab === "Abilities") drawAbilitiesTab(layout);
+  else if (tab === "Status") drawStatusTab(layout);
+  else drawPlaceholderTab(layout, tab);
+
+  drawSystemAccessText("TAB/I: CLOSE  |  A/D OR ←/→: TABS  |  ENTER: EQUIP SELECTED ABILITY", layout.x + 28, layout.y + layout.h - 22, {
+    size: 10,
+    color: "rgba(155, 229, 255, 0.56)"
+  });
+  ctx.restore();
+}
+
+function drawSystemAccessDeniedMessage() {
+  if (systemAccess.open || systemAccess.deniedTimer <= 0) return;
+  const alpha = clamp(systemAccess.deniedTimer / SYSTEM_ACCESS_DENIED_DURATION, 0, 1);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = alpha;
+  const w = 230;
+  const h = 34;
+  const x = (canvas.width - w) / 2;
+  const y = 74;
+  ctx.fillStyle = "rgba(4, 13, 28, 0.78)";
+  ctx.strokeStyle = "rgba(150, 228, 255, 0.62)";
+  ctx.lineWidth = 1;
+  fillRoundedRect(x, y, w, h, 6);
+  strokeRoundedRect(x, y, w, h, 6);
+  drawSystemAccessText("SYSTEM ACCESS DENIED", x + w / 2, y + 10, { size: 12, align: "center", color: "rgba(213, 245, 255, 0.92)" });
+  ctx.restore();
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
@@ -7177,6 +7601,8 @@ function draw() {
   drawSelectedAbilityIcon();
   drawAbilityWheel();
   drawSystemMessages();
+  drawSystemAccessDeniedMessage();
+  drawSystemAccessInterface();
 }
 
 function gameLoop(now) {
@@ -7208,11 +7634,22 @@ function clearInputState() {
   eReleasedThisFrame = false;
   eWheelOpenedThisHold = false;
   if (abilityWheel.open) closeAbilityWheel(false);
+  if (systemAccess.open) systemAccess.open = false;
 }
 
 window.addEventListener("keydown", (event) => {
   const inputKeys = getInputKeys(event);
   if (inputKeys.some((key) => RESERVED_INPUT_KEYS.includes(key))) event.preventDefault();
+
+  if (inputKeys.some((key) => key === "tab" || key === "i" || key === "escape") || systemAccess.open) {
+    for (const key of inputKeys) {
+      if (handleSystemAccessKey(key)) {
+        event.preventDefault();
+        return;
+      }
+    }
+  }
+
   for (const key of inputKeys) {
     if (!keys.has(key)) pressedThisFrame.add(key);
     keys.add(key);
@@ -7221,6 +7658,11 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+  if (systemAccess.open) {
+    event.preventDefault();
+    return;
+  }
+
   for (const key of getInputKeys(event)) {
     keys.delete(key);
     if (key === "shift") shiftIsDown = false;
@@ -7238,9 +7680,30 @@ canvas.addEventListener("pointermove", (event) => {
     x: (event.clientX - bounds.left) * scaleX,
     y: (event.clientY - bounds.top) * scaleY
   };
+
+  if (systemAccess.open && systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
+    const hovered = systemAccess.abilityRects.find((rect) => pointInRect(pointerScreen, rect));
+    if (hovered) systemAccess.selectedAbilityId = hovered.abilityId;
+  }
 });
 
-canvas.addEventListener("pointerdown", () => {
+canvas.addEventListener("pointerdown", (event) => {
+  if (systemAccess.open) {
+    event.preventDefault();
+    const tab = systemAccess.tabRects.find((rect) => pointInRect(pointerScreen, rect));
+    if (tab) {
+      systemAccess.selectedTabIndex = tab.tabIndex;
+      return;
+    }
+    const abilityRect = systemAccess.abilityRects.find((rect) => pointInRect(pointerScreen, rect));
+    if (abilityRect && systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
+      const ability = getAbilityById(abilityRect.abilityId);
+      selectSystemAccessAbility(ability);
+      if (ability?.unlocked) selectAbility(ability);
+    }
+    return;
+  }
+
   if (!abilityWheel.open && !isSystemMessageBlocking()) player.firePulse();
 });
 
@@ -7274,6 +7737,11 @@ window.__indiePlatformerDebug = {
   forcePulseVisuals,
   droneProjectiles,
   abilityWheel,
+  systemAccess,
+  openSystemAccess,
+  closeSystemAccess,
+  toggleSystemAccess,
+  canOpenSystemAccess,
   systemDialogue,
   systemMessageTriggers,
   enqueueSystemMessage,
