@@ -186,7 +186,8 @@ gravityAbility.cooldownRemaining = 0;
 gravityAbility.activeRemaining = 0;
 
 // Sprint stamina regression: sprint drains only while active, stops at empty,
-// and cannot restart after exhaustion until Shift has been released.
+// and cannot restart after exhaustion until Shift has been released and stamina
+// has recovered to the restart threshold.
 debug.player.stamina = debug.constants.MAX_STAMINA;
 debug.player.staminaRegenDelayTimer = 0;
 debug.player.staminaBarAlpha = 0;
@@ -208,11 +209,40 @@ if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stam
 const staminaAfterHeldRecovery = debug.player.stamina;
 debug.player.updateSprintStamina(0, false);
 if (debug.player.sprintExhausted) {
-  throw new Error("Sprint exhaustion lockout did not clear on Shift release.");
+  throw new Error("Sprint exhaustion lockout did not clear after Shift release and stamina recovery.");
 }
 debug.player.updateSprintStamina(0.016, true);
 if (!debug.player.isRunning || debug.player.stamina >= staminaAfterHeldRecovery) {
   throw new Error("Sprint did not restart after Shift was released and pressed again with enough stamina.");
+}
+
+// Re-pressing Shift before enough stamina refills must not queue an automatic
+// restart; the player has to release Shift again after the recovery threshold.
+debug.player.stamina = 0;
+debug.player.staminaRegenDelayTimer = debug.constants.SPRINT_STAMINA_REGEN_DELAY;
+debug.player.isRunning = false;
+debug.player.sprintExhausted = true;
+debug.player.updateSprintStamina(0, false);
+if (!debug.player.sprintExhausted) {
+  throw new Error("Sprint recovery lock cleared before stamina reached the restart threshold.");
+}
+debug.player.updateSprintStamina(debug.constants.SPRINT_STAMINA_REGEN_DELAY, false);
+debug.player.updateSprintStamina(debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD / (debug.constants.SPRINT_STAMINA_REGEN_RATE * 2), true);
+if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stamina >= debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD) {
+  throw new Error("Low-stamina Shift press did not remain locked before the restart threshold.");
+}
+debug.player.updateSprintStamina(debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD / debug.constants.SPRINT_STAMINA_REGEN_RATE, true);
+if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stamina < debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD) {
+  throw new Error("Low-stamina Shift press queued sprint after the restart threshold without a fresh release.");
+}
+const staminaAfterQueuedPress = debug.player.stamina;
+debug.player.updateSprintStamina(0, false);
+if (debug.player.sprintExhausted) {
+  throw new Error("Sprint recovery lock did not clear after a post-threshold Shift release.");
+}
+debug.player.updateSprintStamina(0.016, true);
+if (!debug.player.isRunning || debug.player.stamina >= staminaAfterQueuedPress) {
+  throw new Error("Sprint did not restart from a fresh press after recovery threshold.");
 }
 debug.player.updateSprintStamina(0, false);
 

@@ -926,8 +926,8 @@ class Player extends Entity {
     this.isCrouching = false;
     this.isRunning = false;
     // Once stamina is fully exhausted, sprint input stays locked until Shift is
-    // released so movement-direction changes cannot restart sprinting. Keep the
-    // older sprintExhausted debug name as an alias for compatibility.
+    // released and stamina has refilled to the restart threshold. Keep the older
+    // sprintExhausted debug name as an alias for compatibility.
     this._sprintLockedUntilShiftRelease = false;
     Object.defineProperty(this, "sprintLockedUntilShiftRelease", {
       get: () => this._sprintLockedUntilShiftRelease,
@@ -1201,15 +1201,20 @@ class Player extends Entity {
   updateSprintStamina(dt, runHeld, canSprint = runHeld) {
     const wasRunning = this.isRunning;
 
-    // This lock represents a held-Shift exhaustion state, not just low stamina.
-    // It must only clear from an actual Shift release; movement changes, crouch,
-    // jumps, landing, attacks, or stamina regeneration must not unlock sprint.
-    if (!runHeld) this.sprintLockedUntilShiftRelease = false;
+    // This lock represents a held-Shift exhaustion/recovery state, not just low
+    // stamina. It must only clear after Shift is released and enough stamina has
+    // refilled; movement changes, crouch, jumps, landing, attacks, or stamina
+    // regeneration while Shift is still held must not unlock sprint.
+    if (!runHeld && this.stamina >= SPRINT_STAMINA_RESTART_THRESHOLD) {
+      this.sprintLockedUntilShiftRelease = false;
+    }
 
     const wantsSprint = runHeld && canSprint;
     const hasEnoughStamina = wasRunning
       ? this.stamina > 0
       : this.stamina >= SPRINT_STAMINA_RESTART_THRESHOLD;
+
+    if (wantsSprint && !hasEnoughStamina) this.sprintLockedUntilShiftRelease = true;
 
     this.isRunning = wantsSprint && !this.sprintLockedUntilShiftRelease && hasEnoughStamina;
 
