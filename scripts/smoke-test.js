@@ -111,6 +111,46 @@ for (const swarm of swarmEnemies) {
   if (typeof swarm.updateSteering !== "function" || typeof swarm.getSeparationVector !== "function") {
     throw new Error("Swarm steering/separation behavior was not exposed on the enemy instance.");
   }
+  if (swarm.detectionRange !== debug.constants.SWARM_DETECTION_RANGE) {
+    throw new Error("Swarm detection range was not exposed on the enemy instance.");
+  }
+}
+
+// Swarm regression: the new mob only starts steering inside its detection
+// range, points its body toward the player instead of its separated velocity,
+// and treats platforms as solid world geometry.
+const swarmProbe = swarmEnemies[0];
+debug.player.x = 20;
+debug.player.y = 420;
+swarmProbe.x = 1000;
+swarmProbe.y = 330;
+swarmProbe.vx = 60;
+swarmProbe.vy = 0;
+swarmProbe.rotation = 0;
+swarmProbe.updateSteering(1 / 30);
+if (swarmProbe.vx >= 60 || Math.abs(swarmProbe.vy) > 0.001) {
+  throw new Error("Swarm accelerated toward the player while outside detection range.");
+}
+debug.player.x = 955;
+debug.player.y = 318;
+swarmProbe.x = 900;
+swarmProbe.y = 330;
+swarmProbe.vx = 0;
+swarmProbe.vy = 0;
+swarmProbe.rotation = Math.PI;
+swarmProbe.updateSteering(0.1);
+if (Math.abs(swarmProbe.rotation) > Math.PI / 2) {
+  throw new Error("Swarm did not rotate its front toward a detected player.");
+}
+const swarmWallPlatform = debug.platforms.find((platform) => platform.x === 2240 && platform.y === 365);
+if (!swarmWallPlatform) throw new Error("Expected swarm arena platform for collision regression.");
+swarmProbe.x = swarmWallPlatform.x - swarmProbe.w - 10;
+swarmProbe.y = swarmWallPlatform.y;
+swarmProbe.vx = 80;
+swarmProbe.vy = 0;
+swarmProbe.moveAndCollide(1);
+if (swarmProbe.x + swarmProbe.w > swarmWallPlatform.x + 0.001 || swarmProbe.vx !== 0) {
+  throw new Error("Swarm moved through a platform during horizontal collision.");
 }
 
 const visualJumper = debug.enemies.find((enemy) => enemy.constructor.name === "Jumper");
@@ -168,6 +208,23 @@ function dispatch(type, event) {
 
 function keyEvent(key, code = "") {
   return { key, code, preventDefault: noop };
+}
+
+// System Pulse regression: the right-facing bolt should spawn from the compact
+// attack pose near the player rather than popping far ahead of the body.
+debug.player.x = 100;
+debug.player.y = 420;
+debug.player.gravitySign = 1;
+debug.player.isCrouching = false;
+debug.player.attackFacing = 1;
+const rightPulseOrigin = debug.player.getPulseSpawnPoint();
+if (rightPulseOrigin.x - (debug.player.x + debug.player.w) > 16) {
+  throw new Error(`Right-facing System Pulse starts too far ahead of the player: ${rightPulseOrigin.x}.`);
+}
+debug.player.attackFacing = -1;
+const leftPulseOrigin = debug.player.getPulseSpawnPoint();
+if (debug.player.x - leftPulseOrigin.x > 16) {
+  throw new Error(`Left-facing System Pulse starts too far ahead of the player: ${leftPulseOrigin.x}.`);
 }
 
 // Jump input regression: if Up Arrow events arrive while Right Arrow and Shift
