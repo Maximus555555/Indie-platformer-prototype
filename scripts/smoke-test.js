@@ -858,6 +858,18 @@ debug.player.vy = 0;
 debug.setSelectedAbility("time");
 timeAbility.cooldownRemaining = 0;
 timeAbility.activeRemaining = 0;
+debug.systemAccess.open = false;
+const enemyMenuState = debug.enemies.map((enemy) => ({ hp: enemy.hp, isDying: enemy.isDying }));
+debug.enemies.forEach((enemy) => { enemy.hp = 0; enemy.isDying = false; });
+dispatch("keydown", keyEvent("Tab", "Tab"));
+if (!debug.systemAccess.open) throw new Error("Tab did not open System Access.");
+debug.update(16 / 1000);
+dispatch("keydown", keyEvent("Tab", "Tab"));
+if (debug.systemAccess.open) throw new Error("Second Tab press did not close System Access.");
+debug.enemies.forEach((enemy, index) => {
+  enemy.hp = enemyMenuState[index].hp;
+  enemy.isDying = enemyMenuState[index].isDying;
+});
 debug.systemAccess.open = true;
 debug.systemAccess.selectedTabIndex = 1;
 debug.systemAccess.selectedAbilityId = "gravity";
