@@ -4292,37 +4292,32 @@ class Jumper extends Entity {
   getPose(blend) {
     const crouch = {
       coreY: -6,
-      coreRx: 8.8,
-      coreRy: 16.7,
-      plateTopY: 2.3,
-      plateInnerX: 6.6,
-      plateOuterX: 16,
-      plateInnerLowX: 4.2,
-      plateInnerLowY: 9.9,
-      plateTipX: 19,
-      plateTipY: 19,
-      plateFootX: 17.5,
-      plateFootY: 13.7,
-      plateTilt: 0.02
+      plateOffsetX: 0,
+      plateOffsetY: 0,
+      plateRotation: 0.02
     };
     const stand = {
-      coreY: -9,
-      coreRx: 8.4,
-      coreRy: 18.2,
-      plateTopY: -0.8,
-      plateInnerX: 8,
-      plateOuterX: 17.5,
-      plateInnerLowX: 5.7,
-      plateInnerLowY: 8.4,
-      plateTipX: 20.2,
-      plateTipY: 20.5,
-      plateFootX: 19.4,
-      plateFootY: 13.7,
-      plateTilt: -0.04
+      coreY: -10,
+      plateOffsetX: -1.3,
+      plateOffsetY: -4.2,
+      plateRotation: -0.18
     };
     const pose = {};
     for (const key of Object.keys(crouch)) pose[key] = stand[key] + (crouch[key] - stand[key]) * blend;
     return pose;
+  }
+
+  getSidePlatePoints(side) {
+    // Fixed crouched plate silhouette. Charge animation translates and rotates
+    // this exact polygon so the lower armor never squashes or resizes.
+    const platePoints = [
+      { x: 16, y: 2.3 },
+      { x: 6.6, y: 2.6 },
+      { x: 4.2, y: 9.9 },
+      { x: 19, y: 19 },
+      { x: 17.5, y: 13.7 }
+    ];
+    return platePoints.map((point) => ({ x: side * point.x, y: point.y }));
   }
 
   traceDiamond(x, y, rx, ry) {
@@ -4351,20 +4346,15 @@ class Jumper extends Entity {
   }
 
   drawSidePlate(side, pose, airShift, deathFlash = false) {
-    const points = [
-      { x: side * pose.plateOuterX, y: pose.plateTopY },
-      { x: side * pose.plateInnerX, y: pose.plateTopY + 0.3 },
-      { x: side * pose.plateInnerLowX, y: pose.plateInnerLowY },
-      { x: side * pose.plateTipX, y: pose.plateTipY },
-      { x: side * pose.plateFootX, y: pose.plateFootY }
-    ];
+    const points = this.getSidePlatePoints(side);
 
     ctx.save();
-    // Airborne motion now reads as rigid plate lag instead of organic squash.
-    ctx.translate(0, airShift * 1.3);
-    ctx.rotate(side * pose.plateTilt + side * airShift * 0.05);
+    // Airborne and charge motion now reads as rigid plate travel instead of
+    // organic squash: the fixed polygon only translates and rotates.
+    ctx.translate(side * pose.plateOffsetX, pose.plateOffsetY + airShift * 1.3);
+    ctx.rotate(side * (pose.plateRotation + airShift * 0.05));
     this.tracePolygon(points);
-    const gradient = ctx.createLinearGradient(side * 6, pose.plateTopY, side * 21, pose.plateTipY);
+    const gradient = ctx.createLinearGradient(side * 6, 2.3, side * 21, 19);
     gradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(123, 177, 255, 0.94)");
     gradient.addColorStop(0.52, deathFlash ? "rgba(214, 236, 255, 0.92)" : "rgba(90, 94, 226, 0.94)");
     gradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.88)" : "rgba(55, 42, 162, 0.96)");
@@ -4379,11 +4369,11 @@ class Jumper extends Entity {
     this.tracePolygon(points);
     ctx.clip();
     const glow = ctx.createRadialGradient(
-      side * pose.plateInnerX,
-      pose.plateInnerLowY,
+      side * 6.6,
+      9.9,
       0.6,
-      side * pose.plateInnerX,
-      pose.plateInnerLowY,
+      side * 6.6,
+      9.9,
       12
     );
     glow.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.42)" : "rgba(178, 117, 255, 0.34)");
@@ -4409,19 +4399,20 @@ class Jumper extends Entity {
     this.drawSidePlate(1, pose, airShift + sideLag, deathFlash);
 
     const coreY = pose.coreY - airShift * 1.4;
-    const coreRy = pose.coreRy;
+    const coreRx = 8.8;
+    const coreRy = 16.7;
     const coreGradient = ctx.createLinearGradient(0, coreY - coreRy, 0, coreY + coreRy);
     coreGradient.addColorStop(0, deathFlash ? "rgba(255, 255, 255, 0.98)" : "rgba(121, 178, 255, 0.97)");
     coreGradient.addColorStop(0.5, deathFlash ? "rgba(214, 236, 255, 0.96)" : "rgba(88, 90, 226, 0.97)");
     coreGradient.addColorStop(1, deathFlash ? "rgba(166, 167, 255, 0.9)" : "rgba(48, 36, 160, 0.96)");
-    this.traceDiamond(0, coreY, pose.coreRx, coreRy);
+    this.traceDiamond(0, coreY, coreRx, coreRy);
     ctx.fillStyle = coreGradient;
     ctx.strokeStyle = deathFlash ? "rgba(255, 255, 255, 0.96)" : "rgba(27, 24, 96, 0.96)";
     ctx.lineWidth = 1.5;
     ctx.fill();
     ctx.stroke();
 
-    this.traceDiamond(0, coreY, pose.coreRx, coreRy);
+    this.traceDiamond(0, coreY, coreRx, coreRy);
     ctx.save();
     ctx.clip();
     const coreGlow = ctx.createRadialGradient(0, coreY, 0.5, 0, coreY, coreRy * 0.8);
@@ -4429,7 +4420,7 @@ class Jumper extends Entity {
     coreGlow.addColorStop(0.58, deathFlash ? "rgba(215, 230, 255, 0.18)" : "rgba(91, 80, 255, 0.22)");
     coreGlow.addColorStop(1, "rgba(91, 80, 255, 0)");
     ctx.fillStyle = coreGlow;
-    ctx.fillRect(-pose.coreRx, coreY - coreRy, pose.coreRx * 2, coreRy * 2);
+    ctx.fillRect(-coreRx, coreY - coreRy, coreRx * 2, coreRy * 2);
     ctx.restore();
     ctx.restore();
   }
