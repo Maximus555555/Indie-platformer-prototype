@@ -194,6 +194,41 @@ debug.resetGravityField(true);
 gravityAbility.cooldownRemaining = 0;
 gravityAbility.activeRemaining = 0;
 
+// System Access Abilities regression: pressing Enter on the highlighted tile
+// confirms unlocked abilities with a short animation and gives locked abilities
+// a denied response without changing the active combat selection.
+debug.systemAccess.open = true;
+debug.systemAccess.selectedTabIndex = 1;
+debug.systemAccess.selectedAbilityId = "time";
+debug.systemAccess.confirmAnimTimer = 0;
+debug.systemAccess.detailsConfirmTimer = 0;
+debug.systemAccess.deniedAnimTimer = 0;
+dispatch("keydown", keyEvent("Enter", "Enter"));
+if (debug.getSelectedAbility().id !== "time") {
+  throw new Error("Enter in the Abilities tab did not select the highlighted unlocked ability.");
+}
+if (debug.systemAccess.confirmAbilityId !== "time" || debug.systemAccess.confirmAnimTimer <= 0 || debug.systemAccess.detailsConfirmTimer <= 0) {
+  throw new Error("Enter in the Abilities tab did not start the confirmation animation.");
+}
+const selectedBeforeLockedConfirm = debug.getSelectedAbility().id;
+const lockedSystemAbility = debug.abilities.find((ability) => ability.id === "link");
+if (!lockedSystemAbility) throw new Error("Expected Energy Link for locked System Access regression.");
+const linkUnlockedBeforeSystemAccessTest = lockedSystemAbility.unlocked;
+lockedSystemAbility.unlocked = false;
+debug.systemAccess.selectedAbilityId = lockedSystemAbility.id;
+debug.systemAccess.confirmAnimTimer = 0;
+debug.systemAccess.confirmAbilityId = null;
+dispatch("keydown", keyEvent("Enter", "Enter"));
+if (debug.getSelectedAbility().id !== selectedBeforeLockedConfirm) {
+  throw new Error("Enter on a locked System Access ability changed the active combat ability.");
+}
+if (debug.systemAccess.deniedAbilityId !== lockedSystemAbility.id || debug.systemAccess.deniedAnimTimer <= 0) {
+  throw new Error("Enter on a locked System Access ability did not start the denied animation.");
+}
+lockedSystemAbility.unlocked = linkUnlockedBeforeSystemAccessTest;
+debug.systemAccess.open = false;
+debug.setSelectedAbility("gravity");
+
 // Sprint stamina regression: sprint drains only while active, stops at empty,
 // and cannot restart after exhaustion until Shift has been released and stamina
 // has recovered to the restart threshold.
