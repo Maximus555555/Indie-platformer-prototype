@@ -836,6 +836,53 @@ gravityAbility.cooldownRemaining = 0;
 timeAbility.cooldownRemaining = 0;
 forcePulseAbility.cooldownRemaining = 0;
 
+// System Access regression: Q/E switch tabs while arrows stay inside the
+// Abilities grid, and menu input does not leak into gameplay actions.
+debug.closeSystemAccess();
+debug.player.damageTimer = 0;
+debug.player.attackTimer = 0;
+debug.player.isDying = false;
+debug.player.x = 120;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.setSelectedAbility("time");
+timeAbility.cooldownRemaining = 0;
+timeAbility.activeRemaining = 0;
+debug.systemAccess.open = true;
+debug.systemAccess.selectedTabIndex = 1;
+debug.systemAccess.selectedAbilityId = "gravity";
+const playerXBeforeMenuInput = debug.player.x;
+dispatch("keydown", keyEvent("e", "KeyE"));
+if (debug.systemAccess.selectedTabIndex !== 2) throw new Error("E did not switch System Access to the next tab.");
+if (timeAbility.activeRemaining > 0 || timeAbility.cooldownRemaining > 0) {
+  throw new Error("E leaked into gameplay ability activation while System Access was open.");
+}
+dispatch("keyup", keyEvent("e", "KeyE"));
+dispatch("keydown", keyEvent("q", "KeyQ"));
+if (debug.systemAccess.selectedTabIndex !== 1) throw new Error("Q did not switch System Access to the previous tab.");
+dispatch("keyup", keyEvent("q", "KeyQ"));
+dispatch("keydown", keyEvent("ArrowRight", "ArrowRight"));
+if (debug.systemAccess.selectedAbilityId !== "time") throw new Error("Right Arrow did not move across the ability grid.");
+dispatch("keyup", keyEvent("ArrowRight", "ArrowRight"));
+dispatch("keydown", keyEvent("ArrowDown", "ArrowDown"));
+if (debug.systemAccess.selectedAbilityId !== "anchor") throw new Error("Down Arrow did not move down the ability grid.");
+dispatch("keyup", keyEvent("ArrowDown", "ArrowDown"));
+dispatch("keydown", keyEvent("ArrowLeft", "ArrowLeft"));
+if (debug.systemAccess.selectedAbilityId !== "pulse") throw new Error("Left Arrow did not move across the ability grid.");
+dispatch("keyup", keyEvent("ArrowLeft", "ArrowLeft"));
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.update(16 / 1000);
+if (debug.systemAccess.selectedTabIndex !== 1 || debug.systemAccess.selectedAbilityId !== "pulse") {
+  throw new Error("Gameplay movement keys changed System Access navigation while open.");
+}
+if (debug.player.x !== playerXBeforeMenuInput) throw new Error("Gameplay movement leaked while System Access was open.");
+dispatch("keyup", keyEvent("d", "KeyD"));
+dispatch("keydown", keyEvent("Escape", "Escape"));
+if (debug.systemAccess.open) throw new Error("Escape did not close System Access.");
+dispatch("keyup", keyEvent("Escape", "Escape"));
+debug.setSelectedAbility("gravity");
+
 // Anchor Field regression: it is selectable, starts cooldown only after ending,
 // locks enemies in its visible radius, coexists with other abilities, and lets
 // player projectiles keep damaging anchored enemies while non-projectile
