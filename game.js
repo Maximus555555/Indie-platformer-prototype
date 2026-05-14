@@ -7490,25 +7490,14 @@ function drawSystemAccessWrappedText(text, x, y, maxWidth, lineHeight, options =
 }
 
 function drawSystemAccessTabKeyHint(key, x, y, align = "left") {
-  const w = 24;
-  const h = 18;
-  const inset = 9;
-  const boxX = align === "right" ? x - w - inset : x + inset;
-  const boxY = y + 8;
+  const edgeOffset = 15;
+  const hintX = align === "right" ? x - edgeOffset : x + edgeOffset;
 
-  ctx.save();
-  ctx.fillStyle = "rgba(4, 19, 34, 0.76)";
-  ctx.strokeStyle = "rgba(177, 236, 255, 0.68)";
-  ctx.lineWidth = 1;
-  fillRoundedRect(boxX, boxY, w, h, 4);
-  strokeRoundedRect(boxX, boxY, w, h, 4);
-  drawSystemAccessText(key, boxX + w / 2, boxY + 3, {
-    size: 10,
-    weight: "bold",
+  drawSystemAccessText(key, hintX, y + 12, {
+    size: 8,
     align: "center",
-    color: "rgba(232, 249, 255, 0.92)"
+    color: "rgba(173, 222, 235, 0.56)"
   });
-  ctx.restore();
 }
 
 function drawSystemAccessTabs(layout) {
