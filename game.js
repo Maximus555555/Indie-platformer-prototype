@@ -381,6 +381,11 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function easeOutCubic(value) {
+  const t = clamp(value, 0, 1);
+  return 1 - Math.pow(1 - t, 3);
+}
+
 function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
@@ -6413,8 +6418,27 @@ function clearMenuBlockingInputState() {
   eWheelOpenedThisHold = false;
 }
 
+function startSystemAccessSelectionAnimation() {
+  systemAccess.selectionAnimTimer = SYSTEM_ACCESS_SELECTION_ANIM_DURATION;
+  systemAccess.detailsAnimTimer = SYSTEM_ACCESS_DETAILS_ANIM_DURATION;
+}
+
+function updateSystemAccessAnimations(dt) {
+  systemAccess.selectionAnimTimer = Math.max(0, systemAccess.selectionAnimTimer - dt);
+  systemAccess.detailsAnimTimer = Math.max(0, systemAccess.detailsAnimTimer - dt);
+}
+
 function stepSystemAccessTab(delta) {
   systemAccess.selectedTabIndex = (systemAccess.selectedTabIndex + delta + systemAccessData.tabs.length) % systemAccessData.tabs.length;
+  startSystemAccessSelectionAnimation();
+}
+
+function setSystemAccessTab(index) {
+  const nextIndex = clamp(index, 0, systemAccessData.tabs.length - 1);
+  if (nextIndex === systemAccess.selectedTabIndex) return false;
+  systemAccess.selectedTabIndex = nextIndex;
+  startSystemAccessSelectionAnimation();
+  return true;
 }
 
 function clampSystemLogScroll() {
@@ -7913,7 +7937,7 @@ canvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     const tab = systemAccess.tabRects.find((rect) => pointInRect(pointerScreen, rect));
     if (tab) {
-      systemAccess.selectedTabIndex = tab.tabIndex;
+      setSystemAccessTab(tab.tabIndex);
       return;
     }
     const abilityRect = systemAccess.abilityRects.find((rect) => pointInRect(pointerScreen, rect));
