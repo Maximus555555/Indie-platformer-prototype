@@ -261,8 +261,9 @@ const spikes = [
 const bottomFallBoundary = config.fallBoundary
   ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
 
-// Edge hazards use the real room/screen boundary. Respawn validation keeps its
-// own tighter safe area below, so fallback placement never moves the damage line.
+// Fall hazards use the real vertical room/screen boundary. Respawn validation
+// keeps its own tighter safe area below, so fallback placement never moves the
+// damage line. Horizontal room edges are solid walls, not player hazards.
 const roomHazardBounds = { left: 0, top: 0, right: ROOM_WIDTH, bottom: canvas.height };
 
 function createAbility(id, name, label, unlocked, cooldownDuration, activeDuration = 0) {
@@ -1581,8 +1582,7 @@ class Player extends Entity {
 
   isInvalidEdgeFallState() {
     if (this.onSurface) return false;
-    if (isRectTouchingActualRoomHazardBoundary(this)) return true;
-    return this.gravityResetEdgeHazardTimer > 0 && this.touchedWorldBoundary;
+    return isRectTouchingActualRoomHazardBoundary(this);
   }
 
   getCameraTargetX() {
@@ -4770,9 +4770,7 @@ class ForcePulseVisual {
 function isRectTouchingActualRoomHazardBoundary(rect) {
   const bounds = roomHazardBounds;
   const tolerance = EDGE_HAZARD_OUTWARD_TOLERANCE;
-  return rect.x <= bounds.left - tolerance
-    || rect.x + rect.w >= bounds.right + tolerance
-    || rect.y <= bounds.top - tolerance
+  return rect.y <= bounds.top - tolerance
     || rect.y + rect.h >= bounds.bottom + tolerance;
 }
 

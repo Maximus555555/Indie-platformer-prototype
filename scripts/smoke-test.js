@@ -1345,6 +1345,27 @@ if (debug.player.hp !== 2) {
   throw new Error(`Player did not take fall damage at the real room edge; HP ${debug.player.hp}.`);
 }
 
+// Side edge regression: horizontal room boundaries are walls, not fall hazards.
+debug.player.hp = 3;
+debug.player.isDying = false;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.gravityResetEdgeHazardTimer = 1;
+debug.player.h = debug.constants.STAND_HEIGHT;
+debug.player.x = 0;
+debug.player.y = 300;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = false;
+debug.player.touchedWorldBoundary = true;
+if (debug.player.isInvalidEdgeFallState()) {
+  throw new Error("Player entered fall-damage state at the left room edge.");
+}
+debug.player.x = debug.roomHazardBounds.right - debug.player.w;
+if (debug.player.isInvalidEdgeFallState()) {
+  throw new Error("Player entered fall-damage state at the right room edge.");
+}
+
 // Gravity Field edge regression: a stale ceiling/edge recovery anchor should not
 // leave the player outside the playable room after fall damage. The fall keeps
 // one HP loss, clears the invalid state, and chooses the nearest valid surface.
