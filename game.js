@@ -7524,7 +7524,6 @@ function drawSystemAccessTabKeyHint(key, x, y, align = "left") {
     align,
     color: "rgba(184, 227, 242, 0.72)"
   });
-  ctx.restore();
 }
 
 function drawSystemAccessTabs(layout) {
