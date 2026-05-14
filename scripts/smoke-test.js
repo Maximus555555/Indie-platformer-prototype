@@ -1502,6 +1502,37 @@ for (let selectedIndex = 0; selectedIndex < systemAccessTabNames.length; selecte
     }
   }
 }
+
+// Logs tab formatting regression: log entries should render as a plain number
+// followed by the message text, with no message type labels or metadata.
+const savedSystemLogs = debug.systemDialogue.logs.slice();
+const savedLogScrollOffset = debug.systemAccess.logScrollOffset;
+debug.systemDialogue.logs.length = 0;
+debug.systemDialogue.logs.push(
+  { order: 1, type: "blocking", text: "Movement confirmed.", id: "smoke-log-1" },
+  { order: 2, type: "ambient", text: "Gravity inversion authorized.", id: "smoke-log-2" },
+  { order: 3, type: "tutorial", text: "Force output unlocked. Direction matters.", id: "smoke-log-3" }
+);
+debug.systemAccess.selectedTabIndex = systemAccessTabNames.indexOf("LOGS");
+debug.systemAccess.logScrollOffset = 0;
+context.calls = [];
+debug.draw();
+const logsTabText = context.calls
+  .filter((call) => call.name === "fillText")
+  .map((call) => call.args[0]);
+for (const expectedText of ["01.", "Movement confirmed.", "02.", "Gravity inversion authorized.", "03.", "Force output unlocked. Direction matters."]) {
+  if (!logsTabText.includes(expectedText)) {
+    throw new Error(`Logs tab did not draw expected clean log text: ${expectedText}.`);
+  }
+}
+for (const forbiddenText of ["01 / BLOCKING", "02 / AMBIENT", "03 / TUTORIAL", "BLOCKING", "AMBIENT", "TUTORIAL"]) {
+  if (logsTabText.includes(forbiddenText)) {
+    throw new Error(`Logs tab drew metadata between the number and message: ${forbiddenText}.`);
+  }
+}
+debug.systemDialogue.logs.length = 0;
+debug.systemDialogue.logs.push(...savedSystemLogs);
+debug.systemAccess.logScrollOffset = savedLogScrollOffset;
 debug.systemAccess.open = false;
 
 // Gravity Field edge regression: a stale ceiling/edge recovery anchor should not

@@ -7634,12 +7634,13 @@ function drawLogsTab(layout) {
   clampSystemLogScroll();
   const lineHeight = 16;
   const entryGap = 14;
-  const maxTextWidth = layout.contentW - 96;
+  const numberColumnWidth = 36;
+  const maxTextWidth = layout.contentW - numberColumnWidth;
   let y = layout.contentY + 38;
   let hiddenBelow = false;
 
   for (const entry of systemDialogue.logs.slice(systemAccess.logScrollOffset)) {
-    const prefix = `${String(entry.order).padStart(2, "0")} / ${entry.type.toUpperCase()}`;
+    const prefix = `${String(entry.order).padStart(2, "0")}.`;
     ctx.save();
     ctx.font = "12px monospace";
     const textLines = wrapSystemText(entry.text, maxTextWidth);
@@ -7651,11 +7652,11 @@ function drawLogsTab(layout) {
     }
 
     drawSystemAccessText(prefix, layout.contentX, y, {
-      size: 11,
+      size: 12,
       color: "rgba(135, 202, 225, 0.72)"
     });
     textLines.forEach((line, index) => {
-      drawSystemAccessText(line, layout.contentX + 88, y + index * lineHeight, {
+      drawSystemAccessText(line, layout.contentX + numberColumnWidth, y + index * lineHeight, {
         size: 13,
         color: "rgba(232, 249, 255, 0.9)"
       });
