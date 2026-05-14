@@ -181,6 +181,7 @@ const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
+let shiftIsDown = false;
 const JUMP_INPUT_KEYS = ["w", "arrowup"];
 const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "e", "q"];
 const INPUT_CODE_ALIASES = new Map([
@@ -970,7 +971,7 @@ class Player extends Entity {
     const left = keys.has("a") || keys.has("arrowleft");
     const right = keys.has("d") || keys.has("arrowright");
     const crouchHeld = keys.has("s") || keys.has("arrowdown");
-    const runHeld = keys.has("shift");
+    const runHeld = shiftIsDown;
     const input = Number(right) - Number(left);
     const wantsGroundCrouch = crouchHeld && this.onSurface;
 
@@ -1198,6 +1199,12 @@ class Player extends Entity {
 
     this.isRunning = wantsSprint && !this.sprintExhausted && hasEnoughStamina;
 
+    if (this.sprintExhausted) {
+      // Exhaustion lock is absolute for this frame: no stamina drain, no sprint
+      // movement, and no animation may observe a stale running state.
+      this.isRunning = false;
+    }
+
     if (this.isRunning) {
       const drainAmount = SPRINT_STAMINA_DRAIN_RATE * dt;
       if (this.stamina - drainAmount <= 0) {
@@ -1219,6 +1226,8 @@ class Player extends Entity {
         this.stamina = Math.min(MAX_STAMINA, this.stamina + SPRINT_STAMINA_REGEN_RATE * dt);
       }
     }
+
+    if (this.sprintExhausted) this.isRunning = false;
 
     const staminaIsRelevant = this.isRunning || this.sprintExhausted || this.stamina < MAX_STAMINA;
     const targetAlpha = staminaIsRelevant ? 1 : 0;
@@ -7172,6 +7181,7 @@ function wasAnyPressedThisFrame(inputKeys) {
 function clearInputState() {
   keys.clear();
   pressedThisFrame.clear();
+  shiftIsDown = false;
   eHoldTimer = 0;
   eReleasedThisFrame = false;
   eWheelOpenedThisHold = false;
@@ -7184,12 +7194,14 @@ window.addEventListener("keydown", (event) => {
   for (const key of inputKeys) {
     if (!keys.has(key)) pressedThisFrame.add(key);
     keys.add(key);
+    if (key === "shift") shiftIsDown = true;
   }
 });
 
 window.addEventListener("keyup", (event) => {
   for (const key of getInputKeys(event)) {
     keys.delete(key);
+    if (key === "shift") shiftIsDown = false;
     if (key === "e") eReleasedThisFrame = true;
   }
 });
@@ -7218,6 +7230,7 @@ window.__indiePlatformerDebug = {
   phaseBarriers,
   update,
   draw,
+  getShiftIsDown: () => shiftIsDown,
   toggleGravityField,
   resetGravityField,
   activateTimeSlow,
