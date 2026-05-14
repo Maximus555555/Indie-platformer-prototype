@@ -186,28 +186,33 @@ gravityAbility.cooldownRemaining = 0;
 gravityAbility.activeRemaining = 0;
 
 // Sprint stamina regression: sprint drains only while active, stops at empty,
-// and cannot restart until the restart threshold has regenerated.
+// and cannot restart after exhaustion until Shift has been released.
 debug.player.stamina = debug.constants.MAX_STAMINA;
 debug.player.staminaRegenDelayTimer = 0;
 debug.player.staminaBarAlpha = 0;
 debug.player.isRunning = false;
+debug.player.sprintExhausted = false;
 debug.player.updateSprintStamina(1, true);
 if (!debug.player.isRunning || Math.abs(debug.player.stamina - 70) > 0.001) {
   throw new Error(`Expected one second of sprint to drain stamina to 70, got ${debug.player.stamina}.`);
 }
 debug.player.updateSprintStamina(3, true);
-if (debug.player.isRunning || debug.player.stamina !== 0) {
-  throw new Error("Sprint did not stop immediately when stamina reached zero.");
+if (debug.player.isRunning || debug.player.stamina !== 0 || !debug.player.sprintExhausted) {
+  throw new Error("Sprint did not stop and lock out immediately when stamina reached zero.");
 }
 debug.player.updateSprintStamina(debug.constants.SPRINT_STAMINA_REGEN_DELAY, true);
-debug.player.updateSprintStamina((debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD - 1) / debug.constants.SPRINT_STAMINA_REGEN_RATE, true);
-if (debug.player.isRunning || debug.player.stamina >= debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD) {
-  throw new Error("Sprint restarted before stamina reached the restart threshold.");
+debug.player.updateSprintStamina(debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD / debug.constants.SPRINT_STAMINA_REGEN_RATE, true);
+if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stamina < debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD) {
+  throw new Error("Sprint exhaustion lockout did not persist while Shift stayed held after stamina recovered.");
 }
-debug.player.updateSprintStamina(1 / debug.constants.SPRINT_STAMINA_REGEN_RATE, true);
+const staminaAfterHeldRecovery = debug.player.stamina;
+debug.player.updateSprintStamina(0, false);
+if (debug.player.sprintExhausted) {
+  throw new Error("Sprint exhaustion lockout did not clear on Shift release.");
+}
 debug.player.updateSprintStamina(0.016, true);
-if (!debug.player.isRunning) {
-  throw new Error("Sprint did not restart after stamina recovered past the restart threshold.");
+if (!debug.player.isRunning || debug.player.stamina >= staminaAfterHeldRecovery) {
+  throw new Error("Sprint did not restart after Shift was released and pressed again with enough stamina.");
 }
 debug.player.updateSprintStamina(0, false);
 
