@@ -107,6 +107,7 @@ const ANCHOR_FIELD_RADIUS = config.anchorFieldRadius ?? 160;
 const ANCHOR_FIELD_DURATION = config.anchorFieldDuration ?? 2.5;
 const ANCHOR_FIELD_COOLDOWN = config.anchorFieldCooldown ?? 7.0;
 const ANCHOR_FIELD_FADE_DURATION = 0.16;
+const ANCHOR_MARKER_FADE_DURATION = 0.15;
 const ANCHOR_SILVER_FILL = "rgba(192, 192, 192, 0.14)";
 const ANCHOR_SILVER_STROKE = "rgba(224, 224, 224, 0.92)";
 const ANCHOR_SILVER_CORE = "rgba(245, 245, 245, 0.96)";
@@ -765,6 +766,8 @@ class Entity {
     this.verticalEdgeKillTimer = 0;
     this.anchorLocked = false;
     this.anchorHoldRemaining = 0;
+    this.anchorMarkerAlpha = 0;
+    this.anchorMarkerFadeRemaining = 0;
     this.gravityFieldRemaining = 0;
     this.phaseExposureTimer = 0;
     this.phaseExposureCastId = 0;
@@ -962,11 +965,46 @@ class Entity {
     return true;
   }
 
+  setAnchorLockedVisual() {
+    this.anchorMarkerAlpha = 1;
+    this.anchorMarkerFadeRemaining = ANCHOR_MARKER_FADE_DURATION;
+  }
+
+  clearAnchorLockedVisual(fade = true) {
+    const hadAnchorVisual = this.anchorLocked || (this.anchorMarkerAlpha ?? 0) > 0;
+    this.anchorLocked = false;
+    this.anchorHoldRemaining = 0;
+    if (fade && hadAnchorVisual) {
+      this.anchorMarkerFadeRemaining = Math.max(this.anchorMarkerFadeRemaining ?? 0, ANCHOR_MARKER_FADE_DURATION);
+      this.anchorMarkerAlpha = Math.max(this.anchorMarkerAlpha ?? 0, 1);
+    } else {
+      this.anchorMarkerFadeRemaining = 0;
+      this.anchorMarkerAlpha = 0;
+    }
+  }
+
+  updateAnchorMarkerVisual(dt) {
+    if (this.anchorLocked) {
+      this.setAnchorLockedVisual();
+      return;
+    }
+    if ((this.anchorMarkerFadeRemaining ?? 0) <= 0) {
+      this.anchorMarkerAlpha = 0;
+      return;
+    }
+    this.anchorMarkerFadeRemaining = Math.max(0, this.anchorMarkerFadeRemaining - dt);
+    this.anchorMarkerAlpha = this.anchorMarkerFadeRemaining / ANCHOR_MARKER_FADE_DURATION;
+  }
+
   updateAnchorHold(dt) {
-    if (!this.anchorLocked) return false;
+    if (!this.anchorLocked) {
+      this.updateAnchorMarkerVisual(dt);
+      return false;
+    }
+    this.setAnchorLockedVisual();
     this.anchorHoldRemaining = Math.max(0, (this.anchorHoldRemaining ?? 0) - dt);
     if (this.anchorHoldRemaining <= 0) {
-      this.anchorLocked = false;
+      this.clearAnchorLockedVisual(true);
       return false;
     }
 
@@ -3041,6 +3079,7 @@ class Enemy extends Entity {
     this.hp = 0;
     this.isDying = true;
     this.deathTimer = 0;
+    this.clearAnchorLockedVisual(false);
     this.vx = 0;
     this.vy = 0;
     this.hitTimer = 0;
@@ -3235,7 +3274,6 @@ class Enemy extends Entity {
     ctx.lineCap = "butt";
     drawAdaptationAura(this, 39, 36, hitFlash * 0.04);
     applyAdaptationBodyGlow(this, hitFlash * 4);
-    if (this.anchorLocked) drawAnchorTargetGlow(28, 28);
     ctx.strokeStyle = hitFlash > 0.45 ? "rgba(255, 255, 255, 0.96)" : WALKER_PLATE_STROKE;
     ctx.fillStyle = hitFlash > 0.45 ? "rgba(210, 245, 255, 0.42)" : WALKER_PLATE_FILL;
     ctx.lineWidth = 1.8;
@@ -3710,6 +3748,7 @@ class Drone extends Entity {
     this.hp = 0;
     this.isDying = true;
     this.deathTimer = 0;
+    this.clearAnchorLockedVisual(false);
     this.vx = 0;
     this.vy = 0;
     this.windupTimer = 0;
@@ -3939,7 +3978,6 @@ class Drone extends Entity {
       ctx.scale(gravityFlipVisual.scaleX, 1);
     }
     drawAdaptationAura(this, 35, 33, charge * 0.08 + hitFlash * 0.04);
-    if (this.anchorLocked) drawAnchorTargetGlow(30, 28);
     if (!applyAdaptationBodyGlow(this, charge * 5 + hitFlash * 4)) {
       ctx.shadowColor = this.anchorLocked ? ANCHOR_SILVER_SHADOW : "rgba(255, 168, 35, 0.35)";
       ctx.shadowBlur = (this.anchorLocked ? 10 : 4) + charge * 7 + hitFlash * 5;
@@ -4329,6 +4367,7 @@ class Jumper extends Entity {
     this.hp = 0;
     this.isDying = true;
     this.deathTimer = 0;
+    this.clearAnchorLockedVisual(false);
     this.vx = 0;
     this.vy = 0;
     this.jumperState = "destroyed";
@@ -4419,7 +4458,10 @@ class Jumper extends Entity {
     const crouch = {
       coreY: -6,
       plateOffsetX: 0,
-      plateOffsetY: 0,
+      // Keep the lower diamond points just above the current stand surface.
+      // Because drawing is flipped by gravitySign, this clearance also applies
+      // when the jumper is attached to a ceiling.
+      plateOffsetY: -4,
       plateRotation: 0.02
     };
     const stand = {
@@ -4427,7 +4469,7 @@ class Jumper extends Entity {
       // Idle plates start raised and set farther from the core. The charge
       // blend moves these rigid pieces down and inward instead of scaling them.
       plateOffsetX: 4.8,
-      plateOffsetY: -7.2,
+      plateOffsetY: -8.5,
       plateRotation: 0
     };
     const pose = {};
@@ -4442,7 +4484,7 @@ class Jumper extends Entity {
     // spring-loaded without changing its collision body.
     return {
       x: side * 12.4,
-      y: 8.7,
+      y: 0,
       rx: 7.2,
       topRy: 12.6,
       bottomRy: 16.4
@@ -5740,43 +5782,72 @@ function drawSystemMessages() {
   ctx.restore();
 }
 
-function drawAnchorTargetGlow(rx = 28, ry = 28) {
-  ctx.save();
-  ctx.lineJoin = "miter";
-  ctx.lineCap = "round";
-  ctx.shadowColor = ANCHOR_SILVER_SHADOW;
-  ctx.shadowBlur = 16;
-  ctx.strokeStyle = ANCHOR_SILVER_STROKE;
-  ctx.fillStyle = ANCHOR_SILVER_FILL;
-  ctx.lineWidth = 1.5;
+function getAnchorMarkerPosition(enemy) {
+  const c = centerOf(enemy);
+  // Place the marker toward the enemy's top/away-from-surface side so the same
+  // symbol reads consistently without covering the core or adaptation glow.
+  return {
+    x: c.x,
+    y: c.y - enemy.gravitySign * (enemy.h * 0.28 + 8)
+  };
+}
 
+function drawAnchorTargetMarker(x, y, alpha = 1, size = 12) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "miter";
+  ctx.shadowColor = "rgba(150, 224, 244, 0.58)";
+  ctx.shadowBlur = 8;
+
+  ctx.strokeStyle = "rgba(196, 235, 246, 0.82)";
+  ctx.lineWidth = 1.15;
   ctx.beginPath();
-  ctx.moveTo(0, -ry);
-  ctx.lineTo(rx, 0);
-  ctx.lineTo(0, ry);
-  ctx.lineTo(-rx, 0);
+  ctx.arc(x, y, size * 0.54, -Math.PI * 0.86, Math.PI * 0.28);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, size * 0.54, Math.PI * 0.58, Math.PI * 1.15);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(235, 252, 255, 0.92)";
+  ctx.lineWidth = 1;
+  const tickInner = size * 0.7;
+  const tickOuter = size * 0.98;
+  ctx.beginPath();
+  ctx.moveTo(x - tickInner, y);
+  ctx.lineTo(x - tickOuter, y);
+  ctx.moveTo(x + tickInner, y);
+  ctx.lineTo(x + tickOuter, y);
+  ctx.moveTo(x, y - tickInner);
+  ctx.lineTo(x, y - tickOuter);
+  ctx.moveTo(x, y + tickInner);
+  ctx.lineTo(x, y + tickOuter);
+  ctx.stroke();
+
+  const diamond = size * 0.28;
+  ctx.fillStyle = "rgba(232, 250, 255, 0.92)";
+  ctx.strokeStyle = "rgba(118, 197, 220, 0.95)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, y - diamond);
+  ctx.lineTo(x + diamond, y);
+  ctx.lineTo(x, y + diamond);
+  ctx.lineTo(x - diamond, y);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-
-  ctx.strokeStyle = ANCHOR_SILVER_CORE;
-  ctx.lineWidth = 1;
-  const tickStartX = rx * 0.54;
-  const tickEndX = rx * 0.82;
-  const tickStartY = ry * 0.54;
-  const tickEndY = ry * 0.82;
-  ctx.beginPath();
-  ctx.moveTo(-tickStartX, 0);
-  ctx.lineTo(-tickEndX, 0);
-  ctx.moveTo(tickStartX, 0);
-  ctx.lineTo(tickEndX, 0);
-  ctx.moveTo(0, -tickStartY);
-  ctx.lineTo(0, -tickEndY);
-  ctx.moveTo(0, tickStartY);
-  ctx.lineTo(0, tickEndY);
-  ctx.stroke();
-
   ctx.restore();
+}
+
+function drawActiveAnchorMarkers() {
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0 || enemy.isDying) continue;
+    const alpha = enemy.anchorLocked ? 1 : (enemy.anchorMarkerAlpha ?? 0);
+    if (alpha <= 0) continue;
+    const pos = getAnchorMarkerPosition(enemy);
+    drawAnchorTargetMarker(pos.x, pos.y, alpha, 12);
+  }
 }
 
 function drawGravityMarker(entity, visualTopY = entity.y) {
@@ -6048,10 +6119,7 @@ function activateAnchorField() {
 }
 
 function clearAnchorFieldEffects() {
-  for (const enemy of enemies) {
-    enemy.anchorLocked = false;
-    enemy.anchorHoldRemaining = 0;
-  }
+  for (const enemy of enemies) enemy.clearAnchorLockedVisual?.(true);
   for (const projectile of droneProjectiles) projectile.restoreAnchorVelocity?.();
 }
 
@@ -6081,8 +6149,10 @@ function captureAnchorFieldTargets() {
 
   for (const enemy of enemies) {
     enemy.anchorLocked = enemy.hp > 0 && !enemy.isDying && isTargetInsideAnchorField(enemy);
+    if (!enemy.anchorLocked) enemy.clearAnchorLockedVisual?.(false);
     if (enemy.anchorLocked) {
       recordAdaptationExposure(enemy, "anchor_field", anchorField.castId);
+      enemy.setAnchorLockedVisual?.();
       enemy.anchorHoldRemaining = ANCHOR_FIELD_DURATION * getAnchorAdaptationDurationScale(enemy);
       enemy.vx = 0;
       enemy.vy = 0;
@@ -7839,6 +7909,7 @@ function draw() {
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   enemies.forEach((enemy) => enemy.draw());
+  drawActiveAnchorMarkers();
   drawEnergyLinkMarkers();
   droneProjectiles.forEach((projectile) => projectile.draw());
   player.draw();
