@@ -216,6 +216,50 @@ if (!debug.player.isRunning || debug.player.stamina >= staminaAfterHeldRecovery)
 }
 debug.player.updateSprintStamina(0, false);
 
+// Direction-change regression: after sprint exhausts from real held Shift input,
+// A/D changes must not count as a fresh sprint press while Shift remains held.
+dispatch("blur", {});
+debug.player.x = 20;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.gravitySign = 1;
+debug.player.onSurface = true;
+debug.player.isCrouching = false;
+debug.player.isRunning = true;
+debug.player.sprintExhausted = false;
+debug.player.stamina = 1;
+debug.player.staminaRegenDelayTimer = 0;
+dispatch("keydown", keyEvent("Shift", "ShiftLeft"));
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.player.update(0.05);
+if (debug.player.isRunning || debug.player.stamina !== 0 || !debug.player.sprintExhausted) {
+  throw new Error("Held Shift sprint did not lock immediately on the exhaustion frame.");
+}
+if (Math.abs(debug.player.vx - debug.constants.WALK_SPEED) > 0.001) {
+  throw new Error(`Exhaustion frame did not immediately fall back to walk speed; got ${debug.player.vx}.`);
+}
+dispatch("keyup", keyEvent("d", "KeyD"));
+dispatch("keydown", keyEvent("a", "KeyA"));
+// Simulate stamina having recovered above the restart threshold while Shift is
+// still held; the exhaustion lock, not stamina level, must decide restart.
+debug.player.stamina = debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD + 1;
+debug.player.staminaRegenDelayTimer = 0;
+debug.player.update(0.016);
+if (debug.player.isRunning || !debug.player.sprintExhausted || debug.player.stamina < debug.constants.SPRINT_STAMINA_RESTART_THRESHOLD) {
+  throw new Error("Changing direction while Shift stayed held bypassed the sprint exhaustion lock.");
+}
+if (Math.abs(debug.player.vx + debug.constants.WALK_SPEED) > 0.001) {
+  throw new Error(`Locked sprint direction change did not use walk speed; got ${debug.player.vx}.`);
+}
+dispatch("keyup", keyEvent("a", "KeyA"));
+dispatch("keyup", keyEvent("Shift", "ShiftLeft"));
+debug.player.update(0);
+if (debug.player.sprintExhausted) {
+  throw new Error("Real Shift release did not clear the sprint exhaustion lock after direction changes.");
+}
+dispatch("blur", {});
+
 // Switching away from Gravity Field through the same selection path used by the
 // wheel should only change the selected tap target. Timed abilities now remain
 // active until their timer expires or the same ability is tapped again.
