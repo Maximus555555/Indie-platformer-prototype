@@ -6337,20 +6337,23 @@ function handleSystemAccessKey(key) {
   }
   if (!systemAccess.open) return false;
 
-  if (key === "arrowright" || key === "d") {
+  if (key === "e") {
     stepSystemAccessTab(1);
     return true;
   }
-  if (key === "arrowleft" || key === "a") {
+  if (key === "q") {
     stepSystemAccessTab(-1);
     return true;
   }
   if (systemAccessData.tabs[systemAccess.selectedTabIndex] === "Abilities") {
-    const index = abilities.findIndex((ability) => ability.id === systemAccess.selectedAbilityId);
+    const index = Math.max(0, abilities.findIndex((ability) => ability.id === systemAccess.selectedAbilityId));
     const columns = 2;
+    const col = index % columns;
     let nextIndex = index;
-    if (key === "arrowdown" || key === "s") nextIndex = Math.min(abilities.length - 1, index + columns);
-    if (key === "arrowup" || key === "w") nextIndex = Math.max(0, index - columns);
+    if (key === "arrowright" && col < columns - 1) nextIndex = Math.min(abilities.length - 1, index + 1);
+    if (key === "arrowleft" && col > 0) nextIndex = index - 1;
+    if (key === "arrowdown") nextIndex = Math.min(abilities.length - 1, index + columns);
+    if (key === "arrowup") nextIndex = Math.max(0, index - columns);
     if (nextIndex !== index) {
       selectSystemAccessAbility(abilities[nextIndex]);
       return true;
@@ -7468,13 +7471,21 @@ function drawSystemAbilityTile(ability, x, y, w, h) {
 
   if (coolingDown) {
     const progress = clamp(ability.cooldownRemaining / Math.max(ability.cooldownDuration, 0.01), 0, 1);
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 6);
+    ctx.clip();
     ctx.fillStyle = "rgba(0, 6, 16, 0.48)";
     ctx.fillRect(x, y + h * (1 - progress), w, h * progress);
+    ctx.restore();
   }
 
-  drawAbilitySymbol(ability, x + 34, y + 34, 34, locked ? 0.55 : 0.95);
-  drawSystemAccessText(ability.name.toUpperCase(), x + 68, y + 19, { size: 12, color: locked ? "rgba(150, 177, 190, 0.62)" : "rgba(234, 250, 255, 0.96)" });
-  drawSystemAccessText(state.toUpperCase(), x + 68, y + 43, { size: 11, color: active ? "rgba(126, 233, 255, 0.95)" : "rgba(145, 210, 232, 0.72)" });
+  drawAbilitySymbol(ability, x + w / 2, y + 28, 30, locked ? 0.55 : 0.95);
+  drawSystemAccessText(ability.name.toUpperCase(), x + w / 2, y + 52, {
+    size: ability.name.length > 12 ? 11 : 12,
+    align: "center",
+    color: locked ? "rgba(150, 177, 190, 0.62)" : "rgba(234, 250, 255, 0.96)"
+  });
   ctx.restore();
 }
 
@@ -7527,12 +7538,6 @@ function drawAbilitiesTab(layout) {
     y += 19;
   });
 
-  ctx.strokeStyle = "rgba(91, 178, 212, 0.24)";
-  ctx.beginPath();
-  ctx.moveTo(detailsX + 20, layout.contentY + layout.contentH - 54);
-  ctx.lineTo(detailsX + detailsW - 20, layout.contentY + layout.contentH - 54);
-  ctx.stroke();
-  drawSystemAccessText("UPGRADES: NONE", detailsX + 20, layout.contentY + layout.contentH - 36, { size: 12, color: "rgba(155, 229, 255, 0.76)" });
 }
 
 function drawSystemAccessInterface() {
@@ -7549,14 +7554,6 @@ function drawSystemAccessInterface() {
   fillRoundedRect(layout.x, layout.y, layout.w, layout.h, 10);
   strokeRoundedRect(layout.x, layout.y, layout.w, layout.h, 10);
 
-  ctx.strokeStyle = "rgba(122, 213, 242, 0.18)";
-  for (let x = layout.x + 24; x < layout.x + layout.w - 20; x += 32) {
-    ctx.beginPath();
-    ctx.moveTo(x, layout.contentY - 6);
-    ctx.lineTo(x, layout.y + layout.h - 22);
-    ctx.stroke();
-  }
-
   drawSystemAccessText("SYSTEM ACCESS", layout.x + 28, layout.y + 20, { size: 20, weight: "bold", color: "rgba(238, 253, 255, 0.98)" });
   drawSystemAccessText("LOCAL INTERFACE", layout.x + layout.w - 28, layout.y + 26, { size: 11, align: "right", color: "rgba(155, 229, 255, 0.72)" });
   drawSystemAccessTabs(layout);
@@ -7565,11 +7562,6 @@ function drawSystemAccessInterface() {
   if (tab === "Abilities") drawAbilitiesTab(layout);
   else if (tab === "Status") drawStatusTab(layout);
   else drawPlaceholderTab(layout, tab);
-
-  drawSystemAccessText("TAB/I: CLOSE  |  A/D OR ←/→: TABS  |  ENTER: EQUIP SELECTED ABILITY", layout.x + 28, layout.y + layout.h - 22, {
-    size: 10,
-    color: "rgba(155, 229, 255, 0.56)"
-  });
   ctx.restore();
 }
 
