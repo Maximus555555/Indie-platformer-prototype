@@ -66,6 +66,8 @@ const JUMPER_LEAP_MAX_SPEED = config.jumperLeapMaxSpeed ?? 180;
 const JUMPER_LEAP_IMPULSE = config.jumperLeapImpulse ?? 430;
 const JUMPER_EDGE_SUPPORT_TOLERANCE = config.jumperEdgeSupportTolerance ?? 4;
 const JUMPER_VISUAL_GROUND_CLEARANCE = 6;
+const JUMPER_CROUCH_VISUAL_GROUND_CLEARANCE = 2;
+const JUMPER_CROUCH_SETTLE_DISTANCE = 5;
 const DRONE_ORBIT_SLOT_COUNT = 2;
 const DRONE_ORBIT_RADIUS_X = 38;
 const DRONE_ORBIT_RADIUS_Y = 25;
@@ -4539,8 +4541,14 @@ class Jumper extends Entity {
     const surfaceLocalY = this.getVisualSurfaceLocalY(originY);
     if (surfaceLocalY === null) return 0;
     const lowestPoint = this.getLowestPosePoint(pose, airShift, sideLag);
-    const lowestAllowed = surfaceLocalY - JUMPER_VISUAL_GROUND_CLEARANCE;
-    return Math.min(0, lowestAllowed - lowestPoint);
+    const crouchAmount = clamp(this.poseBlend, 0, 1);
+    // While charging, let the visual cluster settle toward the surface instead
+    // of keeping the standing hover gap, but cap the drop so it never sinks
+    // through uneven geometry if the pose is already close to the floor.
+    const targetClearance = JUMPER_VISUAL_GROUND_CLEARANCE
+      + (JUMPER_CROUCH_VISUAL_GROUND_CLEARANCE - JUMPER_VISUAL_GROUND_CLEARANCE) * crouchAmount;
+    const desiredShift = surfaceLocalY - targetClearance - lowestPoint;
+    return clamp(desiredShift, -Infinity, JUMPER_CROUCH_SETTLE_DISTANCE * crouchAmount);
   }
 
   traceDiamond(x, y, rx, ry) {
