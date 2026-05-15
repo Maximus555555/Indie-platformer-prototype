@@ -405,9 +405,20 @@ function getDoorTransitionSpawn(door) {
   };
 }
 
+function cancelSystemPulseCarryover() {
+  // Room transitions are a hard boundary for System Pulse. Clear both existing
+  // bolt flashes and queued attack releases so an edge-jump pulse cannot fire
+  // after the player has already moved into the next room.
+  pulses.length = 0;
+  player.attackPulseQueued = false;
+  player.attackReleaseTimer = 0;
+  player.attackTimer = 0;
+}
+
 function enterRoom(roomId, spawn, options = {}) {
   currentRoomId = getRoomById(roomId).id;
   negateActiveAbilityEffects();
+  cancelSystemPulseCarryover();
   if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: options.grounded ?? true });
   player.facing = options.facing ?? player.facing;
   cameraX = getCurrentRoom().x;
@@ -415,6 +426,7 @@ function enterRoom(roomId, spawn, options = {}) {
 
 function startRoomTransition(door) {
   if (roomTransition || player.isDying) return;
+  cancelSystemPulseCarryover();
   roomTransition = {
     door,
     elapsed: 0,
