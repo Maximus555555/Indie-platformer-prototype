@@ -98,7 +98,7 @@ const DRONE_DIAMOND_REFORM_DURATION = 0.24;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
-const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 1;
+const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 0.5;
 const PULSE_LIFETIME = config.pulseLifetime ?? 0.09;
 // Spawn the System Pulse beyond the firing semicircle so the projectile reads
 // as detached from the muzzle flash instead of overlapping the player hands.
@@ -1664,7 +1664,7 @@ class Player extends Entity {
     // offset leaves roughly 10 pixels between the projectile tail and the
     // firing semicircle at the release pose.
     const localX = this.isCrouching ? CROUCH_PULSE_SPAWN_LOCAL_X : PULSE_SPAWN_LOCAL_X;
-    const localY = this.isCrouching ? 29.0 : 21.6;
+    const localY = this.isCrouching ? 31.0 : 23.6;
     return {
       x: this.x + this.w / 2 + direction * PLAYER_VISUAL_SCALE * localX,
       y: originY + verticalFlip * PLAYER_VISUAL_SCALE * localY
