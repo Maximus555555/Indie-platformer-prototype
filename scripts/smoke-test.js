@@ -22,6 +22,8 @@ const recordCanvasCall = (name) => function (...args) {
       textAlign: context.textAlign,
       textBaseline: context.textBaseline,
       lineWidth: context.lineWidth,
+      strokeStyle: context.strokeStyle,
+      fillStyle: context.fillStyle,
       globalAlpha: context.globalAlpha
     }
   });
@@ -233,9 +235,9 @@ if (leftPulseLead < 24 || leftPulseLead > 32) {
   throw new Error(`Left-facing System Pulse should start about 10px beyond the firing flash; got lead ${leftPulseLead}.`);
 }
 
-// System Pulse draw regression: the visible projectile should grow outward from
-// the fixed spawn point instead of popping to its hit endpoint immediately.
-// This keeps launch distance consistent even when targets or walls are nearby.
+// System Pulse draw regression: the visible projectile should immediately span
+// the current room so its fired beam visibly crosses targets before damage can
+// remove them from the scene.
 debug.pulses.length = 0;
 debug.player.attackFacing = 1;
 debug.player.attackPulseQueued = true;
@@ -251,9 +253,17 @@ if (!firstMove || !firstLine) throw new Error("System Pulse did not draw a visib
 if (Math.abs(firstMove.args[0] - drawnPulse.startX) > 0.001) {
   throw new Error(`System Pulse tail drifted away from spawn: ${firstMove.args[0]} vs ${drawnPulse.startX}.`);
 }
-const expectedMidTip = drawnPulse.startX + (drawnPulse.endX - drawnPulse.startX) * 0.5;
-if (Math.abs(firstLine.args[0] - expectedMidTip) > 0.001) {
-  throw new Error(`System Pulse did not grow outward from spawn; drew tip ${firstLine.args[0]}, expected ${expectedMidTip}.`);
+const currentRoom = debug.getCurrentRoom();
+if (Math.abs(drawnPulse.endX - (currentRoom.x + currentRoom.w)) > 0.001) {
+  throw new Error(`System Pulse endpoint should reach the right room edge; got ${drawnPulse.endX}.`);
+}
+const endpointLine = context.calls.find((call) => call.name === "lineTo" && Math.abs(call.args[0] - drawnPulse.endX) <= 0.001);
+if (!endpointLine) {
+  throw new Error(`System Pulse did not draw to its full room edge endpoint ${drawnPulse.endX}.`);
+}
+const darkBlueOutlineStroke = context.calls.find((call) => call.name === "stroke" && String(call.state.strokeStyle).includes("126, 222, 255"));
+if (darkBlueOutlineStroke) {
+  throw new Error("System Pulse still drew the removed blue outline stroke.");
 }
 
 drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.1;
@@ -261,7 +271,7 @@ context.calls.length = 0;
 drawnPulse.draw();
 const earlyGlowStroke = context.calls.find((call) => call.name === "stroke");
 if (!earlyGlowStroke) throw new Error("System Pulse did not draw an early growth stroke.");
-const earlyPulseThickness = earlyGlowStroke.state.lineWidth - 4;
+const earlyPulseThickness = earlyGlowStroke.state.lineWidth;
 if (earlyPulseThickness <= debug.constants.PULSE_MIN_THICKNESS || earlyPulseThickness >= debug.constants.PULSE_THICKNESS) {
   throw new Error(`System Pulse should start thin before expanding; got early thickness ${earlyPulseThickness}.`);
 }
@@ -271,7 +281,7 @@ context.calls.length = 0;
 drawnPulse.draw();
 const finalGlowStroke = context.calls.find((call) => call.name === "stroke");
 if (!finalGlowStroke) throw new Error("System Pulse did not draw a final growth stroke.");
-const finalPulseThickness = finalGlowStroke.state.lineWidth - 4;
+const finalPulseThickness = finalGlowStroke.state.lineWidth;
 if (Math.abs(finalPulseThickness - debug.constants.PULSE_THICKNESS) > 0.001) {
   throw new Error(`System Pulse did not expand to its configured diameter; got ${finalPulseThickness}.`);
 }
@@ -284,8 +294,8 @@ drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.8;
 context.calls.length = 0;
 drawnPulse.draw();
 const farTravelStroke = context.calls.find((call) => call.name === "stroke");
-if (!nearOriginStroke || !farTravelStroke || farTravelStroke.state.globalAlpha <= nearOriginStroke.state.globalAlpha) {
-  throw new Error("System Pulse should become more visible as it travels farther from the player.");
+if (!nearOriginStroke || !farTravelStroke || farTravelStroke.state.globalAlpha >= nearOriginStroke.state.globalAlpha) {
+  throw new Error("System Pulse should fade slightly as its full-screen flash expires.");
 }
 debug.pulses.length = 0;
 

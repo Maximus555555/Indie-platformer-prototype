@@ -5423,15 +5423,14 @@ class SystemPulse {
 
   draw() {
     const progress = clamp(this.age / PULSE_LIFETIME, 0, 1);
-    // Grow the pulse outward from its fixed hand spawn instead of drawing a
-    // full beam to the first hit immediately. That keeps the visible projectile
-    // launch distance stable whether an enemy, wall, or room edge is nearby.
-    const visibleEndX = this.startX + (this.endX - this.startX) * progress;
-    const visibleLength = Math.abs(visibleEndX - this.startX);
+    const visibleLength = Math.abs(this.endX - this.startX);
     if (visibleLength <= 1) return;
 
-    const alpha = clamp(progress * 1.4, 0, 1);
-    const tipX = visibleEndX;
+    // Draw the bolt at its full room-spanning reach for its whole flash. Damage
+    // is resolved as soon as it fires, so the visual must already cross targets
+    // instead of chasing after enemies that may be removed by the hit.
+    const alpha = 1 - progress * 0.35;
+    const tipX = this.endX;
     const tailX = this.startX;
     const direction = this.direction;
     const thicknessProgress = progress * progress * (3 - 2 * progress);
@@ -5444,17 +5443,10 @@ class SystemPulse {
     ctx.globalAlpha = alpha;
     ctx.lineJoin = "miter";
 
-    // Minimal blue glow around a single continuous white core keeps the pulse
-    // crisp and digital, without making it read as fire, smoke, or magic.
-    ctx.shadowColor = "rgba(126, 222, 255, 0.55)";
-    ctx.shadowBlur = 9;
-    ctx.strokeStyle = "rgba(126, 222, 255, 0.42)";
-    ctx.lineWidth = currentThickness + 4;
-    ctx.lineCap = "butt";
-    ctx.beginPath();
-    ctx.moveTo(tailX, this.y);
-    ctx.lineTo(tipX, this.y);
-    ctx.stroke();
+    // A white core with soft shadow keeps the pulse crisp without the former
+    // dark blue outline that made the projectile look detached from impacts.
+    ctx.shadowColor = "rgba(174, 244, 255, 0.48)";
+    ctx.shadowBlur = 7;
 
     const core = ctx.createLinearGradient(tailX, this.y, tipX, this.y);
     core.addColorStop(0, "rgba(255, 255, 255, 0)");
@@ -5477,7 +5469,8 @@ class SystemPulse {
 
     ctx.shadowBlur = 0;
     ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-    ctx.lineWidth = 1.15;
+    ctx.lineWidth = currentThickness;
+    ctx.lineCap = "butt";
     ctx.beginPath();
     ctx.moveTo(tailX + direction * tailInset * 0.4, this.y);
     ctx.lineTo(tipX, this.y);
@@ -5752,52 +5745,11 @@ function getSolidEnemyRects() {
 }
 
 function findPulseEndpoint(startX, y, direction) {
-  // System Pulse should travel until it hits world geometry, a target, or the
-  // room edge. Camera visibility must not shorten its simulation or hit range.
+  // System Pulse is a screen-distance bolt: it always reaches the current room
+  // edge so its visual path crosses enemies instead of stopping short at the
+  // first target. Hit detection still scans that full span separately.
   const room = getCurrentRoom();
-  let endX = direction > 0 ? room.x + room.w : room.x;
-  let bestDistance = Math.abs(endX - startX);
-
-  function consider(rect) {
-    const hitX = getPulseHitX(startX, direction, rect);
-    if (hitX === null) return;
-
-    const distanceToHit = (hitX - startX) * direction;
-    if (distanceToHit >= 0 && distanceToHit < bestDistance) {
-      endX = hitX;
-      bestDistance = distanceToHit;
-    }
-  }
-
-  for (const platform of platforms) {
-    if (!pulseLineOverlapsY(y, platform)) continue;
-    consider(platform);
-  }
-
-  for (const enemy of getActiveEnemies()) {
-    const damageRect = enemy.getDamageRect();
-    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
-    consider(damageRect);
-  }
-
-  return endX;
-}
-
-function getPulseHitX(startX, direction, rect) {
-  const nearEdge = direction > 0 ? rect.x : rect.x + rect.w;
-  const farEdge = direction > 0 ? rect.x + rect.w : rect.x;
-  const distanceToNearEdge = (nearEdge - startX) * direction;
-
-  if (distanceToNearEdge >= 0) return nearEdge;
-
-  // The pulse is spawned from the character's animated hand. When the player is
-  // pressed close to a platform, that visual hand can begin inside the platform
-  // even though the collision body is stopped outside it. Treat that as an
-  // immediate wall hit so the pulse cannot originate beyond the blocker.
-  const distanceToFarEdge = (farEdge - startX) * direction;
-  if (distanceToFarEdge > 0) return startX;
-
-  return null;
+  return direction > 0 ? room.x + room.w : room.x;
 }
 
 function pulseLineOverlapsY(y, rect) {
