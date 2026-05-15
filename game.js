@@ -276,8 +276,46 @@ const platforms = [
   // its steering respects solid canvas platforms.
   { x: 2240, y: 365, w: 210, h: 20 },
   { x: 2495, y: 300, w: 190, h: 20 },
-  { x: 2635, y: 190, w: 130, h: 20 }
+  { x: 2635, y: 190, w: 130, h: 20 },
+  // Level 1 room 4: a first focused Walker encounter arena.
+  { x: 2880, y: 470, w: 960, h: 70 },
+  { x: 3130, y: 370, w: 170, h: 20 },
+  { x: 3440, y: 305, w: 190, h: 20 },
+  // Level 1 room 5: Walker plus a simple spike hazard.
+  { x: 3840, y: 470, w: 960, h: 70 },
+  { x: 4140, y: 365, w: 210, h: 20 },
+  { x: 4480, y: 305, w: 190, h: 20 },
+  // Level 1 room 6: quiet exit space with an end marker.
+  { x: 4800, y: 470, w: 960, h: 70 },
+  { x: 5125, y: 380, w: 210, h: 20 }
 ];
+
+const LEVEL1_ROOM_WIDTH = canvas.width;
+const levelRooms = [
+  { id: "room-1", name: "Room 1: Movement", x: 0, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
+  { id: "room-2", name: "Room 2: Jumping", x: 960, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 1030, y: 420 }, tutorial: "JUMPING / PLATFORMING" },
+  { id: "room-3", name: "Room 3: Attack Tutorial", x: 1920, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 1995, y: 420 }, tutorial: "ATTACK TUTORIAL AREA" },
+  { id: "room-4", name: "Room 4: First Walker", x: 2880, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 2960, y: 420 }, tutorial: "FIRST WALKER ENCOUNTER" },
+  { id: "room-5", name: "Room 5: Hazard", x: 3840, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 3920, y: 420 }, tutorial: "WALKER + HAZARD" },
+  { id: "room-6", name: "Room 6: Exit", x: 4800, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 4880, y: 420 }, tutorial: "EXIT ROOM" }
+];
+
+const doors = [
+  { id: "r1-to-r2", roomId: "room-1", x: 900, y: 392, w: 34, h: 78, targetRoomId: "room-2", targetSpawn: { x: 1030, y: 420 }, facing: 1 },
+  { id: "r2-to-r1", roomId: "room-2", x: 986, y: 392, w: 34, h: 78, targetRoomId: "room-1", targetSpawn: { x: 842, y: 420 }, facing: -1 },
+  { id: "r2-to-r3", roomId: "room-2", x: 1860, y: 392, w: 34, h: 78, targetRoomId: "room-3", targetSpawn: { x: 1995, y: 420 }, facing: 1 },
+  { id: "r3-to-r2", roomId: "room-3", x: 1946, y: 392, w: 34, h: 78, targetRoomId: "room-2", targetSpawn: { x: 1800, y: 420 }, facing: -1 },
+  { id: "r3-to-r4", roomId: "room-3", x: 2820, y: 392, w: 34, h: 78, targetRoomId: "room-4", targetSpawn: { x: 2960, y: 420 }, facing: 1 },
+  { id: "r4-to-r3", roomId: "room-4", x: 2906, y: 392, w: 34, h: 78, targetRoomId: "room-3", targetSpawn: { x: 2760, y: 420 }, facing: -1 },
+  { id: "r4-to-r5", roomId: "room-4", x: 3780, y: 392, w: 34, h: 78, targetRoomId: "room-5", targetSpawn: { x: 3920, y: 420 }, facing: 1 },
+  { id: "r5-to-r4", roomId: "room-5", x: 3866, y: 392, w: 34, h: 78, targetRoomId: "room-4", targetSpawn: { x: 3720, y: 420 }, facing: -1 },
+  { id: "r5-to-r6", roomId: "room-5", x: 4740, y: 392, w: 34, h: 78, targetRoomId: "room-6", targetSpawn: { x: 4880, y: 420 }, facing: 1 },
+  { id: "r6-to-r5", roomId: "room-6", x: 4826, y: 392, w: 34, h: 78, targetRoomId: "room-5", targetSpawn: { x: 4680, y: 420 }, facing: -1 }
+];
+
+const exitMarker = { roomId: "room-6", x: 5520, y: 390, w: 48, h: 80 };
+let currentRoomId = levelRooms[0].id;
+let roomTransition = null;
 
 const phaseBarriers = [];
 
@@ -289,8 +327,110 @@ const spikes = [
   // Field can launch nearby enemies upward into clean geometric hazards.
   { platform: platforms[0], side: "bottom", x: 620, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
   { platform: platforms[0], side: "bottom", x: 1030, w: 112, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
-  { platform: platforms[0], side: "bottom", x: 2380, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
+  { platform: platforms[0], side: "bottom", x: 2380, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
+  { platform: platforms[22], side: "top", x: 4270, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
 ];
+
+
+function getRoomById(roomId) {
+  return levelRooms.find((room) => room.id === roomId) ?? levelRooms[0];
+}
+
+function getCurrentRoom() {
+  return getRoomById(currentRoomId);
+}
+
+function getRoomAtPoint(x, y = canvas.height / 2) {
+  return levelRooms.find((room) => x >= room.x && x <= room.x + room.w && y >= room.y && y <= room.y + room.h) ?? getCurrentRoom();
+}
+
+function isRectInRoom(rect, room = getCurrentRoom()) {
+  return rect.x + rect.w > room.x && rect.x < room.x + room.w && rect.y + rect.h > room.y && rect.y < room.y + room.h;
+}
+
+function getRoomDoors(roomId = currentRoomId) {
+  return doors.filter((door) => door.roomId === roomId);
+}
+
+function getActiveSimulationRoom() {
+  return getRoomAtPoint(player.x + player.w / 2, player.y + player.h / 2);
+}
+
+function isEnemyInCurrentRoom(enemy) {
+  if (!enemy) return false;
+  if (isEnergyLinked(enemy)) return true;
+  const room = getActiveSimulationRoom();
+  const enemyRect = enemy.getDamageRect?.() ?? enemy;
+  return isRectInRoom(enemyRect, room);
+}
+
+function getActiveEnemies() {
+  return enemies.filter(isEnemyInCurrentRoom);
+}
+
+function clampPlayerToCurrentRoom() {
+  const room = getCurrentRoom();
+  const clampedX = clamp(player.x, room.x, room.x + room.w - player.w);
+  if (clampedX !== player.x) {
+    player.x = clampedX;
+    player.vx = 0;
+    player.touchedWorldBoundary = true;
+  }
+}
+
+function resetRoomState(roomId = currentRoomId) {
+  for (const spawn of enemySpawnStates) {
+    if (spawn.roomId === roomId) resetEnemyToSpawn(spawn);
+  }
+  for (let i = droneProjectiles.length - 1; i >= 0; i -= 1) {
+    if (isRectInRoom(droneProjectiles[i], getRoomById(roomId))) droneProjectiles.splice(i, 1);
+  }
+}
+
+function enterRoom(roomId, spawn, options = {}) {
+  currentRoomId = getRoomById(roomId).id;
+  negateActiveAbilityEffects();
+  if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: true });
+  player.facing = options.facing ?? player.facing;
+  resetRoomState(currentRoomId);
+  cameraX = getCurrentRoom().x;
+}
+
+function startRoomTransition(door) {
+  if (roomTransition || player.isDying) return;
+  roomTransition = {
+    door,
+    elapsed: 0,
+    duration: 0.34,
+    moved: false
+  };
+  player.vx = 0;
+  player.vy = 0;
+}
+
+function updateRoomTransition(dt) {
+  if (!roomTransition) return false;
+  roomTransition.elapsed += dt;
+  const halfway = roomTransition.duration / 2;
+  if (!roomTransition.moved && roomTransition.elapsed >= halfway) {
+    const { door } = roomTransition;
+    enterRoom(door.targetRoomId, door.targetSpawn, { facing: door.facing });
+    roomTransition.moved = true;
+  }
+  if (roomTransition.elapsed >= roomTransition.duration) roomTransition = null;
+  pressedThisFrame.clear();
+  return true;
+}
+
+function checkDoorTransitions() {
+  if (roomTransition || player.isDying || player.damageTimer > 0 || player.fallRespawnGraceTimer > 0) return;
+  for (const door of getRoomDoors()) {
+    if (rectsOverlap(player, door)) {
+      startRoomTransition(door);
+      return;
+    }
+  }
+}
 
 const bottomFallBoundary = config.fallBoundary
   ?? Math.max(...platforms.map((platform) => platform.y)) + FALL_BOUNDARY_OFFSET;
@@ -836,7 +976,7 @@ class Entity {
 
   getOtherSolidEnemyRects() {
     if (typeof enemies === "undefined") return [];
-    return enemies
+    return getActiveEnemies()
       .filter((enemy) => enemy !== this && enemy.hp > 0 && !enemy.isDying)
       .map((enemy) => enemy.getCollisionRect());
   }
@@ -1191,7 +1331,8 @@ class Player extends Entity {
     }
     if (this.attackTimer > 0) this.attackTimer -= dt;
     if (this.forcePulsePoseTimer > 0) this.forcePulsePoseTimer -= dt;
-    const clampedX = clamp(this.x, 0, ROOM_WIDTH - this.w);
+    const room = getActiveSimulationRoom();
+    const clampedX = clamp(this.x, room.x, room.x + room.w - this.w);
     if (clampedX !== this.x) {
       this.x = clampedX;
       this.vx = 0;
@@ -1775,10 +1916,11 @@ class Player extends Entity {
 
   fullRespawn() {
     negateActiveAbilityEffects();
-    resetEnemiesToSpawn();
+    resetRoomState(currentRoomId);
     this.hp = this.maxHp;
     this.damageTimer = 0;
-    this.placeAt(checkpoint.x, checkpoint.y);
+    const roomSpawn = getCurrentRoom().spawn ?? checkpoint;
+    this.placeAt(roomSpawn.x, roomSpawn.y);
   }
 
   placeAt(x, y, options = {}) {
@@ -3475,7 +3617,7 @@ class Swarm extends Entity {
     let neighbors = 0;
     const selfCenter = centerOf(this);
 
-    for (const enemy of enemies) {
+    for (const enemy of getActiveEnemies()) {
       if (enemy === this || !(enemy instanceof Swarm) || enemy.hp <= 0 || enemy.isDying) continue;
       const otherCenter = centerOf(enemy);
       const dx = selfCenter.x - otherCenter.x;
@@ -5457,8 +5599,9 @@ function isRectInsideActualRoomBounds(rect) {
 }
 
 function isRespawnRectInBounds(rect) {
-  return rect.x >= 0
-    && rect.x + rect.w <= ROOM_WIDTH
+  const room = getCurrentRoom();
+  return rect.x >= room.x
+    && rect.x + rect.w <= room.x + room.w
     && rect.y >= 0
     && rect.y + rect.h <= bottomFallBoundary;
 }
@@ -5591,7 +5734,7 @@ function getPlayerEnemyCollisionRects() {
 }
 
 function getSolidEnemyRects() {
-  return enemies
+  return getActiveEnemies()
     .filter((enemy) => enemy.hp > 0 && enemy.blocksPlayer !== false)
     .map((enemy) => enemy.getCollisionRect());
 }
@@ -5599,7 +5742,8 @@ function getSolidEnemyRects() {
 function findPulseEndpoint(startX, y, direction) {
   // System Pulse should travel until it hits world geometry, a target, or the
   // room edge. Camera visibility must not shorten its simulation or hit range.
-  let endX = direction > 0 ? ROOM_WIDTH : 0;
+  const room = getCurrentRoom();
+  let endX = direction > 0 ? room.x + room.w : room.x;
   let bestDistance = Math.abs(endX - startX);
 
   function consider(rect) {
@@ -5618,7 +5762,7 @@ function findPulseEndpoint(startX, y, direction) {
     consider(platform);
   }
 
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     const damageRect = enemy.getDamageRect();
     if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
     consider(damageRect);
@@ -5653,7 +5797,7 @@ function findFirstEnemyOnPulse(startX, y, endX, direction) {
   let firstEnemy = null;
   let bestDistance = Math.abs(endX - startX) + 0.001;
 
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     const damageRect = enemy.getDamageRect();
     if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
     const hitX = direction > 0 ? damageRect.x : damageRect.x + damageRect.w;
@@ -5761,7 +5905,7 @@ function clearPendingEnergyLink() {
 
 function findEnergyLinkTargets() {
   const origin = centerOf(player);
-  return enemies.filter((enemy) => {
+  return getActiveEnemies().filter((enemy) => {
     if (!isValidEnergyLinkTarget(enemy)) return false;
     return distance(origin, centerOf(enemy)) <= ENERGY_LINK_RANGE;
   });
@@ -5923,7 +6067,7 @@ function buildForcePulseHitEntries(origin, direction) {
   const hits = [];
   const directHitEnemies = new Set();
 
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     if (enemy.hp <= 0 || enemy.isDying || enemy.anchorLocked) continue;
     const damageRect = enemy.getDamageRect();
     const hitPoint = getForcePulseHitPoint(origin, damageRect, direction);
@@ -5962,89 +6106,101 @@ function castForcePulse() {
 
 const player = new Player();
 const enemies = [
+  // Keep the original sandbox Walker available while later rooms introduce threats in sequence.
   new Enemy(620, 435),
   new Enemy(720, 435),
-  new Drone(1085, 210),
   new Enemy(1590, 435),
+  new Enemy(2200, 435),
+  new Drone(1085, 210),
+  new Enemy(2320, 435),
   new Jumper(2010, 265),
   new Swarm(2375, 330),
   new Swarm(2410, 305),
-  new Swarm(2445, 330)
+  new Swarm(2445, 330),
+  new Enemy(3330, 435),
+  new Enemy(4300, 435)
 ];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
   x: enemy.x,
   y: enemy.y,
   hp: enemy.hp,
-  gravitySign: enemy.gravitySign
+  gravitySign: enemy.gravitySign,
+  roomId: enemy.roomId ?? getRoomAtPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2).id
 }));
+for (const spawn of enemySpawnStates) spawn.enemy.roomId = spawn.roomId;
 
-function resetEnemiesToSpawn() {
-  for (const spawn of enemySpawnStates) {
-    const { enemy } = spawn;
-    enemy.x = spawn.x;
-    enemy.y = spawn.y;
-    enemy.vx = 0;
-    enemy.vy = 0;
-    enemy.hp = spawn.hp;
-    enemy.gravitySign = spawn.gravitySign;
-    enemy.lastGravityCastId = 0;
-    enemy.gravityFieldRemaining = 0;
-    enemy.forcePulseStunTimer = 0;
-    enemy.forcePulseDirection = 0;
-    enemy.lastForcePulseCastId = 0;
-    enemy.verticalEdgeKillTimer = 0;
-    enemy.anchorLocked = false;
-    enemy.anchorHoldRemaining = 0;
-    enemy.anchorMarkerAlpha = 0;
-    enemy.anchorMarkerFadeRemaining = 0;
-    enemy.gravityFlipVisualTimer = 0;
-    enemy.phaseFlickerTimer = 0;
-    enemy.phaseExposureTimer = 0;
-    enemy.phaseExposureCastId = 0;
-    enemy.phaseAwarenessTimer = 0;
-    enemy.phaseAwarenessPoint = null;
-    enemy.timeSlowCastId = 0;
-    enemy.timeSlowCastScale = null;
-    enemy.hitTimer = 0;
-    enemy.hitJoltX = 0;
-    enemy.hitJoltY = 0;
-    enemy.isDying = false;
-    enemy.deathTimer = 0;
-    enemy.deathFragments = [];
-    if (enemy instanceof Enemy) {
-      enemy.direction = -1;
-      enemy.reverseCooldown = 0;
-      enemy.walkerState = "recovering";
-      enemy.landingRecoveryTimer = 0.1;
-      enemy.groundedPlatform = null;
-      enemy.idleTimer = 0;
-    } else if (enemy instanceof Drone) {
-      enemy.fireCooldown = 0.75;
-      enemy.windupTimer = 0;
-      enemy.droneState = "hovering";
-      enemy.forcePulseRecoveryTimer = 0;
-      enemy.waitingForFrontShot = false;
-      for (const slot of enemy.orbitSlots ?? []) {
-        slot.detached = false;
-        slot.detachTimer = 0;
-        slot.detachMaxTimer = 0;
-        slot.reformTimer = 0;
-      }
-    } else if (enemy instanceof Jumper) {
-      enemy.facing = -1;
-      enemy.jumperState = "idle";
-      enemy.stateTimer = 0;
-      enemy.recoveryDelayTimer = 0.12;
-      enemy.hoverTimer = 0;
-      enemy.poseBlend = 0;
-      enemy.landingTimer = 0;
-      enemy.groundedPlatform = null;
-    } else if (enemy instanceof Swarm) {
-      enemy.rotation = 0;
-      enemy.hoverTimer = 0;
+function resetEnemyToSpawn(spawn) {
+  const { enemy } = spawn;
+  enemy.x = spawn.x;
+  enemy.y = spawn.y;
+  enemy.vx = 0;
+  enemy.vy = 0;
+  enemy.hp = spawn.hp;
+  enemy.gravitySign = spawn.gravitySign;
+  enemy.lastGravityCastId = 0;
+  enemy.gravityFieldRemaining = 0;
+  enemy.forcePulseStunTimer = 0;
+  enemy.forcePulseDirection = 0;
+  enemy.lastForcePulseCastId = 0;
+  enemy.verticalEdgeKillTimer = 0;
+  enemy.anchorLocked = false;
+  enemy.anchorHoldRemaining = 0;
+  enemy.anchorMarkerAlpha = 0;
+  enemy.anchorMarkerFadeRemaining = 0;
+  enemy.gravityFlipVisualTimer = 0;
+  enemy.phaseFlickerTimer = 0;
+  enemy.phaseExposureTimer = 0;
+  enemy.phaseExposureCastId = 0;
+  enemy.phaseAwarenessTimer = 0;
+  enemy.phaseAwarenessPoint = null;
+  enemy.timeSlowCastId = 0;
+  enemy.timeSlowCastScale = null;
+  enemy.hitTimer = 0;
+  enemy.hitJoltX = 0;
+  enemy.hitJoltY = 0;
+  enemy.isDying = false;
+  enemy.deathTimer = 0;
+  enemy.deathFragments = [];
+  if (enemy instanceof Enemy) {
+    enemy.direction = -1;
+    enemy.reverseCooldown = 0;
+    enemy.walkerState = "recovering";
+    enemy.landingRecoveryTimer = 0.1;
+    enemy.groundedPlatform = null;
+    enemy.idleTimer = 0;
+  } else if (enemy instanceof Drone) {
+    enemy.fireCooldown = 0.75;
+    enemy.windupTimer = 0;
+    enemy.droneState = "hovering";
+    enemy.forcePulseRecoveryTimer = 0;
+    enemy.waitingForFrontShot = false;
+    for (const slot of enemy.orbitSlots ?? []) {
+      slot.detached = false;
+      slot.detachTimer = 0;
+      slot.detachMaxTimer = 0;
+      slot.reformTimer = 0;
     }
+  } else if (enemy instanceof Jumper) {
+    enemy.facing = -1;
+    enemy.jumperState = "idle";
+    enemy.stateTimer = 0;
+    enemy.recoveryDelayTimer = 0.12;
+    enemy.hoverTimer = 0;
+    enemy.poseBlend = 0;
+    enemy.landingTimer = 0;
+    enemy.groundedPlatform = null;
+  } else if (enemy instanceof Swarm) {
+    enemy.rotation = 0;
+    enemy.hoverTimer = 0;
+  }
     resetEnemyAdaptation(enemy);
+}
+
+function resetEnemiesToSpawn(roomId = null) {
+  for (const spawn of enemySpawnStates) {
+    if (roomId && spawn.roomId !== roomId) continue;
+    resetEnemyToSpawn(spawn);
   }
 }
 
@@ -6416,7 +6572,7 @@ function drawAnchorTargetMarker(x, y, alpha = 1, size = 12) {
 }
 
 function drawActiveAnchorMarkers() {
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
     const alpha = enemy.anchorLocked ? 1 : (enemy.anchorMarkerAlpha ?? 0);
     if (alpha <= 0) continue;
@@ -6482,7 +6638,7 @@ function negateActiveAbilityEffects() {
 function exposeEnemiesToPhaseShift(dt = 0) {
   if (!phaseShiftActive) return;
   const playerCenter = centerOf(player);
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     if (!isAdaptableEnemy(enemy) || enemy.anchorLocked) continue;
     if (enemy.adaptationExposures.phase_shift.has(phaseCastId)) continue;
     if (enemy.phaseExposureCastId !== phaseCastId) {
@@ -6603,7 +6759,7 @@ function activateGravityField() {
   // are excluded so Gravity Field does not change their locked state. Linked
   // enemies share ability effects, so one linked enemy in range pulls every
   // still-valid endpoint into the same gravity flip snapshot.
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     if (!isValidEnergyLinkTarget(enemy)) continue;
     if (distance(origin, centerOf(enemy)) > GRAVITY_FIELD_RADIUS) continue;
     for (const linkedTarget of getEnergyLinkSharedAbilityTargets(enemy)) affectedEntities.add(linkedTarget);
@@ -6722,7 +6878,7 @@ function freezeAnchorProjectile(projectile) {
 function captureAnchorFieldTargets() {
   if (!anchorFieldActive || !anchorField) return;
 
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     enemy.anchorLocked = enemy.hp > 0 && !enemy.isDying && isTargetInsideAnchorField(enemy);
     if (!enemy.anchorLocked) enemy.clearAnchorLockedVisual?.(false);
     if (enemy.anchorLocked) {
@@ -7004,7 +7160,7 @@ function getSystemAccessLayout() {
 
 function isEnemyThreatNearSystemAccess() {
   const origin = centerOf(player);
-  return enemies.some((enemy) => enemy.hp > 0 && !enemy.isDying && distance(origin, centerOf(enemy)) <= SYSTEM_ACCESS_COMBAT_RADIUS);
+  return getActiveEnemies().some((enemy) => enemy.hp > 0 && !enemy.isDying && distance(origin, centerOf(enemy)) <= SYSTEM_ACCESS_COMBAT_RADIUS);
 }
 
 function isProjectileThreatNearSystemAccess() {
@@ -7198,7 +7354,7 @@ function getAbilityInterfaceState(ability) {
 }
 
 function getEnemyUpdateOrder() {
-  return enemies
+  return getActiveEnemies()
     .map((enemy, index) => ({ enemy, index }))
     .sort((a, b) => {
       const aDirection = (a.enemy.forcePulseStunTimer ?? 0) > 0 ? a.enemy.forcePulseDirection || 0 : 0;
@@ -7231,6 +7387,7 @@ function update(dt) {
   }
 
   updateSystemMessages(dt);
+  if (updateRoomTransition(dt)) return;
   if (isSystemMessageBlocking()) {
     if (abilityWheel.open) closeAbilityWheel(false);
     eHoldTimer = 0;
@@ -7270,7 +7427,7 @@ function update(dt) {
     if (!droneProjectiles[i].active) droneProjectiles.splice(i, 1);
   }
 
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     if (enemy.hp > 0 && !player.isDying && !isPlayerPhased() && rectsTouchOrOverlap(player, enemy.getDamageRect(), 0.75)) {
       player.takeDamage(enemy.contactDamage ?? 1, enemy);
     }
@@ -7280,14 +7437,15 @@ function update(dt) {
   const touchedSpike = isPlayerPhased() ? null : getFirstTouchedSpike(playerHazardRect);
   if (touchedSpike) player.takeSpikeDamage(touchedSpike);
 
-  for (const enemy of enemies) {
+  for (const enemy of getActiveEnemies()) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
     if (rectTouchesSpikes(enemy.getDamageRect())) beginEnvironmentalEnemyDeath(enemy);
   }
 
   if (!player.isDying && player.isInvalidEdgeFallState()) player.fallOutOfWorld();
-
-  cameraX = clamp(player.getCameraTargetX() - canvas.width / 2, 0, ROOM_WIDTH - canvas.width);
+  checkDoorTransitions();
+  const room = getCurrentRoom();
+  cameraX = room.x;
   pressedThisFrame.clear();
 }
 
@@ -7334,6 +7492,70 @@ function drawSpikes() {
   ctx.restore();
 }
 
+
+function drawDoors() {
+  for (const door of getRoomDoors()) {
+    const pulse = 0.5 + Math.sin(performance.now() / 180) * 0.08;
+    ctx.save();
+    ctx.fillStyle = `rgba(31, 91, 143, ${0.52 + pulse * 0.18})`;
+    ctx.strokeStyle = "rgba(220, 250, 255, 0.9)";
+    ctx.lineWidth = 2;
+    ctx.fillRect(door.x, door.y, door.w, door.h);
+    ctx.strokeRect(door.x + 0.5, door.y + 0.5, door.w - 1, door.h - 1);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.beginPath();
+    ctx.moveTo(door.x + door.w / 2, door.y + 10);
+    ctx.lineTo(door.x + door.w / 2, door.y + door.h - 10);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawExitMarker() {
+  if (exitMarker.roomId !== currentRoomId) return;
+  ctx.save();
+  ctx.fillStyle = "rgba(110, 232, 165, 0.18)";
+  ctx.strokeStyle = "rgba(192, 255, 219, 0.92)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(exitMarker.x + exitMarker.w / 2, exitMarker.y);
+  ctx.lineTo(exitMarker.x + exitMarker.w, exitMarker.y + exitMarker.h / 2);
+  ctx.lineTo(exitMarker.x + exitMarker.w / 2, exitMarker.y + exitMarker.h);
+  ctx.lineTo(exitMarker.x, exitMarker.y + exitMarker.h / 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "rgba(26, 95, 70, 0.82)";
+  ctx.font = "bold 13px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("EXIT", exitMarker.x + exitMarker.w / 2, exitMarker.y + exitMarker.h / 2);
+  ctx.restore();
+}
+
+function drawRoomTitle() {
+  const room = getCurrentRoom();
+  ctx.save();
+  ctx.font = "bold 13px system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(18, 58, 96, 0.66)";
+  ctx.fillText(room.tutorial, cameraX + 22, 42);
+  ctx.restore();
+}
+
+function drawRoomTransitionFade() {
+  if (!roomTransition) return;
+  const half = roomTransition.duration / 2;
+  const t = roomTransition.elapsed;
+  const alpha = t <= half ? t / half : 1 - (t - half) / half;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = `rgba(4, 18, 38, ${clamp(alpha, 0, 1) * 0.86})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+}
+
 function drawRoom() {
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
   sky.addColorStop(0, "#dff5ff");
@@ -7369,6 +7591,9 @@ function drawRoom() {
   }
 
   drawSpikes();
+  drawDoors();
+  drawExitMarker();
+  drawRoomTitle();
 }
 
 function drawDiamond(x, y, size, filled) {
@@ -8556,7 +8781,7 @@ function draw() {
   drawEnergyLinks();
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
-  enemies.forEach((enemy) => enemy.draw());
+  getActiveEnemies().forEach((enemy) => enemy.draw());
   drawActiveAnchorMarkers();
   drawEnergyLinkMarkers();
   droneProjectiles.forEach((projectile) => projectile.draw());
@@ -8568,6 +8793,7 @@ function draw() {
   drawSystemAccessDeniedMessage();
   drawSystemMessages();
   drawSystemAccessInterface();
+  drawRoomTransitionFade();
 }
 
 function gameLoop(now) {
@@ -8732,6 +8958,14 @@ window.__indiePlatformerDebug = {
   }),
   checkpoint,
   safeAnchor,
+  levelRooms,
+  doors,
+  exitMarker,
+  getCurrentRoomId: () => currentRoomId,
+  getCurrentRoom,
+  getActiveEnemies,
+  enterRoom,
+  resetRoomState,
   bottomFallBoundary,
   roomHazardBounds,
   constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
