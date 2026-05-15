@@ -99,6 +99,7 @@ const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
 const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 0.5;
+const PULSE_TAIL_THICKNESS = config.pulseTailThickness ?? PULSE_MIN_THICKNESS;
 const PULSE_LIFETIME = config.pulseLifetime ?? 0.09;
 // Spawn the System Pulse beyond the firing semicircle so the projectile reads
 // as detached from the muzzle flash instead of overlapping the player hands.
@@ -5454,6 +5455,8 @@ class SystemPulse {
     const thicknessProgress = progress * progress * (3 - 2 * progress);
     const currentThickness = PULSE_MIN_THICKNESS + (PULSE_THICKNESS - PULSE_MIN_THICKNESS) * thicknessProgress;
     const halfThickness = currentThickness / 2;
+    const tailThickness = Math.min(PULSE_TAIL_THICKNESS, currentThickness);
+    const tailHalfThickness = tailThickness / 2;
     const tailInset = Math.min(16, drawnLength * 0.32);
     const tipInset = Math.min(10, drawnLength * 0.22);
 
@@ -5476,23 +5479,36 @@ class SystemPulse {
     ctx.shadowBlur = 5;
     ctx.fillStyle = core;
     ctx.beginPath();
-    ctx.moveTo(tailX, this.y);
-    ctx.lineTo(tailX + direction * tailInset, this.y - halfThickness);
-    ctx.lineTo(tipX - direction * tipInset, this.y - halfThickness * 0.72);
+    ctx.moveTo(tailX, this.y - tailHalfThickness);
+    ctx.lineTo(tailX + direction * tailInset, this.y - halfThickness * 0.38);
+    ctx.lineTo(tipX - direction * tipInset, this.y - halfThickness * 0.86);
     ctx.lineTo(tipX, this.y);
-    ctx.lineTo(tipX - direction * tipInset, this.y + halfThickness * 0.72);
-    ctx.lineTo(tailX + direction * tailInset, this.y + halfThickness);
+    ctx.lineTo(tipX - direction * tipInset, this.y + halfThickness * 0.86);
+    ctx.lineTo(tailX + direction * tailInset, this.y + halfThickness * 0.38);
+    ctx.lineTo(tailX, this.y + tailHalfThickness);
     ctx.closePath();
     ctx.fill();
 
     ctx.shadowBlur = 0;
     ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-    ctx.lineWidth = currentThickness;
     ctx.lineCap = "butt";
-    ctx.beginPath();
-    ctx.moveTo(tailX + direction * tailInset, this.y);
-    ctx.lineTo(tipX, this.y);
-    ctx.stroke();
+    // Canvas strokes cannot taper continuously, so the white core is drawn in
+    // short sections that widen from the player-facing tail toward the impact.
+    const coreSegments = [
+      { from: 0.02, to: 0.3, width: tailThickness },
+      { from: 0.3, to: 0.58, width: Math.max(tailThickness, currentThickness * 0.52) },
+      { from: 0.58, to: 0.82, width: Math.max(tailThickness, currentThickness * 0.76) },
+      { from: 0.82, to: 1, width: currentThickness }
+    ];
+    for (const segment of coreSegments) {
+      const segmentStart = tailX + direction * drawnLength * segment.from;
+      const segmentEnd = tailX + direction * drawnLength * segment.to;
+      ctx.lineWidth = segment.width;
+      ctx.beginPath();
+      ctx.moveTo(segmentStart, this.y);
+      ctx.lineTo(segmentEnd, this.y);
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
@@ -8986,7 +9002,7 @@ window.__indiePlatformerDebug = {
   resetRoomState,
   bottomFallBoundary,
   roomHazardBounds,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);

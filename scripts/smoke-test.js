@@ -366,21 +366,27 @@ if (blockedEnemy.hp !== 1) {
 drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.1;
 context.calls.length = 0;
 drawnPulse.draw();
-const earlyGlowStroke = context.calls.find((call) => call.name === "stroke");
-if (!earlyGlowStroke) throw new Error("System Pulse did not draw an early growth stroke.");
-const earlyPulseThickness = earlyGlowStroke.state.lineWidth;
-if (earlyPulseThickness <= debug.constants.PULSE_MIN_THICKNESS || earlyPulseThickness >= debug.constants.PULSE_THICKNESS) {
-  throw new Error(`System Pulse should start thin before expanding; got early thickness ${earlyPulseThickness}.`);
+const earlyGlowStrokes = context.calls.filter((call) => call.name === "stroke");
+if (earlyGlowStrokes.length < 2) throw new Error("System Pulse did not draw segmented early growth strokes.");
+const earlyPulseWidths = earlyGlowStrokes.map((call) => call.state.lineWidth);
+if (Math.abs(earlyPulseWidths[0] - debug.constants.PULSE_TAIL_THICKNESS) > 0.001) {
+  throw new Error(`System Pulse tail should start at the configured thin width; got ${earlyPulseWidths[0]}.`);
+}
+if (earlyPulseWidths.at(-1) <= earlyPulseWidths[0]) {
+  throw new Error(`System Pulse should widen away from the tail; got widths ${earlyPulseWidths.join(", ")}.`);
 }
 
 drawnPulse.age = debug.constants.PULSE_LIFETIME;
 context.calls.length = 0;
 drawnPulse.draw();
-const finalGlowStroke = context.calls.find((call) => call.name === "stroke");
-if (!finalGlowStroke) throw new Error("System Pulse did not draw a final growth stroke.");
-const finalPulseThickness = finalGlowStroke.state.lineWidth;
-if (Math.abs(finalPulseThickness - debug.constants.PULSE_THICKNESS) > 0.001) {
-  throw new Error(`System Pulse did not expand to its configured diameter; got ${finalPulseThickness}.`);
+const finalGlowStrokes = context.calls.filter((call) => call.name === "stroke");
+if (finalGlowStrokes.length < 2) throw new Error("System Pulse did not draw final segmented growth strokes.");
+const finalPulseWidths = finalGlowStrokes.map((call) => call.state.lineWidth);
+if (Math.abs(finalPulseWidths[0] - debug.constants.PULSE_TAIL_THICKNESS) > 0.001) {
+  throw new Error(`System Pulse final tail should remain very thin; got ${finalPulseWidths[0]}.`);
+}
+if (Math.abs(finalPulseWidths.at(-1) - debug.constants.PULSE_THICKNESS) > 0.001) {
+  throw new Error(`System Pulse did not expand to its configured diameter; got ${finalPulseWidths.at(-1)}.`);
 }
 
 drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.2;
