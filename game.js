@@ -5432,11 +5432,6 @@ class SystemPulse {
     const tipX = this.endX;
     const tailX = this.startX;
     const direction = this.direction;
-    const tipX = this.startX + (this.endX - this.startX) * travelProgress;
-    const trailLength = Math.min(84, visibleLength * (0.22 + 0.58 * travelProgress));
-    const tailX = direction > 0
-      ? Math.max(this.startX, tipX - trailLength)
-      : Math.min(this.startX, tipX + trailLength);
     const drawnLength = Math.abs(tipX - tailX);
     if (drawnLength <= 1) return;
     const thicknessProgress = progress * progress * (3 - 2 * progress);
