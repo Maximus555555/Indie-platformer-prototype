@@ -441,6 +441,58 @@ if (Math.abs(debug.player.y - 84) > 0.001) {
   throw new Error(`Room edge transition did not preserve vertical wall position; got y=${debug.player.y}.`);
 }
 
+
+// Spike knockback regression: hazard recoil can hit a room edge while the
+// player is still damage-invulnerable and not holding movement. It should still
+// start the adjacent room transition instead of leaving the player off-camera.
+debug.systemDialogue.activeBlocking = null;
+debug.systemDialogue.blockingQueue.length = 0;
+debug.systemDialogue.activeAmbient = null;
+debug.systemDialogue.ambientQueue.length = 0;
+debug.enterRoom("room-2", { x: 1030, y: 420 }, { facing: -1 });
+debug.player.damageTimer = debug.constants.CONTACT_DAMAGE_COOLDOWN;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.spikeRecoveryTimer = debug.constants.CONTACT_DAMAGE_COOLDOWN;
+debug.player.recoilTimer = 0.08;
+debug.player.recoilDirection = -1;
+debug.player.x = debug.getCurrentRoom().x + 1;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = true;
+debug.update(16 / 1000);
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+if (debug.getCurrentRoomId() !== "room-1") {
+  throw new Error(`Spike knockback into the left room edge did not enter room-1; got ${debug.getCurrentRoomId()}.`);
+}
+debug.player.damageTimer = 0;
+debug.player.recoilTimer = 0;
+debug.player.recoilDirection = 0;
+debug.player.spikeRecoveryTimer = 0;
+
+// Spike edge fallback regression: if hazard recoil hits an outer screen edge
+// with no adjacent room, recover to safe ground instead of staying pinned there.
+debug.enterRoom("room-1", { x: 86, y: 420 }, { facing: -1 });
+debug.player.damageTimer = debug.constants.CONTACT_DAMAGE_COOLDOWN;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.spikeRecoveryTimer = debug.constants.CONTACT_DAMAGE_COOLDOWN;
+debug.player.recoilTimer = 0.08;
+debug.player.recoilDirection = -1;
+debug.player.x = debug.getCurrentRoom().x + 1;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = true;
+debug.update(16 / 1000);
+if (debug.getCurrentRoomId() !== "room-1" || debug.player.x <= debug.getCurrentRoom().x || debug.player.fallRespawnGraceTimer <= 0) {
+  throw new Error("Spike knockback at an outer room edge did not respawn the player safely.");
+}
+debug.player.damageTimer = 0;
+debug.player.recoilTimer = 0;
+debug.player.recoilDirection = 0;
+debug.player.spikeRecoveryTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+
 // Room transition/System Pulse regression: a pulse fired while pushing into a
 // room edge should not remain active or release after the next room loads.
 debug.enterRoom("room-1", { x: 86, y: 84 }, { facing: 1, grounded: false });
@@ -1674,6 +1726,12 @@ phaseAbility.activeRemaining = 0;
 
 // Regression: spike hazards deal one player damage, knock the player clear,
 // and do not leave the player standing inside the spike strip.
+debug.enterRoom("room-1", { x: 120, y: 420 }, { facing: 1 });
+debug.player.recoilTimer = 0;
+debug.player.recoilDirection = 0;
+debug.player.spikeRecoveryTimer = 0;
+debug.player.vx = 0;
+debug.player.vy = 0;
 debug.player.x = 942;
 debug.player.y = 420;
 debug.player.hp = 3;
@@ -1691,6 +1749,12 @@ if (!floorSpike) throw new Error("Expected a floor spike strip for damage regres
 if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpike.x + floorSpike.w) {
   throw new Error("Player recovered inside the floor spike strip.");
 }
+debug.player.damageTimer = 0;
+debug.player.recoilTimer = 0;
+debug.player.recoilDirection = 0;
+debug.player.spikeRecoveryTimer = 0;
+debug.player.vx = 0;
+debug.player.vy = 0;
 
 phaseAbility.cooldownRemaining = 0;
 phaseAbility.activeRemaining = 0;
@@ -1718,6 +1782,11 @@ debug.player.x = 942;
 debug.player.y = 420;
 debug.player.hp = 2;
 debug.player.gravitySign = 1;
+debug.player.recoilTimer = 0;
+debug.player.recoilDirection = 0;
+debug.player.spikeRecoveryTimer = 0;
+debug.player.vx = 0;
+debug.player.vy = 0;
 debug.player.damageTimer = 0.5;
 debug.player.fallRespawnGraceTimer = 0;
 debug.player.isDying = false;
@@ -1728,6 +1797,12 @@ if (debug.player.hp !== 2) {
 if (debug.player.x + debug.player.w > floorSpike.x && debug.player.x < floorSpike.x + floorSpike.w) {
   throw new Error("Invulnerable player was allowed to remain inside the floor spike strip.");
 }
+debug.player.damageTimer = 0;
+debug.player.recoilTimer = 0;
+debug.player.recoilDirection = 0;
+debug.player.spikeRecoveryTimer = 0;
+debug.player.vx = 0;
+debug.player.vy = 0;
 
 
 // Regression: hitting floor spikes while gravity is reversed should still eject
