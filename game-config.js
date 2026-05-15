@@ -42,7 +42,7 @@
     pulseCooldown: 0.35,
     pulseDamage: 1,
     pulseThickness: 5,
-    pulseLifetime: 0.13,
+    pulseLifetime: 0.09,
     gravityFieldRadius: 190,
     gravityFlipDamping: 0.45,
     gravityFieldDuration: 3.5,

@@ -99,7 +99,7 @@ const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
 const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 1;
-const PULSE_LIFETIME = config.pulseLifetime ?? 0.13;
+const PULSE_LIFETIME = config.pulseLifetime ?? 0.09;
 // Spawn the System Pulse beyond the firing semicircle so the projectile reads
 // as detached from the muzzle flash instead of overlapping the player hands.
 const PULSE_SPAWN_LOCAL_X = config.pulseSpawnLocalX ?? 35.4;
@@ -5404,16 +5404,15 @@ class SystemPulse {
   }
 
   static fire(startX, y, direction) {
-    const endX = findPulseEndpoint(startX, y, direction);
-    const hitEnemy = findFirstEnemyOnPulse(startX, y, endX, direction);
-    if (hitEnemy) {
+    const impactTarget = findPulseImpact(startX, y, direction);
+    if (impactTarget.enemy) {
       const impact = { armsVerticalEdgeKill: true, direction, damageSource: "system-pulse" };
       // Transfer while the source enemy is still a valid linked target so lethal
       // hits share their full damage before the source starts dying.
-      transferEnergyLinkDamage(hitEnemy, PULSE_DAMAGE, impact);
-      hitEnemy.hit(PULSE_DAMAGE, impact);
+      transferEnergyLinkDamage(impactTarget.enemy, PULSE_DAMAGE, impact);
+      impactTarget.enemy.hit(PULSE_DAMAGE, impact);
     }
-    return new SystemPulse(startX, y, endX, direction);
+    return new SystemPulse(startX, y, impactTarget.x, direction);
   }
 
   update(dt) {
@@ -5426,18 +5425,25 @@ class SystemPulse {
     const visibleLength = Math.abs(this.endX - this.startX);
     if (visibleLength <= 1) return;
 
-    // Draw the bolt at its full room-spanning reach for its whole flash. Damage
-    // is resolved as soon as it fires, so the visual must already cross targets
-    // instead of chasing after enemies that may be removed by the hit.
-    const alpha = 1 - progress * 0.35;
-    const tipX = this.endX;
-    const tailX = this.startX;
+    // Let the pulse visibly streak toward its collision point instead of
+    // occupying the whole lane for its entire lifetime. It still resolves damage
+    // on fire for snappy input, but the shorter, faster fade reads as a moving
+    // projectile that stops at the first solid object.
+    const travelProgress = easeOutCubic(clamp(progress * 1.35, 0, 1));
+    const alpha = Math.max(0, 1 - progress * 0.95);
     const direction = this.direction;
+    const tipX = this.startX + (this.endX - this.startX) * travelProgress;
+    const trailLength = Math.min(84, visibleLength * (0.22 + 0.58 * travelProgress));
+    const tailX = direction > 0
+      ? Math.max(this.startX, tipX - trailLength)
+      : Math.min(this.startX, tipX + trailLength);
+    const drawnLength = Math.abs(tipX - tailX);
+    if (drawnLength <= 1) return;
     const thicknessProgress = progress * progress * (3 - 2 * progress);
     const currentThickness = PULSE_MIN_THICKNESS + (PULSE_THICKNESS - PULSE_MIN_THICKNESS) * thicknessProgress;
     const halfThickness = currentThickness / 2;
-    const tailInset = Math.min(16, visibleLength * 0.32);
-    const tipInset = Math.min(10, visibleLength * 0.22);
+    const tailInset = Math.min(16, drawnLength * 0.32);
+    const tipInset = Math.min(10, drawnLength * 0.22);
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -5744,35 +5750,39 @@ function getSolidEnemyRects() {
     .map((enemy) => enemy.getCollisionRect());
 }
 
-function findPulseEndpoint(startX, y, direction) {
-  // System Pulse is a screen-distance bolt: it always reaches the current room
-  // edge so its visual path crosses enemies instead of stopping short at the
-  // first target. Hit detection still scans that full span separately.
-  const room = getCurrentRoom();
-  return direction > 0 ? room.x + room.w : room.x;
-}
-
 function pulseLineOverlapsY(y, rect) {
   const halfThickness = PULSE_THICKNESS / 2;
   return y + halfThickness >= rect.y && y - halfThickness <= rect.y + rect.h;
 }
 
-function findFirstEnemyOnPulse(startX, y, endX, direction) {
-  let firstEnemy = null;
-  let bestDistance = Math.abs(endX - startX) + 0.001;
+function getPulseRectHitX(rect, direction) {
+  return direction > 0 ? rect.x : rect.x + rect.w;
+}
 
-  for (const enemy of getActiveEnemies()) {
-    const damageRect = enemy.getDamageRect();
-    if (enemy.hp <= 0 || !pulseLineOverlapsY(y, damageRect)) continue;
-    const hitX = direction > 0 ? damageRect.x : damageRect.x + damageRect.w;
+function findPulseImpact(startX, y, direction) {
+  const room = getCurrentRoom();
+  const roomEdgeX = direction > 0 ? room.x + room.w : room.x;
+  const impact = { x: roomEdgeX, enemy: null };
+  let bestDistance = Math.abs(roomEdgeX - startX) + 0.001;
+
+  function considerRect(rect, enemy = null) {
+    if (!pulseLineOverlapsY(y, rect)) return;
+    const hitX = getPulseRectHitX(rect, direction);
     const distanceToHit = (hitX - startX) * direction;
-    if (distanceToHit >= 0 && distanceToHit <= bestDistance) {
-      firstEnemy = enemy;
-      bestDistance = distanceToHit;
-    }
+    if (distanceToHit < 0 || distanceToHit > bestDistance) return;
+    impact.x = hitX;
+    impact.enemy = enemy;
+    bestDistance = distanceToHit;
   }
 
-  return firstEnemy;
+  for (const platform of platforms) considerRect(platform);
+
+  for (const enemy of getActiveEnemies()) {
+    if (enemy.hp <= 0) continue;
+    considerRect(enemy.getDamageRect(), enemy);
+  }
+
+  return impact;
 }
 
 function segmentIntersectsRect(from, to, rect) {
