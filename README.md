@@ -1,6 +1,6 @@
-# Indie Platformer Prototype
+# Corebound
 
-A minimalist 2D platformer prototype built directly with browser-native web files. The goal is to prove out early player movement, a simple combat action, and the first gravity-based ability without using Godot, Unity, or external game engines.
+Corebound is a minimalist 2D platformer prototype built directly with browser-native web files. The goal is to prove out early player movement, a simple combat action, and the first gravity-based ability without using Godot, Unity, or external game engines.
 
 All current visuals are original, code-generated placeholder graphics drawn with the Canvas API. There are no image files, copyrighted sprites, logos, music, or external libraries.
 

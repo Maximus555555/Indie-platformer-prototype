@@ -3,19 +3,19 @@ const canvas = document.getElementById("game");
 const ctx = canvas?.getContext("2d");
 
 if (!canvas || !ctx) {
-  console.error("Indie platformer could not start: missing canvas element or 2D context.");
+  console.error("Corebound could not start: missing canvas element or 2D context.");
   return;
 }
 
 if (window.__indiePlatformerStarted) {
-  console.warn("Indie platformer script was loaded more than once; ignoring duplicate boot.");
+  console.warn("Corebound script was loaded more than once; ignoring duplicate boot.");
   return;
 }
 window.__indiePlatformerStarted = true;
 
 // Easy-to-tune prototype constants. Distances are pixels, time is seconds.
 // Prefer editing game-config.js for tuning so future merges touch a small file.
-const config = window.IndiePlatformerConfig ?? {};
+const config = window.CoreboundConfig ?? window.IndiePlatformerConfig ?? {};
 const GRAVITY = config.gravity ?? 1200;
 const JUMP_VELOCITY = config.jumpVelocity ?? -460;
 const MAX_FALL_SPEED = config.maxFallSpeed ?? 900;

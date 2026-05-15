@@ -58,5 +58,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Indie Platformer Prototype running at http://${host}:${port}`);
+  console.log(`Corebound running at http://${host}:${port}`);
 });
