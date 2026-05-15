@@ -97,8 +97,8 @@ const DRONE_DIAMOND_DETACH_MAX_DURATION = 0.85;
 const DRONE_DIAMOND_REFORM_DURATION = 0.24;
 const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
-const PULSE_THICKNESS = config.pulseThickness ?? 5;
-const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 0.5;
+const PULSE_THICKNESS = config.pulseThickness ?? 8;
+const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 0.15;
 const PULSE_LIFETIME = config.pulseLifetime ?? 0.09;
 // Spawn the System Pulse beyond the firing semicircle so the projectile reads
 // as detached from the muzzle flash instead of overlapping the player hands.
@@ -5451,6 +5451,8 @@ class SystemPulse {
     const direction = this.direction;
     const drawnLength = Math.abs(tipX - tailX);
     if (drawnLength <= 1) return;
+    // Ease the beam width in over the flash so the pulse begins as a
+    // hairline and visibly expands into its full diameter.
     const thicknessProgress = progress * progress * (3 - 2 * progress);
     const currentThickness = PULSE_MIN_THICKNESS + (PULSE_THICKNESS - PULSE_MIN_THICKNESS) * thicknessProgress;
     const halfThickness = currentThickness / 2;
