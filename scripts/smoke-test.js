@@ -210,21 +210,24 @@ function keyEvent(key, code = "") {
   return { key, code, preventDefault: noop };
 }
 
-// System Pulse regression: the right-facing bolt should spawn from the compact
-// attack pose near the player rather than popping far ahead of the body.
+// System Pulse regression: the bolt should spawn beyond the compact attack
+// flash, leaving a visible gap from the firing semicircle without detaching so
+// far that it appears unrelated to the player.
 debug.player.x = 100;
 debug.player.y = 420;
 debug.player.gravitySign = 1;
 debug.player.isCrouching = false;
 debug.player.attackFacing = 1;
 const rightPulseOrigin = debug.player.getPulseSpawnPoint();
-if (rightPulseOrigin.x - (debug.player.x + debug.player.w) > 16) {
-  throw new Error(`Right-facing System Pulse starts too far ahead of the player: ${rightPulseOrigin.x}.`);
+const rightPulseLead = rightPulseOrigin.x - (debug.player.x + debug.player.w);
+if (rightPulseLead < 24 || rightPulseLead > 32) {
+  throw new Error(`Right-facing System Pulse should start about 10px beyond the firing flash; got lead ${rightPulseLead}.`);
 }
 debug.player.attackFacing = -1;
 const leftPulseOrigin = debug.player.getPulseSpawnPoint();
-if (debug.player.x - leftPulseOrigin.x > 16) {
-  throw new Error(`Left-facing System Pulse starts too far ahead of the player: ${leftPulseOrigin.x}.`);
+const leftPulseLead = debug.player.x - leftPulseOrigin.x;
+if (leftPulseLead < 24 || leftPulseLead > 32) {
+  throw new Error(`Left-facing System Pulse should start about 10px beyond the firing flash; got lead ${leftPulseLead}.`);
 }
 
 // System Pulse draw regression: the visible projectile should grow outward from
