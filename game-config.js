@@ -1,7 +1,7 @@
 (() => {
   // Keep frequently tuned gameplay values in this small file so animation,
   // collision, and level-tuning changes do not create large game.js conflicts.
-  window.IndiePlatformerConfig = Object.freeze({
+  window.CoreboundConfig = Object.freeze({
     gravity: 1200,
     jumpVelocity: -480,
     maxFallSpeed: 900,
