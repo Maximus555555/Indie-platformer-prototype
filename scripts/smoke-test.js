@@ -236,9 +236,9 @@ if (leftPulseLead < 24 || leftPulseLead > 32) {
 }
 
 // System Pulse draw regression: the visible projectile should immediately span
-// the current room so its fired beam visibly crosses targets before damage can
-// remove them from the scene.
+// its collision-resolved endpoint so fired beams visibly reach their impact.
 debug.pulses.length = 0;
+debug.player.y = 170;
 debug.player.attackFacing = 1;
 debug.player.attackPulseQueued = true;
 debug.player.releasePulse();
@@ -255,15 +255,57 @@ if (Math.abs(firstMove.args[0] - drawnPulse.startX) > 0.001) {
 }
 const currentRoom = debug.getCurrentRoom();
 if (Math.abs(drawnPulse.endX - (currentRoom.x + currentRoom.w)) > 0.001) {
-  throw new Error(`System Pulse endpoint should reach the right room edge; got ${drawnPulse.endX}.`);
+  throw new Error(`Unblocked System Pulse endpoint should reach the right room edge; got ${drawnPulse.endX}.`);
 }
 const endpointLine = context.calls.find((call) => call.name === "lineTo" && Math.abs(call.args[0] - drawnPulse.endX) <= 0.001);
 if (!endpointLine) {
-  throw new Error(`System Pulse did not draw to its full room edge endpoint ${drawnPulse.endX}.`);
+  throw new Error(`System Pulse did not draw to its full endpoint ${drawnPulse.endX}.`);
 }
 const darkBlueOutlineStroke = context.calls.find((call) => call.name === "stroke" && String(call.state.strokeStyle).includes("126, 222, 255"));
 if (darkBlueOutlineStroke) {
   throw new Error("System Pulse still drew the removed blue outline stroke.");
+}
+
+// Collision regression: platforms and enemies stop the pulse so it cannot hit
+// targets hidden behind solid level geometry.
+debug.pulses.length = 0;
+debug.enterRoom("room-1", { x: 100, y: 420 }, { facing: 1 });
+debug.player.y = 420;
+debug.player.attackFacing = 1;
+const blockerY = debug.player.getPulseSpawnPoint().y - debug.constants.PULSE_THICKNESS / 2;
+const blocker = { x: debug.player.getPulseSpawnPoint().x + 60, y: blockerY, w: 24, h: debug.constants.PULSE_THICKNESS, __testBlocker: true };
+debug.platforms.push(blocker);
+const blockedEnemy = debug.enemies.find((enemy) => enemy.constructor.name === "Enemy" && enemy.roomId === "room-1");
+if (!blockedEnemy) throw new Error("Expected room-1 Enemy for blocked System Pulse regression.");
+blockedEnemy.x = blocker.x + 70;
+blockedEnemy.y = debug.player.getPulseSpawnPoint().y - blockedEnemy.h / 2;
+blockedEnemy.hp = 2;
+blockedEnemy.isDying = false;
+debug.player.attackPulseQueued = true;
+debug.player.releasePulse();
+const blockedPulse = debug.pulses.at(-1);
+debug.platforms.pop();
+if (!blockedPulse) throw new Error("System Pulse did not spawn for collision regression.");
+if (Math.abs(blockedPulse.endX - blocker.x) > 0.001) {
+  throw new Error(`System Pulse should stop at the blocking platform; got ${blockedPulse.endX} vs ${blocker.x}.`);
+}
+if (blockedEnemy.hp !== 2) {
+  throw new Error("System Pulse damaged an enemy behind a blocking platform.");
+}
+
+blockedEnemy.x = debug.player.getPulseSpawnPoint().x + 60;
+blockedEnemy.y = debug.player.getPulseSpawnPoint().y - blockedEnemy.h / 2;
+blockedEnemy.hp = 2;
+blockedEnemy.isDying = false;
+debug.player.attackPulseQueued = true;
+debug.player.releasePulse();
+const enemyStoppedPulse = debug.pulses.at(-1);
+if (!enemyStoppedPulse) throw new Error("System Pulse did not spawn for enemy-stop regression.");
+if (Math.abs(enemyStoppedPulse.endX - blockedEnemy.getDamageRect().x) > 0.001) {
+  throw new Error(`System Pulse should stop at the first enemy it hits; got ${enemyStoppedPulse.endX} vs ${blockedEnemy.getDamageRect().x}.`);
+}
+if (blockedEnemy.hp !== 1) {
+  throw new Error("System Pulse should damage the first unblocked enemy exactly once.");
 }
 
 drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.1;
