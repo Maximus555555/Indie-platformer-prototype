@@ -21,7 +21,8 @@ const recordCanvasCall = (name) => function (...args) {
       font: context.font,
       textAlign: context.textAlign,
       textBaseline: context.textBaseline,
-      lineWidth: context.lineWidth
+      lineWidth: context.lineWidth,
+      globalAlpha: context.globalAlpha
     }
   });
 };
@@ -38,7 +39,8 @@ const context = new Proxy({
   stroke: recordCanvasCall("stroke"),
   createLinearGradient: () => ({ addColorStop: noop }),
   createRadialGradient: () => ({ addColorStop: noop }),
-  measureText: (text) => ({ width: String(text).length * 8 })
+  measureText: (text) => ({ width: String(text).length * 8 }),
+  globalAlpha: 1
 }, {
   get(target, property) {
     if (property in target) return target[property];
@@ -273,7 +275,42 @@ const finalPulseThickness = finalGlowStroke.state.lineWidth - 4;
 if (Math.abs(finalPulseThickness - debug.constants.PULSE_THICKNESS) > 0.001) {
   throw new Error(`System Pulse did not expand to its configured diameter; got ${finalPulseThickness}.`);
 }
+
+drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.2;
+context.calls.length = 0;
+drawnPulse.draw();
+const nearOriginStroke = context.calls.find((call) => call.name === "stroke");
+drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.8;
+context.calls.length = 0;
+drawnPulse.draw();
+const farTravelStroke = context.calls.find((call) => call.name === "stroke");
+if (!nearOriginStroke || !farTravelStroke || farTravelStroke.state.globalAlpha <= nearOriginStroke.state.globalAlpha) {
+  throw new Error("System Pulse should become more visible as it travels farther from the player.");
+}
 debug.pulses.length = 0;
+
+// Room edge transition regression: walking into the vertical screen edge should
+// move to the next room without needing to overlap a doorway rectangle.
+debug.enterRoom("room-1", { x: 86, y: 420 }, { facing: 1 });
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.x = debug.getCurrentRoom().x + debug.getCurrentRoom().w - debug.player.w;
+debug.player.y = 420;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = true;
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-2") {
+  throw new Error(`Walking into the right room edge did not enter room-2; got ${debug.getCurrentRoomId()}.`);
+}
+debug.systemDialogue.activeBlocking = null;
+debug.systemDialogue.blockingQueue.length = 0;
+debug.systemDialogue.activeAmbient = null;
+debug.systemDialogue.ambientQueue.length = 0;
+debug.enterRoom("room-1", { x: 120, y: 420 }, { facing: 1 });
 
 // Jump input regression: if Up Arrow events arrive while Right Arrow and Shift
 // are held, the player should still jump without needing extra jump buttons.
