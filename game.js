@@ -5471,7 +5471,7 @@ class SystemPulse {
 
     const core = ctx.createLinearGradient(tailX, this.y, tipX, this.y);
     core.addColorStop(0, "rgba(255, 255, 255, 0)");
-    core.addColorStop(0.18, "rgba(190, 238, 255, 0.72)");
+    core.addColorStop(0.18, "rgba(255, 255, 255, 0.72)");
     core.addColorStop(0.7, "rgba(255, 255, 255, 0.97)");
     core.addColorStop(1, "rgba(255, 255, 255, 1)");
 
