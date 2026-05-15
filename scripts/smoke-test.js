@@ -440,6 +440,38 @@ if (debug.getCurrentRoomId() !== "room-2") {
 if (Math.abs(debug.player.y - 84) > 0.001) {
   throw new Error(`Room edge transition did not preserve vertical wall position; got y=${debug.player.y}.`);
 }
+
+// Room transition/System Pulse regression: a pulse fired while pushing into a
+// room edge should not remain active or release after the next room loads.
+debug.enterRoom("room-1", { x: 86, y: 84 }, { facing: 1, grounded: false });
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.x = debug.getCurrentRoom().x + debug.getCurrentRoom().w - debug.player.w;
+debug.player.y = 84;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = false;
+debug.player.pulseTimer = 0;
+debug.player.attackFacing = 1;
+debug.player.attackPulseQueued = true;
+debug.player.releasePulse();
+if (debug.pulses.length === 0) throw new Error("System Pulse setup did not create an active bolt before room transition.");
+debug.player.attackPulseQueued = true;
+debug.player.attackReleaseTimer = 0.001;
+debug.player.attackTimer = 0.001;
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+if (debug.pulses.length !== 0 || debug.player.attackPulseQueued) {
+  throw new Error("Room transition did not immediately clear active and queued System Pulses.");
+}
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-2") {
+  throw new Error(`System Pulse room-edge transition did not enter room-2; got ${debug.getCurrentRoomId()}.`);
+}
+if (debug.pulses.length !== 0 || debug.player.attackPulseQueued) {
+  throw new Error("System Pulse was carried into the next room after an edge transition.");
+}
 debug.systemDialogue.activeBlocking = null;
 debug.systemDialogue.blockingQueue.length = 0;
 debug.systemDialogue.activeAmbient = null;
