@@ -406,6 +406,35 @@ debug.systemDialogue.activeBlocking = null;
 debug.systemDialogue.blockingQueue.length = 0;
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
+
+// Room persistence regression: enemies defeated in a room should stay defeated
+// when leaving and reentering. Only a player death respawn refreshes enemies in
+// the current room.
+debug.resetRoomState("room-1");
+const persistentRoomEnemy = debug.enemies.find((enemy) => enemy.constructor.name === "Enemy" && enemy.roomId === "room-1");
+if (!persistentRoomEnemy) throw new Error("Expected a room-1 enemy for room persistence regression.");
+persistentRoomEnemy.hp = 0;
+persistentRoomEnemy.isDying = false;
+debug.enterRoom("room-2", { x: 1030, y: 420 }, { facing: 1 });
+debug.enterRoom("room-1", { x: 120, y: 420 }, { facing: -1 });
+if (persistentRoomEnemy.hp !== 0 || persistentRoomEnemy.isDying) {
+  throw new Error("Room entry respawned a defeated enemy before player death.");
+}
+debug.player.fullRespawn();
+if (persistentRoomEnemy.hp <= 0) {
+  throw new Error("Player death respawn did not refresh defeated enemies in the current room.");
+}
+
+// Room title regression: the room/tutorial label should not render over the
+// playfield during normal gameplay.
+context.calls.length = 0;
+debug.draw();
+const roomOverlayText = context.calls
+  .filter((call) => call.name === "fillText")
+  .map((call) => call.args[0])
+  .find((text) => debug.levelRooms.some((room) => text === room.name || text === room.tutorial));
+if (roomOverlayText) throw new Error(`Room overlay text still rendered: ${roomOverlayText}.`);
+
 debug.enterRoom("room-1", { x: 120, y: 420 }, { facing: 1 });
 
 // Jump input regression: if Up Arrow events arrive while Right Arrow and Shift

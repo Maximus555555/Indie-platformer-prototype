@@ -393,7 +393,6 @@ function enterRoom(roomId, spawn, options = {}) {
   negateActiveAbilityEffects();
   if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: true });
   player.facing = options.facing ?? player.facing;
-  resetRoomState(currentRoomId);
   cameraX = getCurrentRoom().x;
 }
 
@@ -7546,17 +7545,6 @@ function drawExitMarker() {
   ctx.restore();
 }
 
-function drawRoomTitle() {
-  const room = getCurrentRoom();
-  ctx.save();
-  ctx.font = "bold 13px system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  ctx.fillStyle = "rgba(18, 58, 96, 0.66)";
-  ctx.fillText(room.tutorial, cameraX + 22, 42);
-  ctx.restore();
-}
-
 function drawRoomTransitionFade() {
   if (!roomTransition) return;
   const half = roomTransition.duration / 2;
@@ -7606,7 +7594,6 @@ function drawRoom() {
   drawSpikes();
   drawRoomEdgeTransitionHints();
   drawExitMarker();
-  drawRoomTitle();
 }
 
 function drawDiamond(x, y, size, filled) {
