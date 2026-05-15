@@ -20,7 +20,8 @@ const recordCanvasCall = (name) => function (...args) {
     state: {
       font: context.font,
       textAlign: context.textAlign,
-      textBaseline: context.textBaseline
+      textBaseline: context.textBaseline,
+      lineWidth: context.lineWidth
     }
   });
 };
@@ -251,6 +252,26 @@ if (Math.abs(firstMove.args[0] - drawnPulse.startX) > 0.001) {
 const expectedMidTip = drawnPulse.startX + (drawnPulse.endX - drawnPulse.startX) * 0.5;
 if (Math.abs(firstLine.args[0] - expectedMidTip) > 0.001) {
   throw new Error(`System Pulse did not grow outward from spawn; drew tip ${firstLine.args[0]}, expected ${expectedMidTip}.`);
+}
+
+drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.1;
+context.calls.length = 0;
+drawnPulse.draw();
+const earlyGlowStroke = context.calls.find((call) => call.name === "stroke");
+if (!earlyGlowStroke) throw new Error("System Pulse did not draw an early growth stroke.");
+const earlyPulseThickness = earlyGlowStroke.state.lineWidth - 4;
+if (earlyPulseThickness <= debug.constants.PULSE_MIN_THICKNESS || earlyPulseThickness >= debug.constants.PULSE_THICKNESS) {
+  throw new Error(`System Pulse should start thin before expanding; got early thickness ${earlyPulseThickness}.`);
+}
+
+drawnPulse.age = debug.constants.PULSE_LIFETIME;
+context.calls.length = 0;
+drawnPulse.draw();
+const finalGlowStroke = context.calls.find((call) => call.name === "stroke");
+if (!finalGlowStroke) throw new Error("System Pulse did not draw a final growth stroke.");
+const finalPulseThickness = finalGlowStroke.state.lineWidth - 4;
+if (Math.abs(finalPulseThickness - debug.constants.PULSE_THICKNESS) > 0.001) {
+  throw new Error(`System Pulse did not expand to its configured diameter; got ${finalPulseThickness}.`);
 }
 debug.pulses.length = 0;
 
