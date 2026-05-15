@@ -388,10 +388,26 @@ function resetRoomState(roomId = currentRoomId) {
   }
 }
 
+function getDoorTransitionSpawn(door) {
+  const sourceRoom = getRoomById(door.roomId);
+  const targetRoom = getRoomById(door.targetRoomId);
+  const targetX = door.facing > 0
+    ? targetRoom.x + EDGE_RESPAWN_INSET
+    : targetRoom.x + targetRoom.w - EDGE_RESPAWN_INSET - player.w;
+  const sourceTravelHeight = Math.max(1, sourceRoom.h - player.h);
+  const targetTravelHeight = Math.max(0, targetRoom.h - STAND_HEIGHT);
+  const verticalRatio = clamp((player.y - sourceRoom.y) / sourceTravelHeight, 0, 1);
+
+  return {
+    x: targetX,
+    y: clamp(targetRoom.y + verticalRatio * targetTravelHeight, targetRoom.y, targetRoom.y + targetTravelHeight)
+  };
+}
+
 function enterRoom(roomId, spawn, options = {}) {
   currentRoomId = getRoomById(roomId).id;
   negateActiveAbilityEffects();
-  if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: true });
+  if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: options.grounded ?? true });
   player.facing = options.facing ?? player.facing;
   cameraX = getCurrentRoom().x;
 }
@@ -414,7 +430,7 @@ function updateRoomTransition(dt) {
   const halfway = roomTransition.duration / 2;
   if (!roomTransition.moved && roomTransition.elapsed >= halfway) {
     const { door } = roomTransition;
-    enterRoom(door.targetRoomId, door.targetSpawn, { facing: door.facing });
+    enterRoom(door.targetRoomId, getDoorTransitionSpawn(door), { facing: door.facing, grounded: player.onSurface });
     roomTransition.moved = true;
   }
   if (roomTransition.elapsed >= roomTransition.duration) roomTransition = null;
@@ -4912,9 +4928,9 @@ class Jumper extends Entity {
     }
 
     if (this.jumperState === "charging" || this.jumperState === "crouch-hold") {
-      this.jumperState = "recovering";
+      this.jumperState = "idle";
       this.stateTimer = 0;
-      this.poseBlend = Math.max(this.poseBlend, 0.55);
+      this.poseBlend = 0;
       this.recoveryDelayTimer = 0.18;
     }
   }
@@ -8965,6 +8981,7 @@ window.__indiePlatformerDebug = {
   getCurrentRoom,
   getActiveEnemies,
   enterRoom,
+  getDoorTransitionSpawn,
   checkRoomEdgeTransitions,
   resetRoomState,
   bottomFallBoundary,
