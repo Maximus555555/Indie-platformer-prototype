@@ -5409,11 +5409,12 @@ class DroneProjectile {
 }
 
 class SystemPulse {
-  constructor(startX, y, endX, direction) {
+  constructor(startX, y, endX, direction, impactKind = "wall") {
     this.startX = startX;
     this.y = y;
     this.endX = endX;
     this.direction = direction;
+    this.impactKind = impactKind;
     this.age = 0;
     this.active = true;
   }
@@ -5422,6 +5423,7 @@ class SystemPulse {
     const spawn = resolvePulseSpawnPoint(startX, y, direction);
     startX = spawn.x;
     const impactTarget = findPulseImpact(startX, y, direction);
+    const impactKind = impactTarget.enemy ? "enemy" : "wall";
     if (impactTarget.enemy) {
       const impact = { armsVerticalEdgeKill: true, direction, damageSource: "system-pulse" };
       // Transfer while the source enemy is still a valid linked target so lethal
@@ -5429,7 +5431,7 @@ class SystemPulse {
       transferEnergyLinkDamage(impactTarget.enemy, PULSE_DAMAGE, impact);
       impactTarget.enemy.hit(PULSE_DAMAGE, impact);
     }
-    return new SystemPulse(startX, y, impactTarget.x, direction);
+    return new SystemPulse(startX, y, impactTarget.x, direction, impactKind);
   }
 
   update(dt) {
@@ -5437,63 +5439,147 @@ class SystemPulse {
     if (this.age >= PULSE_LIFETIME) this.active = false;
   }
 
+  drawBrokenScanRing(cx, cy, radiusX, radiusY, alpha, lineWidth) {
+    ctx.strokeStyle = `rgba(136, 226, 255, ${alpha})`;
+    ctx.lineWidth = lineWidth;
+    for (const segment of [[-0.92, -0.2], [0.08, 0.72], [0.96, 1.55], [2.12, 2.82]]) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, radiusX, radiusY, 0, segment[0], segment[1]);
+      ctx.stroke();
+    }
+  }
+
+  drawDiamond(cx, cy, radius, alpha) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - radius);
+    ctx.lineTo(cx + radius, cy);
+    ctx.lineTo(cx, cy + radius);
+    ctx.lineTo(cx - radius, cy);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  drawFragments(cx, cy, progress, baseAlpha) {
+    const burst = clamp((progress - 0.7) / 0.3, 0, 1);
+    if (burst <= 0) return;
+
+    const fragmentAlpha = baseAlpha * (1 - burst * 0.7);
+    const spread = 15 * burst;
+    const shards = this.impactKind === "enemy"
+      ? [
+        { dx: 0.9, dy: -0.52, size: 2.4, shape: "diamond" },
+        { dx: 0.55, dy: 0.78, size: 1.9, shape: "square" },
+        { dx: -0.25, dy: -0.9, size: 1.7, shape: "tri" },
+        { dx: -0.72, dy: 0.28, size: 1.5, shape: "square" }
+      ]
+      : [
+        { dx: 0.45, dy: -0.9, size: 1.8, shape: "square" },
+        { dx: -0.2, dy: -0.72, size: 1.6, shape: "tri" },
+        { dx: -0.74, dy: 0.18, size: 1.7, shape: "square" },
+        { dx: 0.22, dy: 0.82, size: 1.5, shape: "tri" },
+        { dx: 0.86, dy: 0.34, size: 1.4, shape: "square" }
+      ];
+
+    ctx.save();
+    ctx.fillStyle = `rgba(214, 247, 255, ${fragmentAlpha})`;
+    for (const shard of shards) {
+      const x = cx + shard.dx * spread;
+      const y = cy + shard.dy * spread;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate((shard.dx - shard.dy) * 0.9);
+      ctx.beginPath();
+      if (shard.shape === "tri") {
+        ctx.moveTo(0, -shard.size);
+        ctx.lineTo(shard.size, shard.size);
+        ctx.lineTo(-shard.size, shard.size);
+      } else {
+        ctx.rect(-shard.size, -shard.size, shard.size * 2, shard.size * 2);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   draw() {
     const progress = clamp(this.age / PULSE_LIFETIME, 0, 1);
-    const visibleLength = Math.abs(this.endX - this.startX);
-    if (visibleLength <= 1) return;
+    const travelDistance = Math.abs(this.endX - this.startX);
+    if (travelDistance <= 1) return;
 
-    // Draw the bolt at its full collision-resolved reach for its whole flash.
-    // Damage is resolved as soon as it fires, so the visual must already cross
-    // the hit point instead of chasing after enemies that may be removed by the hit.
-    const alpha = 1 - progress * 0.35;
-    const tipX = this.endX;
-    const tailX = this.startX;
     const direction = this.direction;
-    const drawnLength = Math.abs(tipX - tailX);
-    if (drawnLength <= 1) return;
+    const travelProgress = clamp(progress / 0.72, 0, 1);
+    const easedTravel = 1 - Math.pow(1 - travelProgress, 3);
+    const headX = this.startX + direction * travelDistance * easedTravel;
+    const alpha = 1 - progress * 0.35;
     const thicknessProgress = progress * progress * (3 - 2 * progress);
     const currentThickness = PULSE_MIN_THICKNESS + (PULSE_THICKNESS - PULSE_MIN_THICKNESS) * thicknessProgress;
-    const halfThickness = currentThickness / 2;
-    const tailInset = Math.min(16, drawnLength * 0.32);
-    const tipInset = Math.min(10, drawnLength * 0.22);
+    const flicker = Math.sin((this.age * 220) + travelDistance * 0.03) * 0.08;
+    const pulseAlpha = clamp(alpha + flicker, 0.45, 1);
+    const radiusX = 8 + currentThickness * 1.35 + travelProgress * 3.5;
+    const radiusY = 4.6 + currentThickness * 0.55;
 
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.lineJoin = "miter";
+    ctx.lineCap = "butt";
+    ctx.shadowColor = "rgba(136, 226, 255, 0.72)";
+    ctx.shadowBlur = 10;
 
-    // A white core with soft shadow keeps the pulse crisp without the former
-    // dark blue outline that made the projectile look detached from impacts.
-    ctx.shadowColor = "rgba(174, 244, 255, 0.48)";
-    ctx.shadowBlur = 7;
+    // Firing ring: a brief geometric expansion from the hand sells the pulse as
+    // a compressed command signal being emitted rather than a bullet muzzle flash.
+    const fireAlpha = clamp(1 - progress / 0.28, 0, 1);
+    if (fireAlpha > 0) {
+      this.drawBrokenScanRing(
+        this.startX,
+        this.y,
+        4 + 13 * (1 - fireAlpha),
+        4 + 7 * (1 - fireAlpha),
+        fireAlpha * 0.62,
+        Math.max(1, currentThickness * 0.55)
+      );
+    }
 
-    const core = ctx.createLinearGradient(tailX, this.y, tipX, this.y);
-    core.addColorStop(0, "rgba(255, 255, 255, 0)");
-    core.addColorStop(0.18, "rgba(190, 238, 255, 0.72)");
-    core.addColorStop(0.7, "rgba(255, 255, 255, 0.97)");
-    core.addColorStop(1, "rgba(255, 255, 255, 1)");
+    // Draw 3–5 short afterimages behind the moving oval. They fade quickly so
+    // the pulse reads as fast and straight without becoming a laser beam.
+    const trailCount = 5;
+    const trailStep = Math.min(13, travelDistance / 14);
+    for (let i = trailCount; i >= 1; i -= 1) {
+      const trailAlpha = pulseAlpha * (trailCount + 1 - i) / (trailCount + 1) * 0.2;
+      const x = headX - direction * trailStep * i;
+      const minX = Math.min(this.startX, headX);
+      const maxX = Math.max(this.startX, headX);
+      if (x < minX || x > maxX) continue;
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(136, 226, 255, ${trailAlpha})`;
+      ctx.beginPath();
+      ctx.ellipse(x, this.y, radiusX * (0.58 + i * 0.04), radiusY * 0.72, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
-    ctx.shadowColor = "rgba(174, 244, 255, 0.42)";
-    ctx.shadowBlur = 5;
-    ctx.fillStyle = core;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = `rgba(185, 239, 255, ${0.16 * pulseAlpha})`;
     ctx.beginPath();
-    ctx.moveTo(tailX, this.y);
-    ctx.lineTo(tailX + direction * tailInset, this.y - halfThickness);
-    ctx.lineTo(tipX - direction * tipInset, this.y - halfThickness * 0.72);
-    ctx.lineTo(tipX, this.y);
-    ctx.lineTo(tipX - direction * tipInset, this.y + halfThickness * 0.72);
-    ctx.lineTo(tailX + direction * tailInset, this.y + halfThickness);
-    ctx.closePath();
+    ctx.ellipse(headX, this.y, radiusX, radiusY, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-    ctx.lineWidth = currentThickness;
-    ctx.lineCap = "butt";
+    this.drawBrokenScanRing(headX, this.y, radiusX, radiusY, 0.92 * pulseAlpha, currentThickness);
+
+    // A thin center rule and diamond core create the clean, artificial read of
+    // a system-generated command packet instead of smoke, flame, or magic.
+    ctx.shadowBlur = 5;
+    ctx.strokeStyle = `rgba(236, 252, 255, ${0.72 * pulseAlpha})`;
+    ctx.lineWidth = Math.max(1, currentThickness * 0.45);
     ctx.beginPath();
-    ctx.moveTo(tailX + direction * tailInset, this.y);
-    ctx.lineTo(tipX, this.y);
+    ctx.moveTo(headX - direction * radiusX * 0.82, this.y);
+    ctx.lineTo(headX, this.y);
     ctx.stroke();
 
+    this.drawDiamond(headX, this.y, Math.max(2.1, currentThickness * 0.7), 0.96 * pulseAlpha);
+
+    this.drawFragments(this.endX, this.y, progress, pulseAlpha);
     ctx.restore();
   }
 }
