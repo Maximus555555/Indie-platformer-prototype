@@ -423,14 +423,23 @@ function updateRoomTransition(dt) {
   return true;
 }
 
-function checkDoorTransitions() {
+function getRoomEdgeTransition(direction, roomId = currentRoomId) {
+  return getRoomDoors(roomId).find((door) => door.facing === direction) ?? null;
+}
+
+function checkRoomEdgeTransitions() {
   if (roomTransition || player.isDying || player.damageTimer > 0 || player.fallRespawnGraceTimer > 0) return;
-  for (const door of getRoomDoors()) {
-    if (rectsOverlap(player, door)) {
-      startRoomTransition(door);
-      return;
-    }
-  }
+
+  const room = getCurrentRoom();
+  const holdingLeft = keys.has("a") || keys.has("arrowleft");
+  const holdingRight = keys.has("d") || keys.has("arrowright");
+  const pushingLeftEdge = player.x <= room.x && holdingLeft && !holdingRight;
+  const pushingRightEdge = player.x + player.w >= room.x + room.w && holdingRight && !holdingLeft;
+  const edgeDoor = pushingLeftEdge
+    ? getRoomEdgeTransition(-1, room.id)
+    : (pushingRightEdge ? getRoomEdgeTransition(1, room.id) : null);
+
+  if (edgeDoor) startRoomTransition(edgeDoor);
 }
 
 const bottomFallBoundary = config.fallBoundary
@@ -5421,7 +5430,7 @@ class SystemPulse {
     const visibleLength = Math.abs(visibleEndX - this.startX);
     if (visibleLength <= 1) return;
 
-    const alpha = clamp((1 - progress) * 1.4, 0, 1);
+    const alpha = clamp(progress * 1.4, 0, 1);
     const tipX = visibleEndX;
     const tailX = this.startX;
     const direction = this.direction;
@@ -7446,7 +7455,7 @@ function update(dt) {
   }
 
   if (!player.isDying && player.isInvalidEdgeFallState()) player.fallOutOfWorld();
-  checkDoorTransitions();
+  checkRoomEdgeTransitions();
   const room = getCurrentRoom();
   cameraX = room.x;
   pressedThisFrame.clear();
@@ -7496,19 +7505,30 @@ function drawSpikes() {
 }
 
 
-function drawDoors() {
+function drawRoomEdgeTransitionHints() {
   for (const door of getRoomDoors()) {
+    const room = getRoomById(door.roomId);
+    const edgeX = door.facing > 0 ? room.x + room.w : room.x;
+    const arrowX = edgeX - door.facing * 18;
+    const centerY = canvas.height / 2;
     const pulse = 0.5 + Math.sin(performance.now() / 180) * 0.08;
+
     ctx.save();
-    ctx.fillStyle = `rgba(31, 91, 143, ${0.52 + pulse * 0.18})`;
-    ctx.strokeStyle = "rgba(220, 250, 255, 0.9)";
+    ctx.strokeStyle = `rgba(220, 250, 255, ${0.52 + pulse * 0.22})`;
+    ctx.fillStyle = `rgba(31, 91, 143, ${0.16 + pulse * 0.1})`;
     ctx.lineWidth = 2;
-    ctx.fillRect(door.x, door.y, door.w, door.h);
-    ctx.strokeRect(door.x + 0.5, door.y + 0.5, door.w - 1, door.h - 1);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
     ctx.beginPath();
-    ctx.moveTo(door.x + door.w / 2, door.y + 10);
-    ctx.lineTo(door.x + door.w / 2, door.y + door.h - 10);
+    ctx.moveTo(edgeX, 168);
+    ctx.lineTo(edgeX, canvas.height - 88);
+    ctx.stroke();
+
+    // Edge arrows signal room exits without requiring a small doorway hitbox.
+    ctx.beginPath();
+    ctx.moveTo(arrowX + door.facing * 12, centerY);
+    ctx.lineTo(arrowX - door.facing * 8, centerY - 15);
+    ctx.lineTo(arrowX - door.facing * 8, centerY + 15);
+    ctx.closePath();
+    ctx.fill();
     ctx.stroke();
     ctx.restore();
   }
@@ -7594,7 +7614,7 @@ function drawRoom() {
   }
 
   drawSpikes();
-  drawDoors();
+  drawRoomEdgeTransitionHints();
   drawExitMarker();
   drawRoomTitle();
 }
@@ -8968,6 +8988,7 @@ window.__indiePlatformerDebug = {
   getCurrentRoom,
   getActiveEnemies,
   enterRoom,
+  checkRoomEdgeTransitions,
   resetRoomState,
   bottomFallBoundary,
   roomHazardBounds,
