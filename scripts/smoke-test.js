@@ -205,6 +205,17 @@ visualJumper.updateLandingAnimation(0.2);
 if (visualJumper.landingTimer !== 0) {
   throw new Error("Jumper landing squash animation did not finish cleanly.");
 }
+visualJumper.hp = 3;
+visualJumper.isDying = false;
+visualJumper.jumperState = "charging";
+visualJumper.poseBlend = 0.8;
+visualJumper.hit(1);
+if (visualJumper.jumperState !== "idle" || visualJumper.poseBlend !== 0) {
+  throw new Error("Damaging a Jumper still leaves it in a crouched recovery pose.");
+}
+visualJumper.hp = 3;
+visualJumper.jumperState = "idle";
+visualJumper.poseBlend = 0;
 
 function dispatch(type, event) {
   const listeners = eventListeners.get(type) ?? [];
@@ -401,6 +412,27 @@ for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
 if (debug.getCurrentRoomId() !== "room-2") {
   throw new Error(`Walking into the right room edge did not enter room-2; got ${debug.getCurrentRoomId()}.`);
+}
+
+// Room edge spawn regression: the next room should keep the same vertical wall
+// position instead of always dropping the player at a fixed floor spawn.
+debug.enterRoom("room-1", { x: 86, y: 420 }, { facing: 1 });
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.x = debug.getCurrentRoom().x + debug.getCurrentRoom().w - debug.player.w;
+debug.player.y = 84;
+debug.player.vx = 0;
+debug.player.vy = 0;
+debug.player.onSurface = false;
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-2") {
+  throw new Error(`High wall room edge transition did not enter room-2; got ${debug.getCurrentRoomId()}.`);
+}
+if (Math.abs(debug.player.y - 84) > 0.001) {
+  throw new Error(`Room edge transition did not preserve vertical wall position; got y=${debug.player.y}.`);
 }
 debug.systemDialogue.activeBlocking = null;
 debug.systemDialogue.blockingQueue.length = 0;
