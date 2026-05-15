@@ -70,7 +70,7 @@
     fallRespawnGrace: 0.22,
     edgeRespawnInset: 18,
     roomWidth: 5760,
-    checkpoint: { x: 86, y: 362 },
-    safeAnchor: { x: 92, y: 362 }
+    checkpoint: { x: 86, y: 420 },
+    safeAnchor: { x: 92, y: 420 }
   });
 })();

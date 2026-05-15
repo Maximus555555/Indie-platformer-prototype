@@ -202,8 +202,8 @@ const SYSTEM_ACCESS_COMBAT_RADIUS = 520;
 const SYSTEM_ACCESS_DENIED_DURATION = 1.15;
 
 
-const checkpoint = config.checkpoint ?? { x: 86, y: 362 };
-const safeAnchor = config.safeAnchor ?? { x: 92, y: 362 };
+const checkpoint = config.checkpoint ?? { x: 86, y: 420 };
+const safeAnchor = config.safeAnchor ?? { x: 92, y: 420 };
 
 const keys = new Set();
 const pressedThisFrame = new Set();
@@ -256,24 +256,25 @@ let currentPhaseExposure = new Set();
 let cameraX = 0;
 
 const platforms = [
-  { x: 0, y: 0, w: ROOM_WIDTH, h: 28 },
-  { x: 0, y: 470, w: 300, h: 70 },
-  { x: 410, y: 470, w: 360, h: 70 },
-  { x: 860, y: 470, w: 420, h: 70 },
-  // Right-side arena extension: spaced floor spans create a future patrol zone
-  // and a gravity-focused zone without crowding the open air between them.
-  { x: 1360, y: 470, w: 300, h: 70 },
-  { x: 1780, y: 470, w: 420, h: 70 },
-  { x: 2280, y: 470, w: 520, h: 70 },
-  { x: 220, y: 365, w: 150, h: 20 },
-  { x: 535, y: 300, w: 190, h: 20 },
-  { x: 805, y: 385, w: 155, h: 20 },
-  { x: 1010, y: 260, w: 155, h: 20 },
-  { x: 1325, y: 360, w: 190, h: 20 },
-  { x: 1500, y: 245, w: 210, h: 20 },
-  { x: 1720, y: 390, w: 180, h: 20 },
-  { x: 1900, y: 310, w: 240, h: 20 },
-  { x: 1985, y: 150, w: 150, h: 20 },
+  // Level 1, Room 1: a safe movement classroom. The old sandbox hazards
+  // and enemies are no longer part of the opening playable space.
+  { x: 0, y: 470, w: 960, h: 70 },
+  { x: 250, y: 405, w: 150, h: 20 },
+  { x: 505, y: 360, w: 165, h: 20 },
+  { x: 735, y: 420, w: 120, h: 20 },
+
+  // Later rooms retain the working combat/platforming systems for progression.
+  { x: 960, y: 470, w: 960, h: 70 },
+  { x: 1180, y: 365, w: 150, h: 20 },
+  { x: 1495, y: 300, w: 190, h: 20 },
+  { x: 1765, y: 385, w: 155, h: 20 },
+  { x: 1970, y: 260, w: 155, h: 20 },
+  { x: 1920, y: 470, w: 960, h: 70 },
+  { x: 2285, y: 360, w: 190, h: 20 },
+  { x: 2460, y: 245, w: 210, h: 20 },
+  { x: 2680, y: 390, w: 180, h: 20 },
+  { x: 2860, y: 310, w: 240, h: 20 },
+  { x: 2945, y: 150, w: 150, h: 20 },
   // Swarm arena: staggered shelves give the mob room to chase while proving
   // its steering respects solid canvas platforms.
   { x: 2240, y: 365, w: 210, h: 20 },
@@ -291,7 +292,6 @@ const platforms = [
   { x: 4800, y: 470, w: 960, h: 70 },
   { x: 5125, y: 380, w: 210, h: 20 }
 ];
-
 const LEVEL1_ROOM_WIDTH = canvas.width;
 const levelRooms = [
   { id: "room-1", name: "Room 1: Movement", x: 0, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -322,17 +322,10 @@ let roomTransition = null;
 const phaseBarriers = [];
 
 const spikes = [
-  // Floor strip: leaves safe space around the platform edges for recovery while
-  // giving the player and grounded enemies a readable hazard test.
-  { platform: platforms[3], side: "top", x: 930, w: 96, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
-  // Ceiling strips: attached to the underside of the top platform so Gravity
-  // Field can launch nearby enemies upward into clean geometric hazards.
-  { platform: platforms[0], side: "bottom", x: 620, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
-  { platform: platforms[0], side: "bottom", x: 1030, w: 112, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
-  { platform: platforms[0], side: "bottom", x: 2380, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT },
-  { platform: platforms[22], side: "top", x: 4270, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
+  // Hazards are intentionally absent from Room 1; later rooms can reintroduce
+  // them after basic traversal has been taught.
+  { platform: platforms.find((platform) => platform.x === 3840 && platform.y === 470), side: "top", x: 4270, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
 ];
-
 
 function getRoomById(roomId) {
   return levelRooms.find((room) => room.id === roomId) ?? levelRooms[0];
@@ -503,12 +496,12 @@ function createAbility(id, name, label, unlocked, cooldownDuration, activeDurati
 }
 
 const abilities = [
-  createAbility("gravity", "Gravity Field", "Gravity", true, GRAVITY_FIELD_COOLDOWN, GRAVITY_FIELD_DURATION),
-  createAbility("time", "Time Slow", "Time", true, TIME_SLOW_COOLDOWN, TIME_SLOW_DURATION),
-  createAbility("pulse", "Force Pulse", "Pulse", true, FORCE_PULSE_COOLDOWN),
-  createAbility("anchor", "Anchor Field", "Anchor", true, ANCHOR_FIELD_COOLDOWN, ANCHOR_FIELD_DURATION),
-  createAbility("phase", "Phase Shift", "Phase", true, PHASE_SHIFT_COOLDOWN, PHASE_SHIFT_DURATION),
-  createAbility("link", "Energy Link", "Link", true, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DURATION)
+  createAbility("gravity", "Gravity Field", "Gravity", false, GRAVITY_FIELD_COOLDOWN, GRAVITY_FIELD_DURATION),
+  createAbility("time", "Time Slow", "Time", false, TIME_SLOW_COOLDOWN, TIME_SLOW_DURATION),
+  createAbility("pulse", "Force Pulse", "Pulse", false, FORCE_PULSE_COOLDOWN),
+  createAbility("anchor", "Anchor Field", "Anchor", false, ANCHOR_FIELD_COOLDOWN, ANCHOR_FIELD_DURATION),
+  createAbility("phase", "Phase Shift", "Phase", false, PHASE_SHIFT_COOLDOWN, PHASE_SHIFT_DURATION),
+  createAbility("link", "Energy Link", "Link", false, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DURATION)
 ];
 let selectedAbilityId = "gravity";
 const abilityWheel = {
@@ -6173,14 +6166,12 @@ function castForcePulse() {
 
 const player = new Player();
 const enemies = [
-  // Keep the original sandbox Walker available while later rooms introduce threats in sequence.
-  new Enemy(620, 435),
-  new Enemy(720, 435),
-  new Enemy(1590, 435),
-  new Enemy(2200, 435),
+  // Room 1 stays enemy-free; later rooms retain the combat systems for unlock progression.
   new Drone(1085, 210),
-  new Enemy(2320, 435),
+  new Enemy(1590, 435),
   new Jumper(2010, 265),
+  new Enemy(2200, 435),
+  new Enemy(2320, 435),
   new Swarm(2375, 330),
   new Swarm(2410, 305),
   new Swarm(2445, 330),
@@ -6284,51 +6275,50 @@ const systemDialogue = {
 
 const systemMessageTriggers = [
   {
-    id: "start-movement-confirmed",
-    x: 145,
-    y: 320,
-    w: 120,
-    h: 170,
+    id: "l1r1-movement-initialized",
+    x: 60,
+    y: 340,
+    w: 150,
+    h: 150,
     repeat: false,
     fired: false,
-    messages: ["Movement confirmed.", "Press Enter to continue."],
-    blocking: true
-  },
-  {
-    id: "first-gap-scan",
-    x: 330,
-    y: 280,
-    w: 180,
-    h: 210,
-    repeat: false,
-    fired: false,
-    messages: ["Gap detected. Maintain momentum."],
+    messages: ["Movement initialized."],
     blocking: false
   },
   {
-    id: "drone-contact",
-    x: 980,
-    y: 180,
-    w: 260,
-    h: 310,
+    id: "l1r1-input-response",
+    x: 270,
+    y: 340,
+    w: 145,
+    h: 150,
     repeat: false,
     fired: false,
-    messages: ["Hostile signal acquired.", "Abilities remain available after this prompt."],
-    blocking: true
+    messages: ["Input response acceptable."],
+    blocking: false
   },
   {
-    id: "far-sector-noise",
-    x: 1510,
-    y: 250,
-    w: 230,
-    h: 240,
+    id: "l1r1-vertical-traversal",
+    x: 440,
+    y: 290,
+    w: 145,
+    h: 200,
     repeat: false,
     fired: false,
-    messages: ["Signal drift increasing."],
+    messages: ["Vertical traversal permitted."],
+    blocking: false
+  },
+  {
+    id: "l1r1-proceed",
+    x: 790,
+    y: 330,
+    w: 130,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
     blocking: false
   }
 ];
-
 function normalizeSystemLines(messages) {
   const lines = Array.isArray(messages) ? messages : [messages];
   return lines.map((line) => String(line ?? "").trim()).filter(Boolean);
@@ -7560,6 +7550,34 @@ function drawSpikes() {
 }
 
 
+function drawDoors() {
+  for (const door of getRoomDoors()) {
+    const pulse = 0.5 + Math.sin(performance.now() / 220) * 0.08;
+    ctx.save();
+    ctx.fillStyle = `rgba(7, 31, 66, ${0.22 + pulse * 0.06})`;
+    ctx.strokeStyle = `rgba(220, 250, 255, ${0.62 + pulse * 0.2})`;
+    ctx.lineWidth = 2;
+    fillRoundedRect(door.x, door.y, door.w, door.h, 7);
+    strokeRoundedRect(door.x + 0.5, door.y + 0.5, door.w - 1, door.h - 1, 7);
+
+    ctx.strokeStyle = `rgba(155, 229, 255, ${0.34 + pulse * 0.14})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(door.x + door.w / 2, door.y + 10);
+    ctx.lineTo(door.x + door.w / 2, door.y + door.h - 10);
+    ctx.moveTo(door.x + 8, door.y + door.h / 2);
+    ctx.lineTo(door.x + door.w - 8, door.y + door.h / 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(220, 250, 255, 0.82)";
+    ctx.font = "bold 10px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("EXIT", door.x + door.w / 2, door.y - 12);
+    ctx.restore();
+  }
+}
+
 function drawRoomEdgeTransitionHints() {
   for (const door of getRoomDoors()) {
     const room = getRoomById(door.roomId);
@@ -7658,6 +7676,7 @@ function drawRoom() {
   }
 
   drawSpikes();
+  drawDoors();
   drawRoomEdgeTransitionHints();
   drawExitMarker();
 }
