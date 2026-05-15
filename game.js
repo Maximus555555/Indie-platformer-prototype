@@ -5425,12 +5425,12 @@ class SystemPulse {
     const visibleLength = Math.abs(this.endX - this.startX);
     if (visibleLength <= 1) return;
 
-    // Let the pulse visibly streak toward its collision point instead of
-    // occupying the whole lane for its entire lifetime. It still resolves damage
-    // on fire for snappy input, but the shorter, faster fade reads as a moving
-    // projectile that stops at the first solid object.
-    const travelProgress = easeOutCubic(clamp(progress * 1.35, 0, 1));
-    const alpha = Math.max(0, 1 - progress * 0.95);
+    // Draw the bolt at its full collision-resolved reach for its whole flash.
+    // Damage is resolved as soon as it fires, so the visual must already cross
+    // the hit point instead of chasing after enemies that may be removed by the hit.
+    const alpha = 1 - progress * 0.35;
+    const tipX = this.endX;
+    const tailX = this.startX;
     const direction = this.direction;
     const tipX = this.startX + (this.endX - this.startX) * travelProgress;
     const trailLength = Math.min(84, visibleLength * (0.22 + 0.58 * travelProgress));

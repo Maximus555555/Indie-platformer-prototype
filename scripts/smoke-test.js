@@ -235,8 +235,8 @@ if (leftPulseLead < 24 || leftPulseLead > 32) {
   throw new Error(`Left-facing System Pulse should start about 10px beyond the firing flash; got lead ${leftPulseLead}.`);
 }
 
-// System Pulse draw regression: the visible projectile should travel quickly
-// toward its endpoint instead of occupying the whole room for its full life.
+// System Pulse draw regression: the visible projectile should immediately span
+// its collision-resolved endpoint so fired beams visibly reach their impact.
 debug.pulses.length = 0;
 debug.player.y = 170;
 debug.player.attackFacing = 1;
@@ -263,11 +263,7 @@ context.calls.length = 0;
 drawnPulse.draw();
 const endpointLine = context.calls.find((call) => call.name === "lineTo" && Math.abs(call.args[0] - drawnPulse.endX) <= 0.001);
 if (!endpointLine) {
-  throw new Error(`System Pulse did not quickly reach its endpoint ${drawnPulse.endX}.`);
-}
-const lateMove = context.calls.find((call) => call.name === "moveTo");
-if (!lateMove || Math.abs(lateMove.args[0] - drawnPulse.startX) <= 0.001) {
-  throw new Error("System Pulse tail should chase the fast-moving tip instead of staying anchored at spawn.");
+  throw new Error(`System Pulse did not draw to its full endpoint ${drawnPulse.endX}.`);
 }
 const darkBlueOutlineStroke = context.calls.find((call) => call.name === "stroke" && String(call.state.strokeStyle).includes("126, 222, 255"));
 if (darkBlueOutlineStroke) {
