@@ -5267,13 +5267,16 @@ class SystemPulse {
 
   draw() {
     const progress = clamp(this.age / PULSE_LIFETIME, 0, 1);
-    const visibleStartX = this.startX + (this.endX - this.startX) * progress;
-    const visibleLength = Math.abs(this.endX - visibleStartX);
+    // Grow the pulse outward from its fixed hand spawn instead of drawing a
+    // full beam to the first hit immediately. That keeps the visible projectile
+    // launch distance stable whether an enemy, wall, or room edge is nearby.
+    const visibleEndX = this.startX + (this.endX - this.startX) * progress;
+    const visibleLength = Math.abs(visibleEndX - this.startX);
     if (visibleLength <= 1) return;
 
     const alpha = clamp((1 - progress) * 1.4, 0, 1);
-    const tipX = this.endX;
-    const tailX = visibleStartX;
+    const tipX = visibleEndX;
+    const tailX = this.startX;
     const direction = this.direction;
     const halfThickness = PULSE_THICKNESS / 2;
     const tailInset = Math.min(16, visibleLength * 0.32);
@@ -8693,6 +8696,7 @@ window.__indiePlatformerDebug = {
   castForcePulse,
   resetEnemyAdaptation,
   forcePulseVisuals,
+  pulses,
   droneProjectiles,
   abilityWheel,
   systemAccess,
@@ -8726,7 +8730,7 @@ window.__indiePlatformerDebug = {
   safeAnchor,
   bottomFallBoundary,
   roomHazardBounds,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);

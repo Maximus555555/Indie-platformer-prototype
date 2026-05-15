@@ -227,6 +227,30 @@ if (debug.player.x - leftPulseOrigin.x > 16) {
   throw new Error(`Left-facing System Pulse starts too far ahead of the player: ${leftPulseOrigin.x}.`);
 }
 
+// System Pulse draw regression: the visible projectile should grow outward from
+// the fixed spawn point instead of popping to its hit endpoint immediately.
+// This keeps launch distance consistent even when targets or walls are nearby.
+debug.pulses.length = 0;
+debug.player.attackFacing = 1;
+debug.player.attackPulseQueued = true;
+debug.player.releasePulse();
+const drawnPulse = debug.pulses.at(-1);
+if (!drawnPulse) throw new Error("System Pulse did not spawn for draw regression.");
+drawnPulse.age = debug.constants.PULSE_LIFETIME / 2;
+context.calls.length = 0;
+drawnPulse.draw();
+const firstMove = context.calls.find((call) => call.name === "moveTo");
+const firstLine = context.calls.find((call) => call.name === "lineTo");
+if (!firstMove || !firstLine) throw new Error("System Pulse did not draw a visible segment at mid-life.");
+if (Math.abs(firstMove.args[0] - drawnPulse.startX) > 0.001) {
+  throw new Error(`System Pulse tail drifted away from spawn: ${firstMove.args[0]} vs ${drawnPulse.startX}.`);
+}
+const expectedMidTip = drawnPulse.startX + (drawnPulse.endX - drawnPulse.startX) * 0.5;
+if (Math.abs(firstLine.args[0] - expectedMidTip) > 0.001) {
+  throw new Error(`System Pulse did not grow outward from spawn; drew tip ${firstLine.args[0]}, expected ${expectedMidTip}.`);
+}
+debug.pulses.length = 0;
+
 // Jump input regression: if Up Arrow events arrive while Right Arrow and Shift
 // are held, the player should still jump without needing extra jump buttons.
 debug.player.x = 120;
