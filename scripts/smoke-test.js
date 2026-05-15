@@ -244,19 +244,23 @@ debug.player.attackPulseQueued = true;
 debug.player.releasePulse();
 const drawnPulse = debug.pulses.at(-1);
 if (!drawnPulse) throw new Error("System Pulse did not spawn for draw regression.");
-drawnPulse.age = debug.constants.PULSE_LIFETIME / 2;
-context.calls.length = 0;
-drawnPulse.draw();
-const firstMove = context.calls.find((call) => call.name === "moveTo");
-const firstLine = context.calls.find((call) => call.name === "lineTo");
-if (!firstMove || !firstLine) throw new Error("System Pulse did not draw a visible segment at mid-life.");
-if (Math.abs(firstMove.args[0] - drawnPulse.startX) > 0.001) {
-  throw new Error(`System Pulse tail drifted away from spawn: ${firstMove.args[0]} vs ${drawnPulse.startX}.`);
-}
 const currentRoom = debug.getCurrentRoom();
 if (Math.abs(drawnPulse.endX - (currentRoom.x + currentRoom.w)) > 0.001) {
   throw new Error(`Unblocked System Pulse endpoint should reach the right room edge; got ${drawnPulse.endX}.`);
 }
+
+drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.2;
+context.calls.length = 0;
+drawnPulse.draw();
+const earlyLineTo = context.calls.find((call) => call.name === "lineTo");
+if (!earlyLineTo) throw new Error("System Pulse did not draw a visible early segment.");
+if (Math.abs(earlyLineTo.args[0] - drawnPulse.endX) <= 0.001) {
+  throw new Error("System Pulse should still be traveling before it reaches its endpoint early in life.");
+}
+
+drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.8;
+context.calls.length = 0;
+drawnPulse.draw();
 const endpointLine = context.calls.find((call) => call.name === "lineTo" && Math.abs(call.args[0] - drawnPulse.endX) <= 0.001);
 if (!endpointLine) {
   throw new Error(`System Pulse did not draw to its full endpoint ${drawnPulse.endX}.`);

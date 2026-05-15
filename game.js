@@ -99,7 +99,7 @@ const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
 const PULSE_MIN_THICKNESS = config.pulseMinThickness ?? 1;
-const PULSE_LIFETIME = config.pulseLifetime ?? 0.13;
+const PULSE_LIFETIME = config.pulseLifetime ?? 0.09;
 // Spawn the System Pulse beyond the firing semicircle so the projectile reads
 // as detached from the muzzle flash instead of overlapping the player hands.
 const PULSE_SPAWN_LOCAL_X = config.pulseSpawnLocalX ?? 35.4;
@@ -5432,11 +5432,18 @@ class SystemPulse {
     const tipX = this.endX;
     const tailX = this.startX;
     const direction = this.direction;
+    const tipX = this.startX + (this.endX - this.startX) * travelProgress;
+    const trailLength = Math.min(84, visibleLength * (0.22 + 0.58 * travelProgress));
+    const tailX = direction > 0
+      ? Math.max(this.startX, tipX - trailLength)
+      : Math.min(this.startX, tipX + trailLength);
+    const drawnLength = Math.abs(tipX - tailX);
+    if (drawnLength <= 1) return;
     const thicknessProgress = progress * progress * (3 - 2 * progress);
     const currentThickness = PULSE_MIN_THICKNESS + (PULSE_THICKNESS - PULSE_MIN_THICKNESS) * thicknessProgress;
     const halfThickness = currentThickness / 2;
-    const tailInset = Math.min(16, visibleLength * 0.32);
-    const tipInset = Math.min(10, visibleLength * 0.22);
+    const tailInset = Math.min(16, drawnLength * 0.32);
+    const tipInset = Math.min(10, drawnLength * 0.22);
 
     ctx.save();
     ctx.globalAlpha = alpha;
