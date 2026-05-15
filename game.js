@@ -456,18 +456,27 @@ function getRoomEdgeTransition(direction, roomId = currentRoomId) {
 }
 
 function checkRoomEdgeTransitions() {
-  if (roomTransition || player.isDying || player.damageTimer > 0 || player.fallRespawnGraceTimer > 0) return;
+  if (roomTransition || player.isDying || player.fallRespawnGraceTimer > 0) return;
 
   const room = getCurrentRoom();
+  const forcedSpikeEdgeDirection = player.spikeRecoveryTimer > 0 && player.touchedWorldBoundary
+    ? player.touchedWorldBoundaryDirection
+    : 0;
   const holdingLeft = keys.has("a") || keys.has("arrowleft");
   const holdingRight = keys.has("d") || keys.has("arrowright");
-  const pushingLeftEdge = player.x <= room.x && holdingLeft && !holdingRight;
-  const pushingRightEdge = player.x + player.w >= room.x + room.w && holdingRight && !holdingLeft;
+  const pushingLeftEdge = player.x <= room.x && (forcedSpikeEdgeDirection < 0 || (holdingLeft && !holdingRight));
+  const pushingRightEdge = player.x + player.w >= room.x + room.w && (forcedSpikeEdgeDirection > 0 || (holdingRight && !holdingLeft));
   const edgeDoor = pushingLeftEdge
     ? getRoomEdgeTransition(-1, room.id)
     : (pushingRightEdge ? getRoomEdgeTransition(1, room.id) : null);
 
-  if (edgeDoor) startRoomTransition(edgeDoor);
+  // Spike knockback can carry the player into a room edge while damage
+  // invulnerability is active and movement input is locked out by recoil. Treat
+  // that edge contact like an intentional push so the player cannot get stuck
+  // just off-camera between rooms. If there is no adjacent room, snap back to a
+  // safe grounded recovery point instead of leaving the player pinned at the edge.
+  if (edgeDoor && (player.damageTimer <= 0 || forcedSpikeEdgeDirection !== 0)) startRoomTransition(edgeDoor);
+  else if (!edgeDoor && forcedSpikeEdgeDirection !== 0 && (pushingLeftEdge || pushingRightEdge)) player.respawnAtLastGroundedEdge();
 }
 
 const bottomFallBoundary = config.fallBoundary
@@ -1286,6 +1295,8 @@ class Player extends Entity {
     this.fallRespawnGraceTimer = 0;
     this.gravityResetEdgeHazardTimer = 0;
     this.touchedWorldBoundary = false;
+    this.touchedWorldBoundaryDirection = 0;
+    this.spikeRecoveryTimer = 0;
     this.gravityFlipVisualTimer = 0;
     this.phaseFlickerTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
@@ -1343,10 +1354,12 @@ class Player extends Entity {
     if (this.phaseFlickerTimer > 0) this.phaseFlickerTimer = Math.max(0, this.phaseFlickerTimer - dt);
     if (this.fallRespawnGraceTimer > 0) this.fallRespawnGraceTimer -= dt;
     if (this.gravityResetEdgeHazardTimer > 0) this.gravityResetEdgeHazardTimer -= dt;
+    if (this.spikeRecoveryTimer > 0) this.spikeRecoveryTimer = Math.max(0, this.spikeRecoveryTimer - dt);
 
     const wasOnSurface = this.onSurface;
     if (!wasOnSurface) this.airTime += dt;
     this.touchedWorldBoundary = false;
+    this.touchedWorldBoundaryDirection = 0;
     this.applyGravity(dt);
     const impactVy = this.vy;
     this.moveAndCollide(dt);
@@ -1369,12 +1382,18 @@ class Player extends Entity {
     }
     if (this.attackTimer > 0) this.attackTimer -= dt;
     if (this.forcePulsePoseTimer > 0) this.forcePulsePoseTimer -= dt;
+    const currentRoom = getCurrentRoom();
+    const beforeClampX = this.x;
+    if (beforeClampX < currentRoom.x || beforeClampX + this.w > currentRoom.x + currentRoom.w) {
+      this.touchedWorldBoundary = true;
+      this.touchedWorldBoundaryDirection = beforeClampX < currentRoom.x ? -1 : 1;
+    }
+
     const room = getActiveSimulationRoom();
-    const clampedX = clamp(this.x, room.x, room.x + room.w - this.w);
-    if (clampedX !== this.x) {
+    const clampedX = clamp(beforeClampX, room.x, room.x + room.w - this.w);
+    if (clampedX !== beforeClampX) {
       this.x = clampedX;
       this.vx = 0;
-      this.touchedWorldBoundary = true;
     }
     if (isRespawnRectInBounds(this) && !rectTouchesSpikes(this)) {
       this.lastValidInBoundsPosition = { x: this.x, y: this.y };
@@ -1865,6 +1884,7 @@ class Player extends Entity {
     this.vy = recoveryPoint.outwardY * DAMAGE_RECOIL_BUMP_SPEED;
     this.recoilDirection = recoveryPoint.direction;
     this.recoilTimer = DAMAGE_RECOIL_DURATION;
+    this.spikeRecoveryTimer = CONTACT_DAMAGE_COOLDOWN;
   }
 
   getSpikeRecoveryPoint(spike, spikeBounds) {
@@ -1971,6 +1991,8 @@ class Player extends Entity {
     this.lastGravityCastId = 0;
     this.gravityResetEdgeHazardTimer = 0;
     this.touchedWorldBoundary = false;
+    this.touchedWorldBoundaryDirection = 0;
+    this.spikeRecoveryTimer = 0;
     this.gravityFlipVisualTimer = 0;
     this.phaseFlickerTimer = 0;
     this.gravityFlipVisualFromSign = this.gravitySign;
@@ -9014,7 +9036,7 @@ window.__indiePlatformerDebug = {
   resetRoomState,
   bottomFallBoundary,
   roomHazardBounds,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, CONTACT_DAMAGE_COOLDOWN, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
