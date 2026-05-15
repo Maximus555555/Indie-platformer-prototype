@@ -99,6 +99,10 @@ const PULSE_COOLDOWN = config.pulseCooldown ?? 0.35;
 const PULSE_DAMAGE = config.pulseDamage ?? 1;
 const PULSE_THICKNESS = config.pulseThickness ?? 5;
 const PULSE_LIFETIME = config.pulseLifetime ?? 0.13;
+// Spawn the System Pulse beyond the firing semicircle so the projectile reads
+// as detached from the muzzle flash instead of overlapping the player hands.
+const PULSE_SPAWN_LOCAL_X = config.pulseSpawnLocalX ?? 35.4;
+const CROUCH_PULSE_SPAWN_LOCAL_X = config.crouchPulseSpawnLocalX ?? 34.0;
 const LANDING_ANIM_DURATION = 0.12;
 const LANDING_MIN_AIR_TIME = 0.07;
 const LANDING_MIN_IMPACT_SPEED = 120;
@@ -1505,10 +1509,10 @@ class Player extends Entity {
     const originY = this.gravitySign > 0
       ? surfaceY - modelFeetY * PLAYER_VISUAL_SCALE
       : surfaceY + modelFeetY * PLAYER_VISUAL_SCALE;
-    // System Pulse is released from the compact two-hand attack pose and should
-    // sit close to the visible hand without jumping as far forward as the fully
-    // extended Force Pulse pose.
-    const localX = this.isCrouching ? 17.0 : 16.8;
+    // System Pulse is released beyond the compact two-hand attack flash. The
+    // offset leaves roughly 10 pixels between the projectile tail and the
+    // firing semicircle at the release pose.
+    const localX = this.isCrouching ? CROUCH_PULSE_SPAWN_LOCAL_X : PULSE_SPAWN_LOCAL_X;
     const localY = this.isCrouching ? 29.0 : 21.6;
     return {
       x: this.x + this.w / 2 + direction * PLAYER_VISUAL_SCALE * localX,
