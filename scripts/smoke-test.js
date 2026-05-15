@@ -312,6 +312,46 @@ if (blockedEnemy.hp !== 1) {
   throw new Error("System Pulse should damage the first unblocked enemy exactly once.");
 }
 
+// Spawn regression: if the player's release point is already inside a solid
+// target, clamp the bolt back to the facing surface instead of creating it
+// embedded inside an enemy or platform.
+debug.pulses.length = 0;
+const platformOverlapOrigin = debug.player.getPulseSpawnPoint();
+const overlappingPlatform = {
+  x: platformOverlapOrigin.x - 10,
+  y: platformOverlapOrigin.y - debug.constants.PULSE_THICKNESS / 2,
+  w: 30,
+  h: debug.constants.PULSE_THICKNESS,
+  __testBlocker: true
+};
+debug.platforms.push(overlappingPlatform);
+debug.player.attackPulseQueued = true;
+debug.player.releasePulse();
+const platformClampedPulse = debug.pulses.at(-1);
+debug.platforms.pop();
+if (!platformClampedPulse) throw new Error("System Pulse did not spawn for platform-overlap spawn regression.");
+if (Math.abs(platformClampedPulse.startX - overlappingPlatform.x) > 0.001) {
+  throw new Error(`System Pulse spawned inside an overlapping platform at ${platformClampedPulse.startX} instead of clamping to ${overlappingPlatform.x}.`);
+}
+
+debug.pulses.length = 0;
+const enemyOverlapOrigin = debug.player.getPulseSpawnPoint();
+blockedEnemy.x = enemyOverlapOrigin.x - 10;
+blockedEnemy.y = enemyOverlapOrigin.y - blockedEnemy.h / 2;
+blockedEnemy.hp = 2;
+blockedEnemy.isDying = false;
+const overlappingEnemySurfaceX = blockedEnemy.getDamageRect().x;
+debug.player.attackPulseQueued = true;
+debug.player.releasePulse();
+const enemyClampedPulse = debug.pulses.at(-1);
+if (!enemyClampedPulse) throw new Error("System Pulse did not spawn for enemy-overlap spawn regression.");
+if (Math.abs(enemyClampedPulse.startX - overlappingEnemySurfaceX) > 0.001) {
+  throw new Error(`System Pulse spawned inside an overlapping enemy at ${enemyClampedPulse.startX} instead of clamping to ${overlappingEnemySurfaceX}.`);
+}
+if (blockedEnemy.hp !== 1) {
+  throw new Error("System Pulse should still damage an overlapping enemy after clamping out of its body.");
+}
+
 drawnPulse.age = debug.constants.PULSE_LIFETIME * 0.1;
 context.calls.length = 0;
 drawnPulse.draw();

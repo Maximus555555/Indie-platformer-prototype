@@ -520,8 +520,8 @@ const systemAccessData = {
       values: () => [`Cooldown: ${formatSeconds(PHASE_SHIFT_COOLDOWN)}`, `Duration: ${formatSeconds(PHASE_SHIFT_DURATION)}`, `Exposure radius: ${Math.round(PHASE_SHIFT_EXPOSURE_RADIUS)} px`]
     },
     link: {
-      description: "Links two enemies so damage and force partially transfer between them.",
-      effects: ["Two-target link", "Damage transfer", "Force transfer"],
+      description: "Links nearby enemies so damage and force partially transfer between them.",
+      effects: ["Multi-target link", "Damage transfer", "Force transfer"],
       values: () => [`Cooldown: ${formatSeconds(ENERGY_LINK_COOLDOWN)}`, `Duration: ${formatSeconds(ENERGY_LINK_DURATION)}`, `Range: ${Math.round(ENERGY_LINK_RANGE)} px`, `Transfer: ${Math.round(ENERGY_LINK_DAMAGE_TRANSFER * 100)}%`]
     }
   }
@@ -5404,6 +5404,8 @@ class SystemPulse {
   }
 
   static fire(startX, y, direction) {
+    const spawn = resolvePulseSpawnPoint(startX, y, direction);
+    startX = spawn.x;
     const impactTarget = findPulseImpact(startX, y, direction);
     if (impactTarget.enemy) {
       const impact = { armsVerticalEdgeKill: true, direction, damageSource: "system-pulse" };
@@ -5748,6 +5750,37 @@ function getSolidEnemyRects() {
 function pulseLineOverlapsY(y, rect) {
   const halfThickness = PULSE_THICKNESS / 2;
   return y + halfThickness >= rect.y && y - halfThickness <= rect.y + rect.h;
+}
+
+function pulseSpawnOverlapsRect(startX, y, rect) {
+  return startX >= rect.x && startX <= rect.x + rect.w && pulseLineOverlapsY(y, rect);
+}
+
+function getPulseSpawnSurfaceX(rect, direction) {
+  return direction > 0 ? rect.x : rect.x + rect.w;
+}
+
+function resolvePulseSpawnPoint(startX, y, direction) {
+  let resolvedX = startX;
+  let bestDistance = Infinity;
+
+  function considerRect(rect) {
+    if (!pulseSpawnOverlapsRect(startX, y, rect)) return;
+    const surfaceX = getPulseSpawnSurfaceX(rect, direction);
+    const distanceToSurface = Math.abs(surfaceX - startX);
+    if (distanceToSurface >= bestDistance) return;
+    resolvedX = surfaceX;
+    bestDistance = distanceToSurface;
+  }
+
+  for (const platform of platforms) considerRect(platform);
+
+  for (const enemy of getActiveEnemies()) {
+    if (enemy.hp <= 0) continue;
+    considerRect(enemy.getDamageRect());
+  }
+
+  return { x: resolvedX, y };
 }
 
 function getPulseRectHitX(rect, direction) {
