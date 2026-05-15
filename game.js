@@ -5473,7 +5473,7 @@ class SystemPulse {
     ctx.lineWidth = currentThickness;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(tailX + direction * tailInset * 0.4, this.y);
+    ctx.moveTo(tailX + direction * tailInset, this.y);
     ctx.lineTo(tipX, this.y);
     ctx.stroke();
 
