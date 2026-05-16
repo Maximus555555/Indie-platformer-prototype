@@ -316,10 +316,25 @@ const platforms = [
   { x: ROOM6_X + 870, y: ROOM_FLOOR_Y, w: 90, h: 70 },
 
   // Level 1, Room 7: the first Walker + Gravity Field interaction. The
-  // ceiling hazard is optional for the player but lethal to a gravity-flipped Walker.
+  // Walker starts inverted under a slow left-moving upper platform; flipping
+  // it back to normal gravity drops it onto the spike strip below.
   { x: ROOM7_X, y: ROOM_FLOOR_Y, w: 240, h: 70 },
-  { x: ROOM7_X + 300, y: 430, w: 315, h: 24 },
-  { x: ROOM7_X + 380, y: 190, w: 170, h: 24 },
+  { id: "room7-lower-platform", x: ROOM7_X + 300, y: 430, w: 315, h: 24 },
+  {
+    id: "room7-top-platform",
+    roomId: "room-7",
+    x: ROOM7_X + 380,
+    startX: ROOM7_X + 380,
+    minX: ROOM7_X + 315,
+    maxX: ROOM7_X + 380,
+    y: 190,
+    w: 170,
+    h: 24,
+    moveSpeed: 18,
+    moveDirection: -1,
+    initialMoveDirection: -1,
+    lastDx: 0
+  },
   { x: ROOM7_X + 685, y: 430, w: 115, h: 24 },
   { x: ROOM7_X + 835, y: ROOM_FLOOR_Y, w: 125, h: 70 }
 ];
@@ -355,13 +370,14 @@ let currentRoomId = levelRooms[0].id;
 let roomTransition = null;
 
 const phaseBarriers = [];
-const room7SpikePlatform = platforms.find((platform) => platform.x === ROOM7_X + 380 && platform.y === 190);
+const movingPlatforms = platforms.filter((platform) => platform.moveSpeed > 0);
+const room7SpikePlatform = platforms.find((platform) => platform.id === "room7-lower-platform");
 const spikes = [
   {
     platform: room7SpikePlatform,
-    x: ROOM7_X + 405,
-    w: 120,
-    side: "bottom",
+    x: ROOM7_X + 385,
+    w: 150,
+    side: "top",
     spikeWidth: SPIKE_WIDTH,
     spikeHeight: SPIKE_HEIGHT
   }
@@ -431,7 +447,51 @@ function clampPlayerToCurrentRoom() {
   }
 }
 
+function carryEntitiesWithMovingPlatform(platform) {
+  if (!platform.lastDx) return;
+
+  if (player.onSurface && player.lastGroundedPlatform === platform) {
+    player.x += platform.lastDx;
+  }
+
+  for (const enemy of enemies) {
+    if (enemy.onSurface && enemy.groundedPlatform === platform) enemy.x += platform.lastDx;
+  }
+}
+
+function updateMovingPlatforms(dt) {
+  const activeRoom = getActiveSimulationRoom();
+  for (const platform of movingPlatforms) {
+    platform.lastDx = 0;
+    if (platform.roomId && platform.roomId !== activeRoom.id) continue;
+
+    const previousX = platform.x;
+    platform.x += (platform.moveDirection ?? 1) * platform.moveSpeed * dt;
+
+    if (platform.x <= platform.minX) {
+      platform.x = platform.minX;
+      platform.moveDirection = 1;
+    } else if (platform.x >= platform.maxX) {
+      platform.x = platform.maxX;
+      platform.moveDirection = -1;
+    }
+
+    platform.lastDx = platform.x - previousX;
+    carryEntitiesWithMovingPlatform(platform);
+  }
+}
+
+function resetMovingPlatformsForRoom(roomId = currentRoomId) {
+  for (const platform of movingPlatforms) {
+    if (platform.roomId && platform.roomId !== roomId) continue;
+    platform.x = platform.startX ?? platform.x;
+    platform.moveDirection = platform.initialMoveDirection ?? platform.moveDirection ?? 1;
+    platform.lastDx = 0;
+  }
+}
+
 function resetRoomState(roomId = currentRoomId) {
+  resetMovingPlatformsForRoom(roomId);
   for (const spawn of enemySpawnStates) {
     if (spawn.roomId === roomId) resetEnemyToSpawn(spawn);
   }
@@ -1199,13 +1259,18 @@ class Entity {
     return true;
   }
 
+  getDefaultGravitySign() {
+    return this.defaultGravitySign ?? 1;
+  }
+
   resetGravity() {
     this.lastGravityCastId = 0;
     this.onSurface = false;
     this.gravityFieldRemaining = 0;
-    if (this.gravitySign !== 1) {
-      this.gravitySign = 1;
-      this.vy = Math.abs(this.vy) * GRAVITY_FLIP_DAMPING;
+    const defaultGravitySign = this.getDefaultGravitySign();
+    if (this.gravitySign !== defaultGravitySign) {
+      this.gravitySign = defaultGravitySign;
+      this.vy = Math.abs(this.vy) * GRAVITY_FLIP_DAMPING * defaultGravitySign;
     }
   }
 
@@ -1315,7 +1380,7 @@ class Entity {
     if (this.phaseAwarenessTimer > 0) this.phaseAwarenessTimer = Math.max(0, this.phaseAwarenessTimer - dt);
     if (this.gravityFieldRemaining > 0) {
       this.gravityFieldRemaining = Math.max(0, this.gravityFieldRemaining - dt);
-      if (this.gravityFieldRemaining <= 0 && this.gravitySign !== 1) this.resetGravity();
+      if (this.gravityFieldRemaining <= 0 && this.gravitySign !== this.getDefaultGravitySign()) this.resetGravity();
     }
   }
 
@@ -6278,7 +6343,10 @@ function castForcePulse() {
 }
 
 const player = new Player();
-const room7Walker = new Enemy(ROOM7_X + 470, 392);
+const room7TopPlatform = platforms.find((platform) => platform.id === "room7-top-platform");
+const room7Walker = new Enemy(ROOM7_X + 430, room7TopPlatform.y + room7TopPlatform.h + 10);
+room7Walker.defaultGravitySign = -1;
+room7Walker.gravitySign = -1;
 room7Walker.direction = -1;
 room7Walker.roomId = "room-7";
 const enemies = [room7Walker];
@@ -6288,6 +6356,7 @@ const enemySpawnStates = enemies.map((enemy) => ({
   y: enemy.y,
   hp: enemy.hp,
   gravitySign: enemy.gravitySign,
+  defaultGravitySign: enemy.getDefaultGravitySign(),
   roomId: enemy.roomId ?? getRoomAtPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2).id
 }));
 for (const spawn of enemySpawnStates) spawn.enemy.roomId = spawn.roomId;
@@ -6299,6 +6368,7 @@ function resetEnemyToSpawn(spawn) {
   enemy.vx = 0;
   enemy.vy = 0;
   enemy.hp = spawn.hp;
+  enemy.defaultGravitySign = spawn.defaultGravitySign;
   enemy.gravitySign = spawn.gravitySign;
   enemy.lastGravityCastId = 0;
   enemy.gravityFieldRemaining = 0;
@@ -7927,6 +7997,7 @@ function update(dt) {
   updateAbilityCooldowns(dt);
   exposeEnemiesToPhaseShift(dt);
   updateSystemMessageTriggers();
+  updateMovingPlatforms(dt);
 
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
 

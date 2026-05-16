@@ -124,7 +124,7 @@ if (debug.enemies.length !== 1 || debug.getActiveEnemies().length !== 0) {
   throw new Error("Level 1 Room 7 should create exactly one Walker, inactive while the player starts in Room 1.");
 }
 if (debug.spikes.length !== 1 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Room 7 should include one ceiling spike strip and no phase barriers.");
+  throw new Error("Level 1 Room 7 should include one lower-platform spike strip and no phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
   throw new Error("Level 1 Rooms 1-6 should not include doors, gates, or exit markers.");
@@ -504,6 +504,21 @@ if (debug.player.x < room7X || debug.player.x > room7X + 60) {
 if (debug.getActiveEnemies().length !== 1) {
   throw new Error("Room 7 should activate exactly one Walker.");
 }
+const activeRoom7Walker = debug.getActiveEnemies()[0];
+if (activeRoom7Walker.gravitySign !== -1 || activeRoom7Walker.defaultGravitySign !== -1) {
+  throw new Error("Room 7 Walker should spawn with reversed default gravity.");
+}
+const room7TopPlatform = debug.platforms.find((platform) => platform.id === "room7-top-platform");
+if (!room7TopPlatform || room7TopPlatform.moveSpeed !== 18 || room7TopPlatform.moveDirection !== -1) {
+  throw new Error("Room 7 top platform should start moving slowly to the left.");
+}
+activeRoom7Walker.gravitySign = 1;
+activeRoom7Walker.gravityFieldRemaining = 0.001;
+debug.update(0.01);
+if (activeRoom7Walker.gravitySign !== -1) {
+  throw new Error("Room 7 Walker should return to reversed gravity when Gravity Field times out.");
+}
+debug.resetRoomState("room-7");
 
 debug.player.placeAt(room7X, 420, { grounded: true });
 dispatch("keydown", keyEvent("a", "KeyA"));
@@ -535,13 +550,13 @@ debug.room7Progress.indirectTerminationConfirmed = false;
 debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 room7Walker.x = room7X + 440;
-room7Walker.y = 220;
+room7Walker.y = 402;
 room7Walker.hp = 2;
 room7Walker.isDying = false;
-room7Walker.gravitySign = -1;
+room7Walker.gravitySign = 1;
 room7Walker.walkerState = "gravity-flipped";
-if (!debug.spikes.some((spike) => spike.side === "bottom" && spike.x === room7X + 405 && spike.w === 120)) {
-  throw new Error("Room 7 ceiling spike strip is missing or misplaced.");
+if (!debug.spikes.some((spike) => spike.side === "top" && spike.x === room7X + 385 && spike.w === 150)) {
+  throw new Error("Room 7 lower-platform spike strip is missing or misplaced.");
 }
 debug.update(16 / 1000);
 if (!room7Walker.isDying || !debug.room7Progress.indirectTerminationConfirmed) {
