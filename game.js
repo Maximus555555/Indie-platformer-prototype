@@ -299,16 +299,12 @@ const platforms = [
   { x: ROOM4_X + 365, y: 260, w: 54, h: 280 },
   { x: ROOM4_X + 650, y: ROOM_FLOOR_Y, w: 310, h: 70 },
 
-  // Level 1, Room 5: a Gravity Field timing classroom. A small starter hop
-  // resets pacing before a shaft where the upper route is reachable only by
-  // flipping gravity in midair, then flipping back to drop onto the exit floor.
+  // Level 1, Room 5: a Gravity Field timing classroom with the upper route
+  // removed so play focuses on the lower starter hop, shaft wall, and exit floor.
   { x: ROOM5_X, y: ROOM_FLOOR_Y, w: 270, h: 70 },
   { x: ROOM5_X + 335, y: 430, w: 120, h: 24 },
   { x: ROOM5_X + 505, y: ROOM_FLOOR_Y, w: 115, h: 70 },
-  { x: ROOM5_X + 625, y: 520, w: 145, h: 20 },
-  { x: ROOM5_X + 610, y: 0, w: 165, h: 24 },
   { x: ROOM5_X + 770, y: 260, w: 42, h: 280 },
-  { x: ROOM5_X + 820, y: 70, w: 92, h: 24 },
   { x: ROOM5_X + 870, y: ROOM_FLOOR_Y, w: 90, h: 70 }
 ];
 const levelRooms = [
