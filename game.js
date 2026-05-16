@@ -258,6 +258,7 @@ let cameraX = 0;
 const LEVEL1_ROOM_WIDTH = canvas.width;
 const ROOM1_X = 0;
 const ROOM2_X = ROOM1_X + LEVEL1_ROOM_WIDTH;
+const ROOM3_X = ROOM2_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -278,18 +279,28 @@ const platforms = [
   { x: ROOM2_X + 625, y: 370, w: 150, h: 24 },
   { x: ROOM2_X + 790, y: 405, w: 80, h: 22 },
   { x: ROOM2_X + 880, y: 440, w: 70, h: 22 },
-  { x: ROOM2_X + 900, y: ROOM_FLOOR_Y, w: 60, h: 70 }
+  { x: ROOM2_X + 900, y: ROOM_FLOOR_Y, w: 60, h: 70 },
+
+  // Level 1, Room 3: a sprint-assisted jump classroom. The long, flat
+  // approach lets players build sprint speed before a gap that walking jumps
+  // cannot clear, then confirms the lesson with a smaller normal jump.
+  { x: ROOM3_X, y: ROOM_FLOOR_Y, w: 430, h: 70 },
+  { x: ROOM3_X + 660, y: ROOM_FLOOR_Y, w: 170, h: 70 },
+  { x: ROOM3_X + 890, y: ROOM_FLOOR_Y, w: 70, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
-  { id: "room-2", name: "Level 1, Room 2", x: ROOM2_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM2_X + 18, y: 420 }, tutorial: "DELIBERATE JUMPING" }
+  { id: "room-2", name: "Level 1, Room 2", x: ROOM2_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM2_X + 18, y: 420 }, tutorial: "DELIBERATE JUMPING" },
+  { id: "room-3", name: "Level 1, Room 3", x: ROOM3_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM3_X + 18, y: 420 }, tutorial: "SPRINT-ASSISTED JUMPING" }
 ];
 
 const doors = [];
 const screenEdgeTransitions = [
   { id: "room-1-to-room-2", roomId: "room-1", direction: 1, targetRoomId: "room-2" },
   { id: "room-2-to-room-1", roomId: "room-2", direction: -1, targetRoomId: "room-1" },
-  { id: "room-2-right-pending", roomId: "room-2", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-2-to-room-3", roomId: "room-2", direction: 1, targetRoomId: "room-3" },
+  { id: "room-3-to-room-2", roomId: "room-3", direction: -1, targetRoomId: "room-2" },
+  { id: "room-3-right-pending", roomId: "room-3", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -6360,6 +6371,50 @@ const systemMessageTriggers = [
     repeat: false,
     fired: false,
     messages: ["Continue."],
+    blocking: false
+  },
+  {
+    id: "l1r3-velocity-modulation",
+    x: ROOM3_X + 18,
+    y: 340,
+    w: 170,
+    h: 150,
+    repeat: false,
+    fired: false,
+    messages: ["Velocity modulation available."],
+    blocking: false
+  },
+  {
+    id: "l1r3-sustained-input",
+    x: ROOM3_X + 220,
+    y: 340,
+    w: 170,
+    h: 150,
+    repeat: false,
+    fired: false,
+    messages: ["Sustained input increases traversal range."],
+    blocking: false
+  },
+  {
+    id: "l1r3-extended-traversal",
+    x: ROOM3_X + 675,
+    y: 340,
+    w: 140,
+    h: 150,
+    repeat: false,
+    fired: false,
+    messages: ["Extended traversal confirmed."],
+    blocking: false
+  },
+  {
+    id: "l1r3-proceed",
+    x: ROOM3_X + 910,
+    y: 340,
+    w: 50,
+    h: 150,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
     blocking: false
   }
 ];
