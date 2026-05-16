@@ -266,6 +266,18 @@ if (!gravityAbility.unlocked || debug.room4Progress.gravityUnlocked !== true) {
   throw new Error("Gravity Field did not unlock after the Room 4 system text sequence.");
 }
 if (gravityAbility.readyPulseTimer <= 0) throw new Error("Gravity Field unlock did not start the ready-pulse icon animation.");
+if (debug.abilityUnlockNotice.abilityId !== "gravity") throw new Error("Gravity Field unlock did not start the ability unlock popup.");
+if (debug.abilityUnlockNotice.timer <= 0 || debug.abilityUnlockNotice.worldAnimTimer <= 0) {
+  throw new Error("Gravity Field unlock did not start both popup and world animation timers.");
+}
+context.calls.length = 0;
+debug.draw();
+if (!context.calls.some((call) => call.name === "fillText" && call.args[0] === "ABILITY UNLOCKED")) {
+  throw new Error("Ability unlock popup did not draw its title text.");
+}
+if (!context.calls.some((call) => call.name === "fillText" && call.args[0] === "GRAVITY FIELD")) {
+  throw new Error("Ability unlock popup did not draw the unlocked ability name.");
+}
 for (const text of ["New function detected.", "Gravitational override available.", "Input authorization granted.", "Gravity Field unlocked."]) {
   const count = debug.systemDialogue.logs.filter((entry) => entry.id === "l1r4-gravity-unlock" && entry.text === text).length;
   if (count !== 1) throw new Error(`Expected one Room 4 unlock log for "${text}", got ${count}.`);
