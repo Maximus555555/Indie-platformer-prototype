@@ -6816,12 +6816,16 @@ function drawAbilityUnlockNotice() {
   ctx.shadowBlur = 0;
 
   const ringPulse = 0.5 + 0.5 * Math.sin(age * 7.5);
+  const iconSize = 54;
+  const pulseOutset = 8 + ringPulse * 3;
+  ctx.save();
+  ctx.translate(iconX, iconY);
   ctx.strokeStyle = `rgba(178, 248, 255, ${0.44 + ringPulse * 0.26})`;
   ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(iconX, iconY, 35 + ringPulse * 3, 0, Math.PI * 2);
+  traceAbilityTileOutline(iconSize, pulseOutset);
   ctx.stroke();
-  drawAbilityTile(ability, iconX, iconY, 54, { selected: true, showReadyPulse: false });
+  ctx.restore();
+  drawAbilityTile(ability, iconX, iconY, iconSize, { selected: true, showReadyPulse: false });
 
   drawSystemAccessText("ABILITY UNLOCKED", x + 112, y + 24, { size: 12, color: "rgba(155, 229, 255, 0.88)" });
   drawSystemAccessText(ability.name.toUpperCase(), x + 112, y + 48, { size: 20, weight: "bold", color: "rgba(239, 253, 255, 0.98)" });
@@ -8368,6 +8372,18 @@ function drawAbilitySymbol(ability, x, y, size, alpha = 1) {
   ctx.restore();
 }
 
+function traceAbilityTileOutline(size, outset = 0) {
+  const cornerRadius = Math.max(4, size * 0.15) + outset;
+  ctx.beginPath();
+  ctx.roundRect(
+    -size / 2 - outset,
+    -size / 2 - outset,
+    size + outset * 2,
+    size + outset * 2,
+    cornerRadius
+  );
+}
+
 function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
   const activeProgress = getTimedAbilityProgress(ability);
   const coolingDown = ability.cooldownRemaining > 0;
@@ -8390,8 +8406,7 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
   ctx.fillStyle = locked ? "rgba(6, 26, 55, 0.62)" : "rgba(7, 31, 66, 0.82)";
   ctx.strokeStyle = highlighted || selected ? "rgba(220, 251, 255, 0.92)" : "rgba(86, 168, 229, 0.76)";
   ctx.lineWidth = highlighted || selected ? 2.2 : 1.4;
-  ctx.beginPath();
-  ctx.roundRect(-size / 2, -size / 2, size, size, 8);
+  traceAbilityTileOutline(size);
   ctx.fill();
   ctx.stroke();
 
@@ -8416,17 +8431,10 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
   if (pulse > 0) {
     const readyPulseExpansion = 1 - pulse;
     const readyPulseOutset = size * 0.14 * readyPulseExpansion;
-    // Match the icon border shape so the ready cue blooms outward instead of flashing as a square.
+    // Match the icon border shape so the ready cue blooms outward from the tile outline.
     ctx.strokeStyle = `rgba(246, 253, 255, ${0.5 * pulse})`;
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(
-      -size / 2 - readyPulseOutset,
-      -size / 2 - readyPulseOutset,
-      size + readyPulseOutset * 2,
-      size + readyPulseOutset * 2,
-      8 + readyPulseOutset
-    );
+    traceAbilityTileOutline(size, readyPulseOutset);
     ctx.stroke();
   }
 
