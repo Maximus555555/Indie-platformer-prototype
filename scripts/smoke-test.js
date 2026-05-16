@@ -117,17 +117,17 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should start in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-if (debug.levelRooms.length !== 4 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4") {
-  throw new Error(`Expected Level 1 Rooms 1 through 4 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+if (debug.levelRooms.length !== 5 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4" || debug.levelRooms[4].id !== "room-5") {
+  throw new Error(`Expected Level 1 Rooms 1 through 5 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
 if (debug.enemies.length !== 0 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Rooms 1-4 should not create or activate any enemies.");
+  throw new Error("Level 1 Rooms 1-5 should not create or activate any enemies.");
 }
 if (debug.spikes.length !== 0 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Rooms 1-4 should not include hazards, spikes, or phase barriers.");
+  throw new Error("Level 1 Rooms 1-5 should not include hazards, spikes, or phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
-  throw new Error("Level 1 Rooms 1-4 should not include doors, gates, or exit markers.");
+  throw new Error("Level 1 Rooms 1-5 should not include doors, gates, or exit markers.");
 }
 
 const expectedPlatforms = [
@@ -140,6 +140,7 @@ const expectedPlatforms = [
 const room2X = 960;
 const room3X = 1920;
 const room4X = 2880;
+const room5X = 3840;
 const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
@@ -157,9 +158,19 @@ const expectedRoom4Platforms = [
   { x: room4X + 365, y: 260, w: 54, h: 280 },
   { x: room4X + 650, y: 470, w: 310, h: 70 }
 ];
-const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms];
+const expectedRoom5Platforms = [
+  { x: room5X, y: 470, w: 270, h: 70 },
+  { x: room5X + 335, y: 430, w: 120, h: 24 },
+  { x: room5X + 505, y: 470, w: 115, h: 70 },
+  { x: room5X + 625, y: 520, w: 145, h: 20 },
+  { x: room5X + 610, y: 0, w: 165, h: 24 },
+  { x: room5X + 770, y: 260, w: 42, h: 280 },
+  { x: room5X + 820, y: 70, w: 92, h: 24 },
+  { x: room5X + 870, y: 470, w: 90, h: 70 }
+];
+const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
-  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Room 1-4 platforms, got ${debug.platforms.length}.`);
+  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Room 1-5 platforms, got ${debug.platforms.length}.`);
 }
 for (const expected of expectedAllPlatforms) {
   if (!debug.platforms.some((platform) => platform.x === expected.x && platform.y === expected.y && platform.w === expected.w && platform.h === expected.h)) {
@@ -187,7 +198,10 @@ const expectedTriggerMessages = [
   "New function detected.",
   "Gravitational override available.",
   "Input authorization granted.",
-  "Gravity Field unlocked."
+  "Gravity Field unlocked.",
+  "Gravitational control persists.",
+  "Trajectory may be corrected mid-motion.",
+  "Arc deviation confirmed."
 ];
 for (const text of expectedTriggerMessages) {
   const trigger = debug.systemMessageTriggers.find((candidate) => candidate.messages.includes(text));
@@ -200,11 +214,14 @@ debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
-const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900];
+const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room5X + 40, room5X + 525, room5X + 920];
 for (const x of nonBlockingTriggerPositions) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
 }
+debug.player.placeAt(room5X + 835, 94, { resetGravity: false, grounded: true });
+debug.player.gravitySign = -1;
+debug.update(16 / 1000);
 const triggerLogCounts = new Map();
 for (const trigger of debug.systemMessageTriggers.filter((candidate) => !candidate.blocking)) {
   for (const text of trigger.messages) {
@@ -218,6 +235,9 @@ for (const x of nonBlockingTriggerPositions) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
 }
+debug.player.placeAt(room5X + 835, 94, { resetGravity: false, grounded: true });
+debug.player.gravitySign = -1;
+debug.update(16 / 1000);
 for (const trigger of debug.systemMessageTriggers.filter((candidate) => !candidate.blocking)) {
   for (const text of trigger.messages) {
     if (trigger.id === "l1r4-orientation-shift") continue;
@@ -379,22 +399,64 @@ if (debug.getCurrentRoomId() !== "room-3") {
   throw new Error(`Room 4 left-edge transition should return to Room 3; got ${debug.getCurrentRoomId()}.`);
 }
 
-// Room 4 right edge is reserved for a future Room 5 transition without creating Room 5.
+// Room 4 right edge connects to Room 5, and Room 5 can return left to Room 4.
 debug.enterRoom("room-4", { x: room4X + 900, y: 420 }, { grounded: true, facing: 1 });
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
 debug.player.placeAt(room4X + 960 - debug.player.w, 420, { grounded: true });
 dispatch("keydown", keyEvent("d", "KeyD"));
 debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-5") {
+  throw new Error(`Room 4 right-edge transition should enter Room 5; got ${debug.getCurrentRoomId()}.`);
+}
+if (debug.player.x < room5X || debug.player.x > room5X + 60) {
+  throw new Error(`Room 5 entry should place the player at the left start, got x=${debug.player.x}.`);
+}
+
+debug.player.placeAt(room5X, 420, { grounded: true });
+dispatch("keydown", keyEvent("a", "KeyA"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("a", "KeyA"));
 if (debug.getCurrentRoomId() !== "room-4") {
-  throw new Error(`Room 4 right-edge pending transition should not leave Room 4; got ${debug.getCurrentRoomId()}.`);
+  throw new Error(`Room 5 left-edge transition should return to Room 4; got ${debug.getCurrentRoomId()}.`);
 }
-if (debug.levelRooms.some((room) => room.id === "room-5")) {
-  throw new Error("Room 5 should not be created yet.");
+
+// Room 5 right edge is reserved for a future room transition.
+debug.enterRoom("room-5", { x: room5X + 900, y: 420 }, { grounded: true, facing: 1 });
+debug.systemDialogue.activeAmbient = null;
+debug.systemDialogue.ambientQueue.length = 0;
+debug.player.placeAt(room5X + 960 - debug.player.w, 420, { grounded: true });
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-5") {
+  throw new Error(`Room 5 right-edge pending transition should not leave Room 5; got ${debug.getCurrentRoomId()}.`);
 }
-if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-4-right-pending" && entry.text === "Room transition pending.")) {
-  throw new Error("Room 4 right screen-edge transition did not log the pending transition message.");
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-5-right-pending" && entry.text === "Room transition pending.")) {
+  throw new Error("Room 5 right screen-edge transition did not log the pending transition message.");
+}
+
+const room5ShaftGap = { left: room5X + 620, right: room5X + 770 };
+const normalJumpPeakHeight = (480 * 480) / (2 * 1200);
+const room5UpperPlatform = expectedRoom5Platforms.find((platform) => platform.x === room5X + 820);
+if (!room5UpperPlatform) throw new Error("Room 5 upper platform fixture is missing from the smoke test.");
+if (470 - room5UpperPlatform.y > normalJumpPeakHeight) {
+  // Expected: the ledge is vertically out of reach without Gravity Field.
+} else {
+  throw new Error("Room 5 upper platform is low enough for a normal jump.");
+}
+if (room5ShaftGap.right - room5ShaftGap.left <= debug.player.w * 2) {
+  throw new Error("Room 5 shaft gap is too narrow to teach midair gravity timing.");
+}
+for (const ability of debug.abilities) {
+  if (ability.id === "gravity") {
+    ability.unlocked = true;
+  } else if (ability.unlocked) {
+    throw new Error(`${ability.name} should remain locked in Room 5.`);
+  }
 }
 
 const sprintGap = { left: room3X + 430, right: room3X + 660 };
