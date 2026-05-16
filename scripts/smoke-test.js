@@ -178,6 +178,23 @@ for (const expected of expectedAllPlatforms) {
 for (const ability of debug.abilities) {
   if (ability.unlocked) throw new Error(`${ability.name} should be locked at Level 1, Room 1 start.`);
 }
+if (debug.hasUnlockedAbility()) throw new Error("Ability HUD should stay hidden before the first ability unlock.");
+
+// Holding the ability key before any unlock should not reveal or pause on the
+// ability wheel. The corner icon and wheel are only introduced after the first
+// authorized ability becomes available.
+dispatch("keydown", keyEvent("e", "KeyE"));
+debug.update(0.3);
+dispatch("keyup", keyEvent("e", "KeyE"));
+debug.update(16 / 1000);
+if (debug.abilityWheel.open) throw new Error("Ability wheel opened before the first ability unlock.");
+debug.abilityWheel.open = true;
+context.calls.length = 0;
+debug.draw();
+if (context.calls.some((call) => call.name === "fillText" && ["Gravity", "Time", "Pulse", "Anchor", "Phase", "Link"].includes(call.args[0]))) {
+  throw new Error("Ability wheel labels drew before the first ability unlock.");
+}
+debug.abilityWheel.open = false;
 
 const expectedTriggerMessages = [
   "Movement initialized.",

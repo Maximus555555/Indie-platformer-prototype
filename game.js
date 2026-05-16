@@ -631,6 +631,10 @@ const systemAccess = {
   abilityRects: []
 };
 
+function hasUnlockedAbility() {
+  return abilities.some((ability) => ability.unlocked);
+}
+
 function getSelectedAbility() {
   return abilities.find((ability) => ability.id === selectedAbilityId) ?? abilities[0];
 }
@@ -7488,11 +7492,13 @@ function activateSelectedAbility() {
 }
 
 function openAbilityWheel() {
+  if (!hasUnlockedAbility()) return false;
   abilityWheel.open = true;
   abilityWheel.centerX = canvas.width / 2;
   abilityWheel.centerY = canvas.height / 2;
   abilityWheel.hoveredIndex = Math.max(0, abilities.findIndex((ability) => ability.id === selectedAbilityId));
   updateAbilityWheelHover();
+  return true;
 }
 
 function closeAbilityWheel(confirmSelection = true) {
@@ -7519,6 +7525,14 @@ function updateAbilityWheelHover() {
 }
 
 function updateAbilityInput(dt) {
+  if (!hasUnlockedAbility()) {
+    if (abilityWheel.open) closeAbilityWheel(false);
+    eHoldTimer = 0;
+    eWheelOpenedThisHold = false;
+    eReleasedThisFrame = false;
+    return;
+  }
+
   if (keys.has("e")) {
     eHoldTimer += dt;
     if (!eWheelOpenedThisHold && eHoldTimer >= ABILITY_HOLD_THRESHOLD) {
@@ -8511,6 +8525,7 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
 }
 
 function drawSelectedAbilityIcon() {
+  if (!hasUnlockedAbility()) return;
   const ability = getSelectedAbility();
   const x = canvas.width - ABILITY_ICON_MARGIN - ABILITY_ICON_SIZE / 2;
   const y = canvas.height - ABILITY_ICON_MARGIN - ABILITY_ICON_SIZE / 2;
@@ -8518,7 +8533,7 @@ function drawSelectedAbilityIcon() {
 }
 
 function drawAbilityWheel() {
-  if (!abilityWheel.open) return;
+  if (!abilityWheel.open || !hasUnlockedAbility()) return;
 
   const centerX = abilityWheel.centerX;
   const centerY = abilityWheel.centerY;
@@ -9378,6 +9393,7 @@ window.__indiePlatformerDebug = {
   pulses,
   droneProjectiles,
   abilityWheel,
+  hasUnlockedAbility,
   abilityUnlockNotice,
   showAbilityUnlockNotice,
   systemAccess,
