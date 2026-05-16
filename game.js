@@ -255,25 +255,41 @@ let phaseCastId = 0;
 let currentPhaseExposure = new Set();
 let cameraX = 0;
 
+const LEVEL1_ROOM_WIDTH = canvas.width;
+const ROOM1_X = 0;
+const ROOM2_X = ROOM1_X + LEVEL1_ROOM_WIDTH;
+const ROOM_FLOOR_Y = 470;
+
 const platforms = [
   // Level 1, Room 1: a safe movement classroom. It teaches basic
   // movement and normal jumps without enemies, hazards, puzzles, or doors.
-  { x: 0, y: 470, w: 360, h: 70 },
-  { x: 410, y: 420, w: 150, h: 20 },
+  { x: ROOM1_X, y: 470, w: 360, h: 70 },
+  { x: ROOM1_X + 410, y: 420, w: 150, h: 20 },
   // The lowered recovery floor keeps the tutorial gap non-lethal until a
   // broader fall-reset progression pass is added.
-  { x: 560, y: 505, w: 70, h: 35 },
-  { x: 630, y: 390, w: 160, h: 20 },
-  { x: 760, y: 470, w: 200, h: 70 }
+  { x: ROOM1_X + 560, y: 505, w: 70, h: 35 },
+  { x: ROOM1_X + 630, y: 390, w: 160, h: 20 },
+  { x: ROOM1_X + 760, y: 470, w: 200, h: 70 },
+
+  // Level 1, Room 2: a deliberate-jump classroom with no enemies, hazards,
+  // gates, or moving platforms. Screen edges handle all room transitions.
+  { x: ROOM2_X, y: ROOM_FLOOR_Y, w: 260, h: 70 },
+  { x: ROOM2_X + 360, y: 430, w: 150, h: 24 },
+  { x: ROOM2_X + 625, y: 370, w: 150, h: 24 },
+  { x: ROOM2_X + 790, y: 405, w: 80, h: 22 },
+  { x: ROOM2_X + 880, y: 440, w: 70, h: 22 },
+  { x: ROOM2_X + 900, y: ROOM_FLOOR_Y, w: 60, h: 70 }
 ];
-const LEVEL1_ROOM_WIDTH = canvas.width;
 const levelRooms = [
-  { id: "room-1", name: "Level 1, Room 1", x: 0, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" }
+  { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
+  { id: "room-2", name: "Level 1, Room 2", x: ROOM2_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM2_X + 18, y: 420 }, tutorial: "DELIBERATE JUMPING" }
 ];
 
 const doors = [];
 const screenEdgeTransitions = [
-  { id: "room-1-right-pending", roomId: "room-1", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-1-to-room-2", roomId: "room-1", direction: 1, targetRoomId: "room-2" },
+  { id: "room-2-to-room-1", roomId: "room-2", direction: -1, targetRoomId: "room-1" },
+  { id: "room-2-right-pending", roomId: "room-2", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -297,6 +313,24 @@ function getRoomAtPoint(x, y = canvas.height / 2) {
 
 function isRectInRoom(rect, room = getCurrentRoom()) {
   return rect.x + rect.w > room.x && rect.x < room.x + room.w && rect.y + rect.h > room.y && rect.y < room.y + room.h;
+}
+
+function getRoomForPlatform(platform) {
+  if (!platform) return getCurrentRoom();
+  const centerX = platform.x + platform.w / 2;
+  const centerY = platform.y + platform.h / 2;
+  return getRoomAtPoint(centerX, centerY);
+}
+
+function getRoomForRect(rect) {
+  if (!rect) return getCurrentRoom();
+  return getRoomAtPoint(rect.x + rect.w / 2, rect.y + rect.h / 2);
+}
+
+function getLevelBounds() {
+  const left = Math.min(...levelRooms.map((room) => room.x));
+  const right = Math.max(...levelRooms.map((room) => room.x + room.w));
+  return { left, right };
 }
 
 function getRoomDoors(roomId = currentRoomId) {
@@ -5359,8 +5393,9 @@ class DroneProjectile {
 
     const rect = this.getRect();
     const worldBuffer = 480;
-    if (this.x < -worldBuffer
-      || this.x > ROOM_WIDTH + worldBuffer
+    const levelBounds = getLevelBounds();
+    if (this.x < levelBounds.left - worldBuffer
+      || this.x > levelBounds.right + worldBuffer
       || this.y < -worldBuffer
       || this.y > bottomFallBoundary + worldBuffer) {
       this.deactivate();
@@ -5632,11 +5667,11 @@ function isRectTouchingActualRoomHazardBoundary(rect) {
 }
 
 function isRectInsideActualRoomBounds(rect) {
-  const bounds = roomHazardBounds;
-  return rect.x >= bounds.left
-    && rect.x + rect.w <= bounds.right
-    && rect.y >= bounds.top
-    && rect.y + rect.h <= bounds.bottom;
+  const room = getRoomForRect(rect);
+  return rect.x >= room.x
+    && rect.x + rect.w <= room.x + room.w
+    && rect.y >= room.y
+    && rect.y + rect.h <= room.y + room.h;
 }
 
 function isRespawnRectInBounds(rect) {
@@ -5652,10 +5687,11 @@ function getPlatformRespawnY(platform, gravitySign, playerHeight = STAND_HEIGHT)
 }
 
 function platformHasRespawnRoom(platform, playerWidth) {
-  return Boolean(platform)
-    && platform.x < ROOM_WIDTH
-    && platform.x + platform.w > 0
-    && platform.y + platform.h > 0
+  if (!platform) return false;
+  const room = getRoomForPlatform(platform);
+  return platform.x < room.x + room.w
+    && platform.x + platform.w > room.x
+    && platform.y + platform.h > room.y
     && platform.y < bottomFallBoundary
     && platform.w >= playerWidth;
 }
@@ -5677,8 +5713,9 @@ function getRespawnPointForPlatform(platform, options = {}) {
     avoidEnemies = true
   } = options;
   const y = getPlatformRespawnY(platform, gravitySign, STAND_HEIGHT);
-  const minX = Math.max(0, platform.x + EDGE_RESPAWN_INSET);
-  const maxX = Math.min(ROOM_WIDTH - PLAYER_WIDTH, platform.x + platform.w - PLAYER_WIDTH - EDGE_RESPAWN_INSET);
+  const room = getRoomForPlatform(platform);
+  const minX = Math.max(room.x, platform.x + EDGE_RESPAWN_INSET);
+  const maxX = Math.min(room.x + room.w - PLAYER_WIDTH, platform.x + platform.w - PLAYER_WIDTH - EDGE_RESPAWN_INSET);
   if (minX > maxX) return null;
 
   const referenceCenterX = reference?.x ?? platform.x + platform.w / 2;
@@ -5722,7 +5759,7 @@ function getCheckpointRespawnPoint() {
     gravitySign: 1,
     reference: { x: checkpoint.x + PLAYER_WIDTH / 2, y: checkpoint.y + STAND_HEIGHT / 2 },
     avoidEnemies: false
-  }) ?? { x: clamp(checkpoint.x, 0, ROOM_WIDTH - PLAYER_WIDTH), y: checkpoint.y, platform: checkpointPlatform ?? platforms[1] };
+  }) ?? { x: clamp(checkpoint.x, getCurrentRoom().x, getCurrentRoom().x + getCurrentRoom().w - PLAYER_WIDTH), y: checkpoint.y, platform: checkpointPlatform ?? platforms[1] };
 }
 
 function getClosestPlatformEdge(platform, playerCenterX) {
@@ -6279,6 +6316,50 @@ const systemMessageTriggers = [
     repeat: false,
     fired: false,
     messages: ["Proceed."],
+    blocking: false
+  },
+  {
+    id: "l1r2-traversal-pattern",
+    x: ROOM2_X + 18,
+    y: 340,
+    w: 190,
+    h: 150,
+    repeat: false,
+    fired: false,
+    messages: ["Traversal pattern accepted."],
+    blocking: false
+  },
+  {
+    id: "l1r2-input-commitment",
+    x: ROOM2_X + 500,
+    y: 300,
+    w: 130,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Increase input commitment."],
+    blocking: false
+  },
+  {
+    id: "l1r2-spatial-correction",
+    x: ROOM2_X + 760,
+    y: 300,
+    w: 130,
+    h: 190,
+    repeat: false,
+    fired: false,
+    messages: ["Spatial correction stable."],
+    blocking: false
+  },
+  {
+    id: "l1r2-continue",
+    x: ROOM2_X + 905,
+    y: 330,
+    w: 55,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Continue."],
     blocking: false
   }
 ];
