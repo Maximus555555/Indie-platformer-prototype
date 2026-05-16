@@ -316,25 +316,11 @@ const platforms = [
   { x: ROOM6_X + 870, y: ROOM_FLOOR_Y, w: 90, h: 70 },
 
   // Level 1, Room 7: the first Walker + Gravity Field interaction. The
-  // Walker starts inverted under a slow left-moving upper platform; flipping
-  // it back to normal gravity drops it onto the spike strip below.
+  // Walker starts inverted under a fixed upper platform; flipping it back to
+  // normal gravity drops it onto the spike strip below.
   { x: ROOM7_X, y: ROOM_FLOOR_Y, w: 240, h: 70 },
   { id: "room7-lower-platform", x: ROOM7_X + 300, y: 430, w: 315, h: 24 },
-  {
-    id: "room7-top-platform",
-    roomId: "room-7",
-    x: ROOM7_X + 380,
-    startX: ROOM7_X + 380,
-    minX: ROOM7_X + 315,
-    maxX: ROOM7_X + 380,
-    y: 190,
-    w: 170,
-    h: 24,
-    moveSpeed: 18,
-    moveDirection: -1,
-    initialMoveDirection: -1,
-    lastDx: 0
-  },
+  { id: "room7-top-platform", x: ROOM7_X + 380, y: 190, w: 170, h: 24 },
   { x: ROOM7_X + 685, y: 430, w: 115, h: 24 },
   { x: ROOM7_X + 835, y: ROOM_FLOOR_Y, w: 125, h: 70 }
 ];
@@ -3715,7 +3701,8 @@ class Enemy extends Entity {
 
     ctx.restore();
     const walkerVisualTopY = cy + hoverBob + this.hitJoltY - 24 * WALKER_VISUAL_SCALE;
-    drawGravityMarker(this, walkerVisualTopY);
+    const walkerVisualBottomY = cy + hoverBob + this.hitJoltY + 18 * WALKER_VISUAL_SCALE;
+    drawGravityMarker(this, walkerVisualTopY, walkerVisualBottomY);
   }
 }
 
@@ -4105,7 +4092,7 @@ class Swarm extends Entity {
     this.drawSwarmBody(hitFlash > 0.45);
     ctx.restore();
 
-    drawGravityMarker(this, cy + hoverBob + this.hitJoltY - 12);
+    drawGravityMarker(this, cy + hoverBob + this.hitJoltY - 12, cy + hoverBob + this.hitJoltY + 12);
   }
 }
 
@@ -4756,7 +4743,8 @@ class Drone extends Entity {
     this.drawDroneBody(0, 0, charge, hitFlash > 0.45);
     ctx.restore();
     const droneBodyTopY = cy + hoverBob + this.hitJoltY - DRONE_CORE_DIAMOND_RY;
-    drawGravityMarker(this, droneBodyTopY);
+    const droneBodyBottomY = cy + hoverBob + this.hitJoltY + DRONE_CORE_DIAMOND_RY;
+    drawGravityMarker(this, droneBodyTopY, droneBodyBottomY);
   }
 }
 
@@ -5491,7 +5479,8 @@ class Jumper extends Entity {
     ctx.restore();
 
     const visualTopY = cy + hoverBob + this.hitJoltY - 28;
-    drawGravityMarker(this, visualTopY);
+    const visualBottomY = cy + hoverBob + this.hitJoltY + 28;
+    drawGravityMarker(this, visualTopY, visualBottomY);
   }
 }
 
@@ -7158,18 +7147,30 @@ function drawActiveAnchorMarkers() {
   }
 }
 
-function drawGravityMarker(entity, visualTopY = entity.y) {
-  if (entity.gravitySign === 1) return;
+function drawGravityMarker(entity, visualTopY = entity.y, visualBottomY = entity.y + entity.h) {
+  const defaultGravitySign = entity.getDefaultGravitySign?.() ?? 1;
+  if (entity.gravitySign === defaultGravitySign) return;
+
   const cx = entity.x + entity.w / 2;
-  // Anchor the arrow above the rendered art, not just the physics body, so it
-  // remains readable without touching enemies even when that places it in a ceiling.
-  const y = visualTopY - GRAVITY_MARKER_GAP - GRAVITY_MARKER_HEIGHT;
+  const pointsDown = entity.gravitySign > 0;
+  // Anchor the arrow outside the rendered art so ability-flipped gravity stays
+  // readable without implying a naturally inverted enemy is currently affected.
+  const y = pointsDown
+    ? visualBottomY + GRAVITY_MARKER_GAP
+    : visualTopY - GRAVITY_MARKER_GAP - GRAVITY_MARKER_HEIGHT;
+
   ctx.save();
   ctx.fillStyle = "#87ffc6";
   ctx.beginPath();
-  ctx.moveTo(cx, y);
-  ctx.lineTo(cx - 6, y + 9);
-  ctx.lineTo(cx + 6, y + 9);
+  if (pointsDown) {
+    ctx.moveTo(cx, y + GRAVITY_MARKER_HEIGHT);
+    ctx.lineTo(cx - 6, y + GRAVITY_MARKER_HEIGHT - 9);
+    ctx.lineTo(cx + 6, y + GRAVITY_MARKER_HEIGHT - 9);
+  } else {
+    ctx.moveTo(cx, y);
+    ctx.lineTo(cx - 6, y + 9);
+    ctx.lineTo(cx + 6, y + 9);
+  }
   ctx.closePath();
   ctx.fill();
   ctx.restore();
