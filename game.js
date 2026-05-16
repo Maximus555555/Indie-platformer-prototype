@@ -265,6 +265,7 @@ const ROOM3_X = ROOM2_X + LEVEL1_ROOM_WIDTH;
 const ROOM4_X = ROOM3_X + LEVEL1_ROOM_WIDTH;
 const ROOM5_X = ROOM4_X + LEVEL1_ROOM_WIDTH;
 const ROOM6_X = ROOM5_X + LEVEL1_ROOM_WIDTH;
+const ROOM7_X = ROOM6_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -312,7 +313,15 @@ const platforms = [
   { x: ROOM6_X + 335, y: 430, w: 120, h: 24 },
   { x: ROOM6_X + 505, y: ROOM_FLOOR_Y, w: 115, h: 70 },
   { x: ROOM6_X + 770, y: 260, w: 42, h: 280 },
-  { x: ROOM6_X + 870, y: ROOM_FLOOR_Y, w: 90, h: 70 }
+  { x: ROOM6_X + 870, y: ROOM_FLOOR_Y, w: 90, h: 70 },
+
+  // Level 1, Room 7: the first Walker + Gravity Field interaction. The
+  // ceiling hazard is optional for the player but lethal to a gravity-flipped Walker.
+  { x: ROOM7_X, y: ROOM_FLOOR_Y, w: 240, h: 70 },
+  { x: ROOM7_X + 300, y: 430, w: 315, h: 24 },
+  { x: ROOM7_X + 380, y: 190, w: 170, h: 24 },
+  { x: ROOM7_X + 685, y: 430, w: 115, h: 24 },
+  { x: ROOM7_X + 835, y: ROOM_FLOOR_Y, w: 125, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -320,7 +329,8 @@ const levelRooms = [
   { id: "room-3", name: "Level 1, Room 3", x: ROOM3_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM3_X + 18, y: 420 }, tutorial: "SPRINT-ASSISTED JUMPING" },
   { id: "room-4", name: "Level 1, Room 4", x: ROOM4_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM4_X + 18, y: 420 }, tutorial: "GRAVITY FIELD" },
   { id: "room-5", name: "Level 1, Room 5", x: ROOM5_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM5_X + 18, y: 420 }, tutorial: "CENTER PLATFORM" },
-  { id: "room-6", name: "Level 1, Room 6", x: ROOM6_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM6_X + 18, y: 420 }, tutorial: "GRAVITY TIMING ROOM" }
+  { id: "room-6", name: "Level 1, Room 6", x: ROOM6_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM6_X + 18, y: 420 }, tutorial: "GRAVITY TIMING ROOM" },
+  { id: "room-7", name: "Level 1, Room 7", x: ROOM7_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM7_X + 18, y: 420 }, tutorial: "INDIRECT TERMINATION" }
 ];
 
 const doors = [];
@@ -335,7 +345,9 @@ const screenEdgeTransitions = [
   { id: "room-5-to-room-4", roomId: "room-5", direction: -1, targetRoomId: "room-4" },
   { id: "room-5-to-room-6", roomId: "room-5", direction: 1, targetRoomId: "room-6" },
   { id: "room-6-to-room-5", roomId: "room-6", direction: -1, targetRoomId: "room-5" },
-  { id: "room-6-right-pending", roomId: "room-6", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-6-to-room-7", roomId: "room-6", direction: 1, targetRoomId: "room-7" },
+  { id: "room-7-to-room-6", roomId: "room-7", direction: -1, targetRoomId: "room-6" },
+  { id: "room-7-right-pending", roomId: "room-7", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -343,7 +355,17 @@ let currentRoomId = levelRooms[0].id;
 let roomTransition = null;
 
 const phaseBarriers = [];
-const spikes = [];
+const room7SpikePlatform = platforms.find((platform) => platform.x === ROOM7_X + 380 && platform.y === 190);
+const spikes = [
+  {
+    platform: room7SpikePlatform,
+    x: ROOM7_X + 405,
+    w: 120,
+    side: "bottom",
+    spikeWidth: SPIKE_WIDTH,
+    spikeHeight: SPIKE_HEIGHT
+  }
+];
 
 function getRoomById(roomId) {
   return levelRooms.find((room) => room.id === roomId) ?? levelRooms[0];
@@ -856,9 +878,11 @@ function centerOf(entity) {
 }
 
 function enemyTouchesVerticalWorldEdge(enemy) {
+  const room = getRoomForRect(enemy.getDamageRect?.() ?? enemy);
   const left = enemy.x;
   const right = enemy.x + enemy.w;
-  return left <= ENEMY_VERTICAL_EDGE_KILL_TOLERANCE || right >= ROOM_WIDTH - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE;
+  return left <= room.x + ENEMY_VERTICAL_EDGE_KILL_TOLERANCE
+    || right >= room.x + room.w - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE;
 }
 
 function enemyShouldDieOnVerticalWorldEdge(enemy) {
@@ -1144,7 +1168,8 @@ class Entity {
 
   resolveWorldHorizontalBounds() {
     const oldX = this.x;
-    this.x = clamp(this.x, 0, ROOM_WIDTH - this.w);
+    const room = getRoomForRect(this);
+    this.x = clamp(this.x, room.x, room.x + room.w - this.w);
     if (this.x !== oldX) {
       this.vx = 0;
       return true;
@@ -3263,8 +3288,9 @@ class Enemy extends Entity {
 
   hasWallAhead() {
     const body = this.getCollisionRect();
-    if (this.direction < 0 && body.x <= ENEMY_VERTICAL_EDGE_KILL_TOLERANCE) return true;
-    if (this.direction > 0 && body.x + body.w >= ROOM_WIDTH - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE) return true;
+    const room = getRoomForRect(body);
+    if (this.direction < 0 && body.x <= room.x + ENEMY_VERTICAL_EDGE_KILL_TOLERANCE) return true;
+    if (this.direction > 0 && body.x + body.w >= room.x + room.w - ENEMY_VERTICAL_EDGE_KILL_TOLERANCE) return true;
     const wallProbe = {
       x: this.direction > 0 ? body.x + body.w : body.x - 3,
       y: body.y + 4,
@@ -6139,7 +6165,7 @@ function updateEnergyLink(dt) {
   }
 }
 
-function beginEnvironmentalEnemyDeath(sourceEnemy) {
+function beginEnvironmentalEnemyDeath(sourceEnemy, cause = "environment") {
   if (!sourceEnemy || sourceEnemy.hp <= 0 || sourceEnemy.isDying) return false;
 
   const linkedTargets = !sourceEnemy.isBoss && isEnergyLinked(sourceEnemy)
@@ -6147,6 +6173,19 @@ function beginEnvironmentalEnemyDeath(sourceEnemy) {
     : [];
 
   sourceEnemy.beginDeath();
+
+  if (cause === "spike"
+    && sourceEnemy === room7Walker
+    && currentRoomId === "room-7"
+    && !room7Progress.indirectTerminationConfirmed) {
+    room7Progress.indirectTerminationConfirmed = true;
+    enqueueSystemMessage("Indirect termination confirmed.", {
+      id: "l1r7-indirect-termination",
+      type: "system",
+      blocking: false,
+      duration: SYSTEM_AMBIENT_DURATION
+    });
+  }
 
   // Environmental hazards are lethal through Energy Link: spikes and armed edge
   // kills shatter every other linked non-boss enemy instead of dealing damage.
@@ -6239,7 +6278,10 @@ function castForcePulse() {
 }
 
 const player = new Player();
-const enemies = [];
+const room7Walker = new Enemy(ROOM7_X + 470, 392);
+room7Walker.direction = -1;
+room7Walker.roomId = "room-7";
+const enemies = [room7Walker];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
   x: enemy.x,
@@ -6339,6 +6381,10 @@ const room4Progress = {
   gravityUnlockStarted: false,
   gravityUnlocked: false,
   orientationConfirmed: false
+};
+
+const room7Progress = {
+  indirectTerminationConfirmed: false
 };
 
 function unlockGravityFieldFromRoom4() {
@@ -6567,6 +6613,39 @@ const systemMessageTriggers = [
     x: ROOM6_X + 900,
     y: 330,
     w: 60,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
+    blocking: false
+  },
+  {
+    id: "l1r7-environmental-correction",
+    x: ROOM7_X + 145,
+    y: 330,
+    w: 150,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Environmental correction may be applied."],
+    blocking: false
+  },
+  {
+    id: "l1r7-hostile-process",
+    x: ROOM7_X + 285,
+    y: 330,
+    w: 150,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Hostile process detected."],
+    blocking: false
+  },
+  {
+    id: "l1r7-proceed",
+    x: ROOM7_X + 885,
+    y: 330,
+    w: 75,
     h: 160,
     repeat: false,
     fired: false,
@@ -7879,7 +7958,7 @@ function update(dt) {
 
   for (const enemy of getActiveEnemies()) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
-    if (rectTouchesSpikes(enemy.getDamageRect())) beginEnvironmentalEnemyDeath(enemy);
+    if (rectTouchesSpikes(enemy.getDamageRect())) beginEnvironmentalEnemyDeath(enemy, "spike");
   }
 
   if (!player.isDying && player.isInvalidEdgeFallState()) player.fallOutOfWorld();
@@ -9415,6 +9494,7 @@ window.__indiePlatformerDebug = {
   systemDialogue,
   systemMessageTriggers,
   room4Progress,
+  room7Progress,
   enqueueSystemMessage,
   getSelectedAbility,
   getEnergyLinkState: () => ({

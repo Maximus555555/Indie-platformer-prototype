@@ -117,14 +117,14 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should start in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-if (debug.levelRooms.length !== 6 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4" || debug.levelRooms[4].id !== "room-5" || debug.levelRooms[5].id !== "room-6") {
-  throw new Error(`Expected Level 1 Rooms 1 through 6 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+if (debug.levelRooms.length !== 7 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4" || debug.levelRooms[4].id !== "room-5" || debug.levelRooms[5].id !== "room-6" || debug.levelRooms[6].id !== "room-7") {
+  throw new Error(`Expected Level 1 Rooms 1 through 7 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
-if (debug.enemies.length !== 0 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Rooms 1-6 should not create or activate any enemies.");
+if (debug.enemies.length !== 1 || debug.getActiveEnemies().length !== 0) {
+  throw new Error("Level 1 Room 7 should create exactly one Walker, inactive while the player starts in Room 1.");
 }
-if (debug.spikes.length !== 0 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Rooms 1-6 should not include hazards, spikes, or phase barriers.");
+if (debug.spikes.length !== 1 || debug.phaseBarriers.length !== 0) {
+  throw new Error("Level 1 Room 7 should include one ceiling spike strip and no phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
   throw new Error("Level 1 Rooms 1-6 should not include doors, gates, or exit markers.");
@@ -142,6 +142,7 @@ const room3X = 1920;
 const room4X = 2880;
 const room5X = 3840;
 const room6X = 4800;
+const room7X = 5760;
 const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
@@ -171,7 +172,14 @@ const expectedRoom6Platforms = [
   { x: room6X + 770, y: 260, w: 42, h: 280 },
   { x: room6X + 870, y: 470, w: 90, h: 70 }
 ];
-const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms];
+const expectedRoom7Platforms = [
+  { x: room7X, y: 470, w: 240, h: 70 },
+  { x: room7X + 300, y: 430, w: 315, h: 24 },
+  { x: room7X + 380, y: 190, w: 170, h: 24 },
+  { x: room7X + 685, y: 430, w: 115, h: 24 },
+  { x: room7X + 835, y: 470, w: 125, h: 70 }
+];
+const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
   throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Room 1-6 platforms, got ${debug.platforms.length}.`);
 }
@@ -221,7 +229,9 @@ const expectedTriggerMessages = [
   "Gravity Field unlocked.",
   "Gravitational control persists.",
   "Trajectory may be corrected mid-motion.",
-  "Arc deviation confirmed."
+  "Arc deviation confirmed.",
+  "Hostile process detected.",
+  "Environmental correction may be applied."
 ];
 for (const text of expectedTriggerMessages) {
   const trigger = debug.systemMessageTriggers.find((candidate) => candidate.messages.includes(text));
@@ -234,7 +244,7 @@ debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
-const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920];
+const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910];
 for (const x of nonBlockingTriggerPositions) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
@@ -476,19 +486,69 @@ if (debug.getCurrentRoomId() !== "room-5") {
   throw new Error(`Room 6 left-edge transition should return to Room 5; got ${debug.getCurrentRoomId()}.`);
 }
 
-// Room 6 right edge is reserved for a future room transition.
+// Room 6 right edge now connects to Room 7, and Room 7 can return left to Room 6.
 debug.enterRoom("room-6", { x: room6X + 900, y: 420 }, { grounded: true, facing: 1 });
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
 debug.player.placeAt(room6X + 960 - debug.player.w, 420, { grounded: true });
 dispatch("keydown", keyEvent("d", "KeyD"));
 debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
-if (debug.getCurrentRoomId() !== "room-6") {
-  throw new Error(`Room 6 right-edge pending transition should not leave Room 6; got ${debug.getCurrentRoomId()}.`);
+if (debug.getCurrentRoomId() !== "room-7") {
+  throw new Error(`Room 6 right-edge transition should enter Room 7; got ${debug.getCurrentRoomId()}.`);
 }
-if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-6-right-pending" && entry.text === "Room transition pending.")) {
-  throw new Error("Room 6 right screen-edge transition did not log the pending transition message.");
+if (debug.player.x < room7X || debug.player.x > room7X + 60) {
+  throw new Error(`Room 7 entry should place the player at the left start, got x=${debug.player.x}.`);
+}
+if (debug.getActiveEnemies().length !== 1) {
+  throw new Error("Room 7 should activate exactly one Walker.");
+}
+
+debug.player.placeAt(room7X, 420, { grounded: true });
+dispatch("keydown", keyEvent("a", "KeyA"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("a", "KeyA"));
+if (debug.getCurrentRoomId() !== "room-6") {
+  throw new Error(`Room 7 left-edge transition should return to Room 6; got ${debug.getCurrentRoomId()}.`);
+}
+
+// Room 7 right edge is reserved for the future Room 8 transition.
+debug.enterRoom("room-7", { x: room7X + 900, y: 420 }, { grounded: true, facing: 1 });
+debug.systemDialogue.activeAmbient = null;
+debug.systemDialogue.ambientQueue.length = 0;
+debug.player.placeAt(room7X + 960 - debug.player.w, 420, { grounded: true });
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-7") {
+  throw new Error(`Room 7 right-edge pending transition should not leave Room 7; got ${debug.getCurrentRoomId()}.`);
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-7-right-pending" && entry.text === "Room transition pending.")) {
+  throw new Error("Room 7 right screen-edge transition did not log the pending transition message.");
+}
+
+const room7Walker = debug.enemies[0];
+debug.resetRoomState("room-7");
+debug.room7Progress.indirectTerminationConfirmed = false;
+debug.systemDialogue.logs.length = 0;
+debug.systemDialogue.loggedMessageKeys.clear();
+room7Walker.x = room7X + 440;
+room7Walker.y = 220;
+room7Walker.hp = 2;
+room7Walker.isDying = false;
+room7Walker.gravitySign = -1;
+room7Walker.walkerState = "gravity-flipped";
+if (!debug.spikes.some((spike) => spike.side === "bottom" && spike.x === room7X + 405 && spike.w === 120)) {
+  throw new Error("Room 7 ceiling spike strip is missing or misplaced.");
+}
+debug.update(16 / 1000);
+if (!room7Walker.isDying || !debug.room7Progress.indirectTerminationConfirmed) {
+  throw new Error("Room 7 Walker did not die and confirm indirect termination when touching ceiling spikes.");
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r7-indirect-termination" && entry.text === "Indirect termination confirmed.")) {
+  throw new Error("Room 7 spike kill did not log the indirect termination message.");
 }
 
 const room6ShaftGap = { left: room6X + 620, right: room6X + 770 };
