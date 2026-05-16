@@ -195,6 +195,9 @@ const ABILITY_ICON_MARGIN = 24;
 const ABILITY_WHEEL_RADIUS = 118;
 const ABILITY_WHEEL_INNER_RADIUS = 34;
 const ABILITY_READY_PULSE_DURATION = 0.22;
+const ABILITY_UNLOCK_NOTICE_DURATION = 4.2;
+const ABILITY_UNLOCK_NOTICE_FADE = 0.35;
+const ABILITY_UNLOCK_WORLD_ANIM_DURATION = 1.25;
 const SYSTEM_TEXT_SPEED = 48;
 const SYSTEM_AMBIENT_DURATION = 3.2;
 const SYSTEM_AMBIENT_FADE = 0.45;
@@ -541,6 +544,13 @@ const abilityWheel = {
   centerX: canvas.width / 2,
   centerY: canvas.height / 2
 };
+
+const abilityUnlockNotice = {
+  abilityId: null,
+  timer: 0,
+  duration: ABILITY_UNLOCK_NOTICE_DURATION,
+  worldAnimTimer: 0
+};
 // Mouse-driven wheel selection will be restored behind a future settings toggle.
 const MOUSE_ABILITY_WHEEL_SELECTION_ENABLED = false;
 
@@ -620,6 +630,10 @@ function isAbilityReady(ability) {
 
 function getAbilityById(id) {
   return abilities.find((ability) => ability.id === id);
+}
+
+function getAbilityDescription(ability) {
+  return systemAccessData.abilities[ability?.id]?.description ?? "New ability authorized.";
 }
 
 
@@ -6313,6 +6327,7 @@ function unlockGravityFieldFromRoom4() {
   gravityAbility.readyPulseTimer = ABILITY_READY_PULSE_DURATION;
   selectedAbilityId = gravityAbility.id;
   systemAccess.selectedAbilityId = gravityAbility.id;
+  showAbilityUnlockNotice(gravityAbility);
 }
 
 function confirmRoom4OrientationShift() {
@@ -6623,6 +6638,22 @@ function advanceBlockingSystemMessage() {
   startNextBlockingSystemMessage();
 }
 
+
+function showAbilityUnlockNotice(ability) {
+  if (!ability) return;
+  abilityUnlockNotice.abilityId = ability.id;
+  abilityUnlockNotice.timer = abilityUnlockNotice.duration;
+  abilityUnlockNotice.worldAnimTimer = ABILITY_UNLOCK_WORLD_ANIM_DURATION;
+}
+
+function updateAbilityUnlockNotice(dt) {
+  abilityUnlockNotice.timer = Math.max(0, abilityUnlockNotice.timer - dt);
+  abilityUnlockNotice.worldAnimTimer = Math.max(0, abilityUnlockNotice.worldAnimTimer - dt);
+  if (abilityUnlockNotice.timer <= 0 && abilityUnlockNotice.worldAnimTimer <= 0) {
+    abilityUnlockNotice.abilityId = null;
+  }
+}
+
 function updateSystemMessages(dt) {
   startNextBlockingSystemMessage();
 
@@ -6714,6 +6745,94 @@ function drawSystemMessageBox({ x, y, w, labelY, text, alpha, prompt = "" }) {
     ctx.fillStyle = "rgba(155, 229, 255, 0.78)";
     ctx.fillText(prompt, x + w - 18, y + 70);
   }
+  ctx.restore();
+}
+
+
+function drawAbilityUnlockWorldAnimation() {
+  if (!abilityUnlockNotice.abilityId || abilityUnlockNotice.worldAnimTimer <= 0) return;
+  const ability = getAbilityById(abilityUnlockNotice.abilityId);
+  if (!ability) return;
+
+  const elapsed = 1 - abilityUnlockNotice.worldAnimTimer / ABILITY_UNLOCK_WORLD_ANIM_DURATION;
+  const progress = clamp(elapsed, 0, 1);
+  const alpha = Math.sin(progress * Math.PI);
+  const playerCenter = centerOf(player);
+  const radius = 34 + 78 * easeOutCubic(progress);
+
+  ctx.save();
+  ctx.translate(playerCenter.x, playerCenter.y - player.h * 0.12);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = "rgba(139, 245, 255, 0.9)";
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = "rgba(84, 210, 255, 0.58)";
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.rotate(progress * Math.PI * 2);
+  for (let i = 0; i < 6; i += 1) {
+    const angle = i * Math.PI / 3;
+    const inner = radius * 0.58;
+    const outer = radius * 0.78;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+    ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = Math.min(1, alpha + 0.15);
+  drawAbilitySymbol(ability, 0, 0, 48 + 12 * Math.sin(progress * Math.PI), 1);
+  ctx.restore();
+}
+
+function drawAbilityUnlockNotice() {
+  if (!abilityUnlockNotice.abilityId || abilityUnlockNotice.timer <= 0) return;
+  const ability = getAbilityById(abilityUnlockNotice.abilityId);
+  if (!ability) return;
+
+  const age = abilityUnlockNotice.duration - abilityUnlockNotice.timer;
+  const fadeIn = clamp(age / ABILITY_UNLOCK_NOTICE_FADE, 0, 1);
+  const fadeOut = clamp(abilityUnlockNotice.timer / ABILITY_UNLOCK_NOTICE_FADE, 0, 1);
+  const alpha = Math.min(fadeIn, fadeOut);
+  const slide = (1 - easeOutCubic(fadeIn)) * 18;
+  const w = Math.min(520, canvas.width - 64);
+  const h = 116;
+  const x = (canvas.width - w) / 2;
+  const y = 74 - slide;
+  const iconX = x + 62;
+  const iconY = y + h / 2;
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(3, 15, 34, 0.9)";
+  ctx.strokeStyle = "rgba(139, 245, 255, 0.82)";
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = "rgba(63, 204, 255, 0.28)";
+  ctx.shadowBlur = 18;
+  fillRoundedRect(x, y, w, h, 10);
+  strokeRoundedRect(x, y, w, h, 10);
+  ctx.shadowBlur = 0;
+
+  const ringPulse = 0.5 + 0.5 * Math.sin(age * 7.5);
+  ctx.strokeStyle = `rgba(178, 248, 255, ${0.44 + ringPulse * 0.26})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(iconX, iconY, 35 + ringPulse * 3, 0, Math.PI * 2);
+  ctx.stroke();
+  drawAbilityTile(ability, iconX, iconY, 54, { selected: true, showReadyPulse: false });
+
+  drawSystemAccessText("ABILITY UNLOCKED", x + 112, y + 24, { size: 12, color: "rgba(155, 229, 255, 0.88)" });
+  drawSystemAccessText(ability.name.toUpperCase(), x + 112, y + 48, { size: 20, weight: "bold", color: "rgba(239, 253, 255, 0.98)" });
+  const description = getAbilityDescription(ability);
+  ctx.font = "13px monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(212, 240, 248, 0.88)";
+  const lines = wrapSystemText(description, w - 136).slice(0, 2);
+  lines.forEach((line, index) => ctx.fillText(line, x + 112, y + 75 + index * 17));
   ctx.restore();
 }
 
@@ -7616,6 +7735,7 @@ function getEnemyUpdateOrder() {
 
 function update(dt) {
   systemAccess.deniedTimer = Math.max(0, systemAccess.deniedTimer - dt);
+  updateAbilityUnlockNotice(dt);
   if (systemAccess.open) {
     updateSystemAccessAnimations(dt);
     pressedThisFrame.clear();
@@ -9049,6 +9169,7 @@ function draw() {
   drawActiveAnchorMarkers();
   drawEnergyLinkMarkers();
   droneProjectiles.forEach((projectile) => projectile.draw());
+  drawAbilityUnlockWorldAnimation();
   player.draw();
   ctx.restore();
   drawHud();
@@ -9056,6 +9177,7 @@ function draw() {
   drawAbilityWheel();
   drawSystemAccessDeniedMessage();
   drawSystemMessages();
+  drawAbilityUnlockNotice();
   drawSystemAccessInterface();
   drawRoomTransitionFade();
 }
@@ -9193,6 +9315,8 @@ window.__indiePlatformerDebug = {
   pulses,
   droneProjectiles,
   abilityWheel,
+  abilityUnlockNotice,
+  showAbilityUnlockNotice,
   systemAccess,
   openSystemAccess,
   closeSystemAccess,
