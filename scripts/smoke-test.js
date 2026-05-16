@@ -143,9 +143,7 @@ const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
   { x: room2X + 625, y: 370, w: 150, h: 24 },
-  { x: room2X + 790, y: 405, w: 80, h: 22 },
-  { x: room2X + 880, y: 440, w: 70, h: 22 },
-  { x: room2X + 900, y: 470, w: 60, h: 70 }
+  { x: room2X + 790, y: 405, w: 80, h: 22 }
 ];
 const expectedRoom3Platforms = [
   { x: room3X, y: 470, w: 430, h: 70 },

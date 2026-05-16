@@ -278,8 +278,6 @@ const platforms = [
   { x: ROOM2_X + 360, y: 430, w: 150, h: 24 },
   { x: ROOM2_X + 625, y: 370, w: 150, h: 24 },
   { x: ROOM2_X + 790, y: 405, w: 80, h: 22 },
-  { x: ROOM2_X + 880, y: 440, w: 70, h: 22 },
-  { x: ROOM2_X + 900, y: ROOM_FLOOR_Y, w: 60, h: 70 },
 
   // Level 1, Room 3: a sprint-assisted jump classroom. The long, flat
   // approach lets players build sprint speed before a gap that walking jumps
