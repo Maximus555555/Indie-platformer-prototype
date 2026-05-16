@@ -259,6 +259,7 @@ const LEVEL1_ROOM_WIDTH = canvas.width;
 const ROOM1_X = 0;
 const ROOM2_X = ROOM1_X + LEVEL1_ROOM_WIDTH;
 const ROOM3_X = ROOM2_X + LEVEL1_ROOM_WIDTH;
+const ROOM4_X = ROOM3_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -284,12 +285,22 @@ const platforms = [
   // cannot clear, then confirms the lesson with a smaller normal jump.
   { x: ROOM3_X, y: ROOM_FLOOR_Y, w: 430, h: 70 },
   { x: ROOM3_X + 660, y: ROOM_FLOOR_Y, w: 170, h: 70 },
-  { x: ROOM3_X + 890, y: ROOM_FLOOR_Y, w: 70, h: 70 }
+  { x: ROOM3_X + 890, y: ROOM_FLOOR_Y, w: 70, h: 70 },
+
+  // Level 1, Room 4: a safe Gravity Field classroom. The center wall blocks
+  // normal floor progress, while the upper ceiling route teaches gravity flips
+  // without enemies, hazards, spikes, doors, or timing pressure.
+  { x: ROOM4_X, y: ROOM_FLOOR_Y, w: 330, h: 70 },
+  { x: ROOM4_X + 245, y: 96, w: 470, h: 24 },
+  { x: ROOM4_X + 365, y: 260, w: 54, h: 280 },
+  { x: ROOM4_X + 430, y: 505, w: 170, h: 35 },
+  { x: ROOM4_X + 650, y: ROOM_FLOOR_Y, w: 310, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
   { id: "room-2", name: "Level 1, Room 2", x: ROOM2_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM2_X + 18, y: 420 }, tutorial: "DELIBERATE JUMPING" },
-  { id: "room-3", name: "Level 1, Room 3", x: ROOM3_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM3_X + 18, y: 420 }, tutorial: "SPRINT-ASSISTED JUMPING" }
+  { id: "room-3", name: "Level 1, Room 3", x: ROOM3_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM3_X + 18, y: 420 }, tutorial: "SPRINT-ASSISTED JUMPING" },
+  { id: "room-4", name: "Level 1, Room 4", x: ROOM4_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM4_X + 18, y: 420 }, tutorial: "GRAVITY FIELD" }
 ];
 
 const doors = [];
@@ -298,7 +309,9 @@ const screenEdgeTransitions = [
   { id: "room-2-to-room-1", roomId: "room-2", direction: -1, targetRoomId: "room-1" },
   { id: "room-2-to-room-3", roomId: "room-2", direction: 1, targetRoomId: "room-3" },
   { id: "room-3-to-room-2", roomId: "room-3", direction: -1, targetRoomId: "room-2" },
-  { id: "room-3-right-pending", roomId: "room-3", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-3-to-room-4", roomId: "room-3", direction: 1, targetRoomId: "room-4" },
+  { id: "room-4-to-room-3", roomId: "room-4", direction: -1, targetRoomId: "room-3" },
+  { id: "room-4-right-pending", roomId: "room-4", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -6282,6 +6295,37 @@ const systemDialogue = {
   nextLogOrder: 1
 };
 
+const room4Progress = {
+  gravityUnlockStarted: false,
+  gravityUnlocked: false,
+  orientationConfirmed: false
+};
+
+function unlockGravityFieldFromRoom4() {
+  if (room4Progress.gravityUnlocked) return;
+  const gravityAbility = getAbilityById("gravity");
+  if (!gravityAbility) return;
+
+  room4Progress.gravityUnlocked = true;
+  gravityAbility.unlocked = true;
+  gravityAbility.cooldownRemaining = 0;
+  gravityAbility.activeRemaining = 0;
+  gravityAbility.readyPulseTimer = ABILITY_READY_PULSE_DURATION;
+  selectedAbilityId = gravityAbility.id;
+  systemAccess.selectedAbilityId = gravityAbility.id;
+}
+
+function confirmRoom4OrientationShift() {
+  if (room4Progress.orientationConfirmed || currentRoomId !== "room-4") return;
+  room4Progress.orientationConfirmed = true;
+  enqueueSystemMessage("Orientation shift confirmed.", {
+    id: "l1r4-orientation-shift",
+    type: "system",
+    blocking: false,
+    duration: SYSTEM_AMBIENT_DURATION
+  });
+}
+
 const systemMessageTriggers = [
   {
     id: "l1r1-movement-initialized",
@@ -6414,6 +6458,35 @@ const systemMessageTriggers = [
     fired: false,
     messages: ["Proceed."],
     blocking: false
+  },
+  {
+    id: "l1r4-gravity-unlock",
+    x: ROOM4_X + 72,
+    y: 330,
+    w: 150,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: [
+      "New function detected.",
+      "Gravitational override available.",
+      "Input authorization granted.",
+      "Gravity Field unlocked."
+    ],
+    blocking: true,
+    onTrigger: () => { room4Progress.gravityUnlockStarted = true; },
+    onComplete: unlockGravityFieldFromRoom4
+  },
+  {
+    id: "l1r4-proceed",
+    x: ROOM4_X + 875,
+    y: 330,
+    w: 65,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
+    blocking: false
   }
 ];
 function normalizeSystemLines(messages) {
@@ -6455,7 +6528,9 @@ function createBlockingSystemMessage(messages, options = {}) {
     logOptions: options,
     logged: false,
     lineIndex: 0,
-    visibleChars: 0
+    visibleChars: 0,
+    onComplete: typeof options.onComplete === "function" ? options.onComplete : null,
+    completed: false
   };
 }
 
@@ -6540,6 +6615,10 @@ function advanceBlockingSystemMessage() {
     return;
   }
 
+  if (!message.completed) {
+    message.completed = true;
+    message.onComplete?.();
+  }
   systemDialogue.activeBlocking = null;
   startNextBlockingSystemMessage();
 }
@@ -6573,11 +6652,13 @@ function updateSystemMessageTriggers() {
   for (const trigger of systemMessageTriggers) {
     if (trigger.fired && !trigger.repeat) continue;
     if (!rectsOverlap(playerRect, trigger)) continue;
+    trigger.onTrigger?.();
     enqueueSystemMessage(trigger.messages, {
       id: trigger.id,
       type: trigger.type,
       blocking: trigger.blocking,
-      duration: trigger.duration
+      duration: trigger.duration,
+      onComplete: trigger.onComplete
     });
     trigger.fired = true;
   }
@@ -6923,6 +7004,7 @@ function activateGravityField() {
     entity.flipGravity(gravityCastId);
     activeGravityEntities.add(entity);
   }
+  if (affectedEntities.has(player)) confirmRoom4OrientationShift();
   return true;
 }
 
@@ -9118,6 +9200,7 @@ window.__indiePlatformerDebug = {
   canOpenSystemAccess,
   systemDialogue,
   systemMessageTriggers,
+  room4Progress,
   enqueueSystemMessage,
   getSelectedAbility,
   getEnergyLinkState: () => ({
