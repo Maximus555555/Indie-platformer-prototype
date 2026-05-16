@@ -256,76 +256,32 @@ let currentPhaseExposure = new Set();
 let cameraX = 0;
 
 const platforms = [
-  // Level 1, Room 1: a safe movement classroom. The old sandbox hazards
-  // and enemies are no longer part of the opening playable space.
-  { x: 0, y: 470, w: 960, h: 70 },
-  { x: 250, y: 405, w: 150, h: 20 },
-  { x: 505, y: 360, w: 165, h: 20 },
-  { x: 735, y: 420, w: 120, h: 20 },
-
-  // Later rooms retain the working combat/platforming systems for progression.
-  { x: 960, y: 470, w: 960, h: 70 },
-  { x: 1180, y: 365, w: 150, h: 20 },
-  { x: 1495, y: 300, w: 190, h: 20 },
-  { x: 1765, y: 385, w: 155, h: 20 },
-  { x: 1970, y: 260, w: 155, h: 20 },
-  { x: 1920, y: 470, w: 960, h: 70 },
-  { x: 2285, y: 360, w: 190, h: 20 },
-  { x: 2460, y: 245, w: 210, h: 20 },
-  { x: 2680, y: 390, w: 180, h: 20 },
-  { x: 2860, y: 310, w: 240, h: 20 },
-  { x: 2945, y: 150, w: 150, h: 20 },
-  // Swarm arena: staggered shelves give the mob room to chase while proving
-  // its steering respects solid canvas platforms.
-  { x: 2240, y: 365, w: 210, h: 20 },
-  { x: 2495, y: 300, w: 190, h: 20 },
-  { x: 2635, y: 190, w: 130, h: 20 },
-  // Level 1 room 4: a first focused Walker encounter arena.
-  { x: 2880, y: 470, w: 960, h: 70 },
-  { x: 3130, y: 370, w: 170, h: 20 },
-  { x: 3440, y: 305, w: 190, h: 20 },
-  // Level 1 room 5: Walker plus a simple spike hazard.
-  { x: 3840, y: 470, w: 960, h: 70 },
-  { x: 4140, y: 365, w: 210, h: 20 },
-  { x: 4480, y: 305, w: 190, h: 20 },
-  // Level 1 room 6: quiet exit space with an end marker.
-  { x: 4800, y: 470, w: 960, h: 70 },
-  { x: 5125, y: 380, w: 210, h: 20 }
+  // Level 1, Room 1: a safe movement classroom. It teaches basic
+  // movement and normal jumps without enemies, hazards, puzzles, or doors.
+  { x: 0, y: 470, w: 360, h: 70 },
+  { x: 410, y: 420, w: 150, h: 20 },
+  // The lowered recovery floor keeps the tutorial gap non-lethal until a
+  // broader fall-reset progression pass is added.
+  { x: 560, y: 505, w: 70, h: 35 },
+  { x: 630, y: 390, w: 160, h: 20 },
+  { x: 760, y: 470, w: 200, h: 70 }
 ];
 const LEVEL1_ROOM_WIDTH = canvas.width;
 const levelRooms = [
-  { id: "room-1", name: "Room 1: Movement", x: 0, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
-  { id: "room-2", name: "Room 2: Jumping", x: 960, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 1030, y: 420 }, tutorial: "JUMPING / PLATFORMING" },
-  { id: "room-3", name: "Room 3: Attack Tutorial", x: 1920, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 1995, y: 420 }, tutorial: "ATTACK TUTORIAL AREA" },
-  { id: "room-4", name: "Room 4: First Walker", x: 2880, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 2960, y: 420 }, tutorial: "FIRST WALKER ENCOUNTER" },
-  { id: "room-5", name: "Room 5: Hazard", x: 3840, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 3920, y: 420 }, tutorial: "WALKER + HAZARD" },
-  { id: "room-6", name: "Room 6: Exit", x: 4800, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 4880, y: 420 }, tutorial: "EXIT ROOM" }
+  { id: "room-1", name: "Level 1, Room 1", x: 0, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" }
 ];
 
-const doors = [
-  { id: "r1-to-r2", roomId: "room-1", x: 900, y: 392, w: 34, h: 78, targetRoomId: "room-2", targetSpawn: { x: 1030, y: 420 }, facing: 1 },
-  { id: "r2-to-r1", roomId: "room-2", x: 986, y: 392, w: 34, h: 78, targetRoomId: "room-1", targetSpawn: { x: 842, y: 420 }, facing: -1 },
-  { id: "r2-to-r3", roomId: "room-2", x: 1860, y: 392, w: 34, h: 78, targetRoomId: "room-3", targetSpawn: { x: 1995, y: 420 }, facing: 1 },
-  { id: "r3-to-r2", roomId: "room-3", x: 1946, y: 392, w: 34, h: 78, targetRoomId: "room-2", targetSpawn: { x: 1800, y: 420 }, facing: -1 },
-  { id: "r3-to-r4", roomId: "room-3", x: 2820, y: 392, w: 34, h: 78, targetRoomId: "room-4", targetSpawn: { x: 2960, y: 420 }, facing: 1 },
-  { id: "r4-to-r3", roomId: "room-4", x: 2906, y: 392, w: 34, h: 78, targetRoomId: "room-3", targetSpawn: { x: 2760, y: 420 }, facing: -1 },
-  { id: "r4-to-r5", roomId: "room-4", x: 3780, y: 392, w: 34, h: 78, targetRoomId: "room-5", targetSpawn: { x: 3920, y: 420 }, facing: 1 },
-  { id: "r5-to-r4", roomId: "room-5", x: 3866, y: 392, w: 34, h: 78, targetRoomId: "room-4", targetSpawn: { x: 3720, y: 420 }, facing: -1 },
-  { id: "r5-to-r6", roomId: "room-5", x: 4740, y: 392, w: 34, h: 78, targetRoomId: "room-6", targetSpawn: { x: 4880, y: 420 }, facing: 1 },
-  { id: "r6-to-r5", roomId: "room-6", x: 4826, y: 392, w: 34, h: 78, targetRoomId: "room-5", targetSpawn: { x: 4680, y: 420 }, facing: -1 }
+const doors = [];
+const screenEdgeTransitions = [
+  { id: "room-1-right-pending", roomId: "room-1", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
-const exitMarker = { roomId: "room-6", x: 5520, y: 390, w: 48, h: 80 };
+const exitMarker = null;
 let currentRoomId = levelRooms[0].id;
 let roomTransition = null;
 
 const phaseBarriers = [];
-
-const spikes = [
-  // Hazards are intentionally absent from Room 1; later rooms can reintroduce
-  // them after basic traversal has been taught.
-  { platform: platforms.find((platform) => platform.x === 3840 && platform.y === 470), side: "top", x: 4270, w: 128, spikeWidth: SPIKE_WIDTH, spikeHeight: SPIKE_HEIGHT }
-];
+const spikes = [];
 
 function getRoomById(roomId) {
   return levelRooms.find((room) => room.id === roomId) ?? levelRooms[0];
@@ -385,7 +341,8 @@ function resetRoomState(roomId = currentRoomId) {
 function getDoorTransitionSpawn(door) {
   const sourceRoom = getRoomById(door.roomId);
   const targetRoom = getRoomById(door.targetRoomId);
-  const targetX = door.facing > 0
+  const direction = door.direction ?? door.facing ?? 1;
+  const targetX = direction > 0
     ? targetRoom.x + EDGE_RESPAWN_INSET
     : targetRoom.x + targetRoom.w - EDGE_RESPAWN_INSET - player.w;
   const sourceTravelHeight = Math.max(1, sourceRoom.h - player.h);
@@ -436,7 +393,7 @@ function updateRoomTransition(dt) {
   const halfway = roomTransition.duration / 2;
   if (!roomTransition.moved && roomTransition.elapsed >= halfway) {
     const { door } = roomTransition;
-    enterRoom(door.targetRoomId, getDoorTransitionSpawn(door), { facing: door.facing, grounded: player.onSurface });
+    enterRoom(door.targetRoomId, getDoorTransitionSpawn(door), { facing: door.direction ?? door.facing, grounded: player.onSurface });
     roomTransition.moved = true;
   }
   if (roomTransition.elapsed >= roomTransition.duration) roomTransition = null;
@@ -445,7 +402,21 @@ function updateRoomTransition(dt) {
 }
 
 function getRoomEdgeTransition(direction, roomId = currentRoomId) {
-  return getRoomDoors(roomId).find((door) => door.facing === direction) ?? null;
+  return screenEdgeTransitions.find((transition) => transition.roomId === roomId && transition.direction === direction)
+    ?? getRoomDoors(roomId).find((door) => door.facing === direction)
+    ?? null;
+}
+
+function handlePendingRoomEdgeTransition(edgeTransition) {
+  cancelSystemPulseCarryover();
+  if (edgeTransition.pendingFired) return;
+  enqueueSystemMessage(edgeTransition.pendingMessage, {
+    id: edgeTransition.id,
+    type: "system",
+    blocking: false,
+    duration: SYSTEM_AMBIENT_DURATION
+  });
+  edgeTransition.pendingFired = true;
 }
 
 function checkRoomEdgeTransitions() {
@@ -468,8 +439,12 @@ function checkRoomEdgeTransitions() {
   // that edge contact like an intentional push so the player cannot get stuck
   // just off-camera between rooms. If there is no adjacent room, snap back to a
   // safe grounded recovery point instead of leaving the player pinned at the edge.
-  if (edgeDoor && (player.damageTimer <= 0 || forcedSpikeEdgeDirection !== 0)) startRoomTransition(edgeDoor);
-  else if (!edgeDoor && forcedSpikeEdgeDirection !== 0 && (pushingLeftEdge || pushingRightEdge)) player.respawnAtLastGroundedEdge();
+  if (edgeDoor && (player.damageTimer <= 0 || forcedSpikeEdgeDirection !== 0)) {
+    if (edgeDoor.targetRoomId) startRoomTransition(edgeDoor);
+    else handlePendingRoomEdgeTransition(edgeDoor);
+  } else if (!edgeDoor && forcedSpikeEdgeDirection !== 0 && (pushingLeftEdge || pushingRightEdge)) {
+    player.respawnAtLastGroundedEdge();
+  }
 }
 
 const bottomFallBoundary = config.fallBoundary
@@ -6165,19 +6140,7 @@ function castForcePulse() {
 }
 
 const player = new Player();
-const enemies = [
-  // Room 1 stays enemy-free; later rooms retain the combat systems for unlock progression.
-  new Drone(1085, 210),
-  new Enemy(1590, 435),
-  new Jumper(2010, 265),
-  new Enemy(2200, 435),
-  new Enemy(2320, 435),
-  new Swarm(2375, 330),
-  new Swarm(2410, 305),
-  new Swarm(2445, 330),
-  new Enemy(3330, 435),
-  new Enemy(4300, 435)
-];
+const enemies = [];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
   x: enemy.x,
@@ -6276,9 +6239,9 @@ const systemDialogue = {
 const systemMessageTriggers = [
   {
     id: "l1r1-movement-initialized",
-    x: 60,
+    x: 55,
     y: 340,
-    w: 150,
+    w: 145,
     h: 150,
     repeat: false,
     fired: false,
@@ -6287,9 +6250,9 @@ const systemMessageTriggers = [
   },
   {
     id: "l1r1-input-response",
-    x: 270,
+    x: 235,
     y: 340,
-    w: 145,
+    w: 120,
     h: 150,
     repeat: false,
     fired: false,
@@ -6298,10 +6261,10 @@ const systemMessageTriggers = [
   },
   {
     id: "l1r1-vertical-traversal",
-    x: 440,
-    y: 290,
-    w: 145,
-    h: 200,
+    x: 345,
+    y: 300,
+    w: 100,
+    h: 190,
     repeat: false,
     fired: false,
     messages: ["Vertical traversal permitted."],
@@ -6309,9 +6272,9 @@ const systemMessageTriggers = [
   },
   {
     id: "l1r1-proceed",
-    x: 790,
+    x: 820,
     y: 330,
-    w: 130,
+    w: 120,
     h: 160,
     repeat: false,
     fired: false,
@@ -7608,7 +7571,7 @@ function drawRoomEdgeTransitionHints() {
 }
 
 function drawExitMarker() {
-  if (exitMarker.roomId !== currentRoomId) return;
+  if (!exitMarker || exitMarker.roomId !== currentRoomId) return;
   ctx.save();
   ctx.fillStyle = "rgba(110, 232, 165, 0.18)";
   ctx.strokeStyle = "rgba(192, 255, 219, 0.92)";
@@ -9045,6 +9008,7 @@ window.__indiePlatformerDebug = {
   safeAnchor,
   levelRooms,
   doors,
+  screenEdgeTransitions,
   exitMarker,
   getCurrentRoomId: () => currentRoomId,
   getCurrentRoom,
