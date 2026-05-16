@@ -638,7 +638,10 @@ const abilityUnlockNotice = {
   abilityId: null,
   timer: 0,
   duration: ABILITY_UNLOCK_NOTICE_DURATION,
-  worldAnimTimer: 0
+  age: 0,
+  worldAnimTimer: 0,
+  waitingForInput: false,
+  inputReady: false
 };
 // Mouse-driven wheel selection will be restored behind a future settings toggle.
 const MOUSE_ABILITY_WHEEL_SELECTION_ENABLED = false;
@@ -6851,14 +6854,42 @@ function showAbilityUnlockNotice(ability) {
   if (!ability) return;
   abilityUnlockNotice.abilityId = ability.id;
   abilityUnlockNotice.timer = abilityUnlockNotice.duration;
+  abilityUnlockNotice.age = 0;
   abilityUnlockNotice.worldAnimTimer = ABILITY_UNLOCK_WORLD_ANIM_DURATION;
+  abilityUnlockNotice.waitingForInput = true;
+  abilityUnlockNotice.inputReady = false;
+}
+
+function dismissAbilityUnlockNotice() {
+  abilityUnlockNotice.abilityId = null;
+  abilityUnlockNotice.timer = 0;
+  abilityUnlockNotice.age = 0;
+  abilityUnlockNotice.worldAnimTimer = 0;
+  abilityUnlockNotice.waitingForInput = false;
+  abilityUnlockNotice.inputReady = false;
+}
+
+function isAbilityUnlockNoticeBlocking() {
+  return Boolean(abilityUnlockNotice.abilityId && abilityUnlockNotice.waitingForInput);
 }
 
 function updateAbilityUnlockNotice(dt) {
-  abilityUnlockNotice.timer = Math.max(0, abilityUnlockNotice.timer - dt);
+  if (!abilityUnlockNotice.abilityId) return;
+
+  abilityUnlockNotice.age += dt;
   abilityUnlockNotice.worldAnimTimer = Math.max(0, abilityUnlockNotice.worldAnimTimer - dt);
+
+  if (abilityUnlockNotice.waitingForInput) {
+    // Ignore the Enter press that completed the preceding system message so the
+    // ability detail popup always requires its own confirmation.
+    if (!keys.has("enter")) abilityUnlockNotice.inputReady = true;
+    if (abilityUnlockNotice.inputReady && pressedThisFrame.has("enter")) dismissAbilityUnlockNotice();
+    return;
+  }
+
+  abilityUnlockNotice.timer = Math.max(0, abilityUnlockNotice.timer - dt);
   if (abilityUnlockNotice.timer <= 0 && abilityUnlockNotice.worldAnimTimer <= 0) {
-    abilityUnlockNotice.abilityId = null;
+    dismissAbilityUnlockNotice();
   }
 }
 
@@ -7000,9 +7031,9 @@ function drawAbilityUnlockNotice() {
   const ability = getAbilityById(abilityUnlockNotice.abilityId);
   if (!ability) return;
 
-  const age = abilityUnlockNotice.duration - abilityUnlockNotice.timer;
+  const age = abilityUnlockNotice.age;
   const fadeIn = clamp(age / ABILITY_UNLOCK_NOTICE_FADE, 0, 1);
-  const fadeOut = clamp(abilityUnlockNotice.timer / ABILITY_UNLOCK_NOTICE_FADE, 0, 1);
+  const fadeOut = abilityUnlockNotice.waitingForInput ? 1 : clamp(abilityUnlockNotice.timer / ABILITY_UNLOCK_NOTICE_FADE, 0, 1);
   const alpha = Math.min(fadeIn, fadeOut);
   const slide = (1 - easeOutCubic(fadeIn)) * 18;
   const w = Math.min(520, canvas.width - 64);
@@ -7045,6 +7076,13 @@ function drawAbilityUnlockNotice() {
   ctx.fillStyle = "rgba(212, 240, 248, 0.88)";
   const lines = wrapSystemText(description, w - 136).slice(0, 2);
   lines.forEach((line, index) => ctx.fillText(line, x + 112, y + 75 + index * 17));
+
+  if (abilityUnlockNotice.waitingForInput) {
+    ctx.font = "12px monospace";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(155, 229, 255, 0.78)";
+    ctx.fillText("ENTER", x + w - 24, y + h - 26);
+  }
   ctx.restore();
 }
 
@@ -7063,7 +7101,7 @@ function drawSystemMessages() {
       x,
       y: canvas.height - 132,
       w: boxWidth,
-      labelY: canvas.height - 154,
+      labelY: canvas.height - 118,
       text,
       alpha: 1,
       prompt
@@ -7978,6 +8016,14 @@ function update(dt) {
 
   updateSystemMessages(dt);
   if (updateRoomTransition(dt)) return;
+  if (isAbilityUnlockNoticeBlocking()) {
+    if (abilityWheel.open) closeAbilityWheel(false);
+    eHoldTimer = 0;
+    eWheelOpenedThisHold = false;
+    eReleasedThisFrame = false;
+    pressedThisFrame.clear();
+    return;
+  }
   if (isSystemMessageBlocking()) {
     if (abilityWheel.open) closeAbilityWheel(false);
     eHoldTimer = 0;
