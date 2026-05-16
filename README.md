@@ -51,12 +51,10 @@ npm run check
 - Falling below the bottom platform area causes 1 damage and respawns at the safe edge of the last solid platform the player touched.
 - Reaching 0 HP resets the player to the checkpoint with 3 HP.
 - **System Pulse** fires a glowing geometric pulse horizontally, deals 1 damage, and has a cooldown.
-- Simple enemy placeholder with 2 HP, contact damage, patrol movement, and collision boxes.
-- Holding **Q** previews the currently selected ability range, including the circular **Gravity Field** range and the **Force Pulse** cone.
-- Pressing E tags valid entities inside the range for the current cast ID and flips their gravity.
-- Pressing E again deactivates the ability and resets affected entities to normal gravity.
-- Affected entities show a small marker and retain flipped gravity even after leaving the original range.
-- Test room includes platforms, a checkpoint marker, safe respawn anchor, pit gap, and one enemy target.
+- Enemy, hazard, and advanced ability systems remain in code, but Level 1, Room 1 currently starts without enemies or hazards.
+- Holding **Q** previews the currently selected ability range when an advanced ability is unlocked.
+- Level 1, Room 1 unlocks only the basic **System Pulse** attack; Gravity Field, Time Slow, Force Pulse, Anchor Field, Phase Shift, and Energy Link start locked.
+- Level 1, Room 1 is a safe movement-and-jump tutorial with flat ground, two raised platforms, a shallow recovery gap, and screen-edge transition recognition at the right edge.
 
 ## GitHub Pages
 
