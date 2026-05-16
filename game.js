@@ -263,6 +263,7 @@ const ROOM1_X = 0;
 const ROOM2_X = ROOM1_X + LEVEL1_ROOM_WIDTH;
 const ROOM3_X = ROOM2_X + LEVEL1_ROOM_WIDTH;
 const ROOM4_X = ROOM3_X + LEVEL1_ROOM_WIDTH;
+const ROOM5_X = ROOM4_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -296,13 +297,26 @@ const platforms = [
   { x: ROOM4_X, y: ROOM_FLOOR_Y, w: 330, h: 70 },
   { x: ROOM4_X + 245, y: 0, w: 470, h: 24 },
   { x: ROOM4_X + 365, y: 260, w: 54, h: 280 },
-  { x: ROOM4_X + 650, y: ROOM_FLOOR_Y, w: 310, h: 70 }
+  { x: ROOM4_X + 650, y: ROOM_FLOOR_Y, w: 310, h: 70 },
+
+  // Level 1, Room 5: a Gravity Field timing classroom. A small starter hop
+  // resets pacing before a shaft where the upper route is reachable only by
+  // flipping gravity in midair, then flipping back to drop onto the exit floor.
+  { x: ROOM5_X, y: ROOM_FLOOR_Y, w: 270, h: 70 },
+  { x: ROOM5_X + 335, y: 430, w: 120, h: 24 },
+  { x: ROOM5_X + 505, y: ROOM_FLOOR_Y, w: 115, h: 70 },
+  { x: ROOM5_X + 625, y: 520, w: 145, h: 20 },
+  { x: ROOM5_X + 610, y: 0, w: 165, h: 24 },
+  { x: ROOM5_X + 770, y: 260, w: 42, h: 280 },
+  { x: ROOM5_X + 820, y: 70, w: 92, h: 24 },
+  { x: ROOM5_X + 870, y: ROOM_FLOOR_Y, w: 90, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
   { id: "room-2", name: "Level 1, Room 2", x: ROOM2_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM2_X + 18, y: 420 }, tutorial: "DELIBERATE JUMPING" },
   { id: "room-3", name: "Level 1, Room 3", x: ROOM3_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM3_X + 18, y: 420 }, tutorial: "SPRINT-ASSISTED JUMPING" },
-  { id: "room-4", name: "Level 1, Room 4", x: ROOM4_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM4_X + 18, y: 420 }, tutorial: "GRAVITY FIELD" }
+  { id: "room-4", name: "Level 1, Room 4", x: ROOM4_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM4_X + 18, y: 420 }, tutorial: "GRAVITY FIELD" },
+  { id: "room-5", name: "Level 1, Room 5", x: ROOM5_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM5_X + 18, y: 420 }, tutorial: "GRAVITY TIMING ROOM" }
 ];
 
 const doors = [];
@@ -313,7 +327,9 @@ const screenEdgeTransitions = [
   { id: "room-3-to-room-2", roomId: "room-3", direction: -1, targetRoomId: "room-2" },
   { id: "room-3-to-room-4", roomId: "room-3", direction: 1, targetRoomId: "room-4" },
   { id: "room-4-to-room-3", roomId: "room-4", direction: -1, targetRoomId: "room-3" },
-  { id: "room-4-right-pending", roomId: "room-4", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-4-to-room-5", roomId: "room-4", direction: 1, targetRoomId: "room-5" },
+  { id: "room-5-to-room-4", roomId: "room-5", direction: -1, targetRoomId: "room-4" },
+  { id: "room-5-right-pending", roomId: "room-5", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -6496,6 +6512,50 @@ const systemMessageTriggers = [
     x: ROOM4_X + 875,
     y: 330,
     w: 65,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
+    blocking: false
+  },
+  {
+    id: "l1r5-gravity-persists",
+    x: ROOM5_X + 18,
+    y: 330,
+    w: 180,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Gravitational control persists."],
+    blocking: false
+  },
+  {
+    id: "l1r5-mid-motion",
+    x: ROOM5_X + 500,
+    y: 330,
+    w: 130,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Trajectory may be corrected mid-motion."],
+    blocking: false
+  },
+  {
+    id: "l1r5-arc-deviation",
+    x: ROOM5_X + 805,
+    y: 70,
+    w: 125,
+    h: 95,
+    repeat: false,
+    fired: false,
+    messages: ["Arc deviation confirmed."],
+    blocking: false
+  },
+  {
+    id: "l1r5-proceed",
+    x: ROOM5_X + 900,
+    y: 330,
+    w: 60,
     h: 160,
     repeat: false,
     fired: false,
