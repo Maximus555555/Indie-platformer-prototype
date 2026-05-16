@@ -643,6 +643,9 @@ const abilityUnlockNotice = {
   waitingForInput: false,
   inputReady: false
 };
+const abilityUnlockCutscene = {
+  pendingAbilityId: null
+};
 // Mouse-driven wheel selection will be restored behind a future settings toggle.
 const MOUSE_ABILITY_WHEEL_SELECTION_ENABLED = false;
 
@@ -1679,6 +1682,74 @@ class Player extends Entity {
     this.y += depth.signY * (depth.y + 0.1);
     if (depth.signY === -this.gravitySign) this.onSurface = true;
     this.vy = 0;
+  }
+
+  prepareAbilityUnlockCutsceneIdle() {
+    const surfaceAnchor = this.gravitySign > 0 ? this.y + this.h : this.y;
+    this.isCrouching = false;
+    this.h = STAND_HEIGHT;
+    this.y = this.gravitySign > 0 ? surfaceAnchor - this.h : surfaceAnchor;
+    this.isRunning = false;
+    this.sprintLockedUntilShiftRelease = false;
+    this.stamina = MAX_STAMINA;
+    this.staminaRegenDelayTimer = 0;
+    this.staminaBarAlpha = 1;
+    this.vx = 0;
+    this.attackTimer = 0;
+    this.attackReleaseTimer = 0;
+    this.attackPulseQueued = false;
+    this.forcePulsePoseTimer = 0;
+    this.recoilTimer = 0;
+    this.recoilDirection = 0;
+    this.walkTime = 0;
+    this.crouchWalkTime = 0;
+    if (this.onSurface) {
+      this.vy = 0;
+      this.airTime = 0;
+      this.fallPoseBlend = 0;
+      this.landTimer = 0;
+    }
+  }
+
+  updateAbilityUnlockCutscene(dt) {
+    this.updateGravityFlipVisual(dt);
+    if (this.isDying) {
+      this.updateDeath(dt);
+      return;
+    }
+
+    const wasOnSurface = this.onSurface;
+    this.prepareAbilityUnlockCutsceneIdle();
+    this.animTime += dt;
+    if (!wasOnSurface) this.airTime += dt;
+    this.touchedWorldBoundary = false;
+    this.touchedWorldBoundaryDirection = 0;
+    this.applyGravity(dt);
+    const impactVy = this.vy;
+    this.moveAndCollide(dt);
+    const fallingDownward = !this.onSurface && this.vy * this.gravitySign > 0;
+    this.fallPoseBlend = fallingDownward
+      ? clamp(this.fallPoseBlend + dt / 0.11, 0, 1)
+      : 0;
+    if (!wasOnSurface && this.onSurface) {
+      const landedWithImpact = impactVy * this.gravitySign > LANDING_MIN_IMPACT_SPEED;
+      if (this.airTime >= LANDING_MIN_AIR_TIME && landedWithImpact) this.landTimer = LANDING_ANIM_DURATION;
+      this.airTime = 0;
+    }
+    if (!this.onSurface) this.landTimer = 0;
+    else if (this.landTimer > 0) this.landTimer -= dt;
+    this.prepareAbilityUnlockCutsceneIdle();
+
+    const room = getActiveSimulationRoom();
+    const beforeClampX = this.x;
+    const clampedX = clamp(beforeClampX, room.x, room.x + room.w - this.w);
+    if (clampedX !== beforeClampX) {
+      this.x = clampedX;
+      this.vx = 0;
+    }
+    if (isRespawnRectInBounds(this) && !rectTouchesSpikes(this)) {
+      this.lastValidInBoundsPosition = { x: this.x, y: this.y };
+    }
   }
 
   updateSprintStamina(dt, runHeld, canSprint = runHeld) {
@@ -6461,7 +6532,7 @@ function unlockGravityFieldFromRoom4() {
   gravityAbility.readyPulseTimer = ABILITY_READY_PULSE_DURATION;
   selectedAbilityId = gravityAbility.id;
   systemAccess.selectedAbilityId = gravityAbility.id;
-  showAbilityUnlockNotice(gravityAbility);
+  beginAbilityUnlockCutscene(gravityAbility);
 }
 
 function confirmRoom4OrientationShift() {
@@ -6850,6 +6921,36 @@ function advanceBlockingSystemMessage() {
 }
 
 
+function isPlayerTouchingAbilityUnlockPlatform() {
+  if (!player.onSurface) return false;
+  const surfaceY = player.gravitySign > 0 ? player.y + player.h : player.y;
+  return Boolean(findPlatformAtSurfacePoint(player.x + player.w / 2, surfaceY, player.gravitySign));
+}
+
+function beginAbilityUnlockCutscene(ability) {
+  if (!ability) return;
+  abilityUnlockCutscene.pendingAbilityId = ability.id;
+  if (abilityWheel.open) closeAbilityWheel(false);
+  if (systemAccess.open) systemAccess.open = false;
+  clearMenuBlockingInputState();
+  player.prepareAbilityUnlockCutsceneIdle();
+}
+
+function completeAbilityUnlockCutscene() {
+  const ability = getAbilityById(abilityUnlockCutscene.pendingAbilityId);
+  abilityUnlockCutscene.pendingAbilityId = null;
+  player.prepareAbilityUnlockCutsceneIdle();
+  showAbilityUnlockNotice(ability);
+}
+
+function updateAbilityUnlockCutscene(dt) {
+  if (!abilityUnlockCutscene.pendingAbilityId) return false;
+
+  player.updateAbilityUnlockCutscene(dt);
+  if (isPlayerTouchingAbilityUnlockPlatform()) completeAbilityUnlockCutscene();
+  return true;
+}
+
 function showAbilityUnlockNotice(ability) {
   if (!ability) return;
   abilityUnlockNotice.abilityId = ability.id;
@@ -6867,6 +6968,7 @@ function dismissAbilityUnlockNotice() {
   abilityUnlockNotice.worldAnimTimer = 0;
   abilityUnlockNotice.waitingForInput = false;
   abilityUnlockNotice.inputReady = false;
+  clearMenuBlockingInputState();
 }
 
 function isAbilityUnlockNoticeBlocking() {
@@ -8016,6 +8118,16 @@ function update(dt) {
 
   updateSystemMessages(dt);
   if (updateRoomTransition(dt)) return;
+  if (updateAbilityUnlockCutscene(dt)) {
+    if (abilityWheel.open) closeAbilityWheel(false);
+    eHoldTimer = 0;
+    eWheelOpenedThisHold = false;
+    eReleasedThisFrame = false;
+    const room = getCurrentRoom();
+    cameraX = room.x;
+    pressedThisFrame.clear();
+    return;
+  }
   if (isAbilityUnlockNoticeBlocking()) {
     if (abilityWheel.open) closeAbilityWheel(false);
     eHoldTimer = 0;
@@ -9603,6 +9715,8 @@ window.__indiePlatformerDebug = {
   abilityWheel,
   hasUnlockedAbility,
   abilityUnlockNotice,
+  abilityUnlockCutscene,
+  beginAbilityUnlockCutscene,
   showAbilityUnlockNotice,
   systemAccess,
   openSystemAccess,
