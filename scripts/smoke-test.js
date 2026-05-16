@@ -210,6 +210,57 @@ if (context.calls.some((call) => call.name === "fillText" && ["Gravity", "Time",
 }
 debug.abilityWheel.open = false;
 
+const cutsceneGravityAbility = debug.abilities.find((ability) => ability.id === "gravity");
+if (!cutsceneGravityAbility) throw new Error("Gravity ability missing from debug abilities.");
+debug.player.placeAt(86, 300, { grounded: false });
+debug.player.stamina = 12;
+debug.player.staminaRegenDelayTimer = 1;
+debug.player.sprintLockedUntilShiftRelease = true;
+debug.player.vx = 120;
+debug.beginAbilityUnlockCutscene(cutsceneGravityAbility);
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.update(16 / 1000);
+if (debug.abilityUnlockNotice.abilityId) {
+  throw new Error("Ability unlock notice should wait until the player lands on a platform.");
+}
+if (debug.abilityUnlockCutscene.pendingAbilityId !== "gravity") {
+  throw new Error("Ability unlock cutscene should remain pending while the player is airborne.");
+}
+if (debug.player.stamina !== debug.constants.MAX_STAMINA || debug.player.sprintLockedUntilShiftRelease || debug.player.isRunning) {
+  throw new Error("Ability unlock cutscene did not reset stamina and sprint state.");
+}
+const airborneCutsceneX = debug.player.x;
+debug.update(16 / 1000);
+if (debug.player.x !== airborneCutsceneX) {
+  throw new Error("Ability unlock cutscene accepted movement input before confirmation.");
+}
+for (let frame = 0; frame < 240 && debug.abilityUnlockCutscene.pendingAbilityId; frame += 1) {
+  debug.update(16 / 1000);
+}
+if (debug.abilityUnlockCutscene.pendingAbilityId) {
+  throw new Error("Ability unlock cutscene never completed after the player landed.");
+}
+if (debug.abilityUnlockNotice.abilityId !== "gravity" || !debug.abilityUnlockNotice.waitingForInput) {
+  throw new Error("Ability unlock notice did not take over after grounded cutscene setup.");
+}
+if (!debug.player.onSurface || debug.player.vx !== 0 || debug.player.vy !== 0) {
+  throw new Error("Ability unlock notice should begin with the player idle on a platform.");
+}
+const groundedCutsceneX = debug.player.x;
+debug.update(16 / 1000);
+if (debug.player.x !== groundedCutsceneX) {
+  throw new Error("Ability unlock notice allowed controls before Enter confirmation.");
+}
+dispatch("keyup", keyEvent("d", "KeyD"));
+debug.update(16 / 1000);
+dispatch("keydown", keyEvent("Enter", "Enter"));
+debug.update(16 / 1000);
+dispatch("keyup", keyEvent("Enter", "Enter"));
+if (debug.abilityUnlockNotice.abilityId) {
+  throw new Error("Ability unlock notice did not dismiss after a fresh Enter press.");
+}
+debug.player.placeAt(86, 420, { grounded: true });
+
 const expectedTriggerMessages = [
   "Movement initialized.",
   "Input response acceptable.",
