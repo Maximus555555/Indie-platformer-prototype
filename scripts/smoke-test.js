@@ -509,8 +509,8 @@ if (activeRoom7Walker.gravitySign !== -1 || activeRoom7Walker.defaultGravitySign
   throw new Error("Room 7 Walker should spawn with reversed default gravity.");
 }
 const room7TopPlatform = debug.platforms.find((platform) => platform.id === "room7-top-platform");
-if (!room7TopPlatform || room7TopPlatform.moveSpeed !== 18 || room7TopPlatform.moveDirection !== -1) {
-  throw new Error("Room 7 top platform should start moving slowly to the left.");
+if (!room7TopPlatform || room7TopPlatform.moveSpeed || room7TopPlatform.moveDirection) {
+  throw new Error("Room 7 top platform should remain fixed in place.");
 }
 activeRoom7Walker.gravitySign = 1;
 activeRoom7Walker.gravityFieldRemaining = 0.001;
