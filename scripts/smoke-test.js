@@ -117,17 +117,17 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should start in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-if (debug.levelRooms.length !== 2 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2") {
-  throw new Error(`Expected Level 1 Rooms 1 and 2 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+if (debug.levelRooms.length !== 3 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3") {
+  throw new Error(`Expected Level 1 Rooms 1, 2, and 3 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
 if (debug.enemies.length !== 0 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Rooms 1 and 2 should not create or activate any enemies.");
+  throw new Error("Level 1 Rooms 1-3 should not create or activate any enemies.");
 }
 if (debug.spikes.length !== 0 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Rooms 1 and 2 should not include hazards, spikes, or phase barriers.");
+  throw new Error("Level 1 Rooms 1-3 should not include hazards, spikes, or phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
-  throw new Error("Level 1 Rooms 1 and 2 should not include doors, gates, or exit markers.");
+  throw new Error("Level 1 Rooms 1-3 should not include doors, gates, or exit markers.");
 }
 
 const expectedPlatforms = [
@@ -138,6 +138,7 @@ const expectedPlatforms = [
   { x: 760, y: 470, w: 200, h: 70 }
 ];
 const room2X = 960;
+const room3X = 1920;
 const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
@@ -146,9 +147,14 @@ const expectedRoom2Platforms = [
   { x: room2X + 880, y: 440, w: 70, h: 22 },
   { x: room2X + 900, y: 470, w: 60, h: 70 }
 ];
-const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms];
+const expectedRoom3Platforms = [
+  { x: room3X, y: 470, w: 430, h: 70 },
+  { x: room3X + 660, y: 470, w: 170, h: 70 },
+  { x: room3X + 890, y: 470, w: 70, h: 70 }
+];
+const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
-  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Room 1-2 platforms, got ${debug.platforms.length}.`);
+  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Room 1-3 platforms, got ${debug.platforms.length}.`);
 }
 for (const expected of expectedAllPlatforms) {
   if (!debug.platforms.some((platform) => platform.x === expected.x && platform.y === expected.y && platform.w === expected.w && platform.h === expected.h)) {
@@ -168,7 +174,11 @@ const expectedTriggerMessages = [
   "Traversal pattern accepted.",
   "Increase input commitment.",
   "Spatial correction stable.",
-  "Continue."
+  "Continue.",
+  "Velocity modulation available.",
+  "Sustained input increases traversal range.",
+  "Extended traversal confirmed.",
+  "Proceed."
 ];
 for (const text of expectedTriggerMessages) {
   const trigger = debug.systemMessageTriggers.find((candidate) => candidate.messages.includes(text));
@@ -181,21 +191,27 @@ debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
-for (const x of [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920]) {
+for (const x of [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930]) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
 }
-for (const text of expectedTriggerMessages) {
-  const count = debug.systemDialogue.logs.filter((entry) => entry.text === text).length;
-  if (count !== 1) throw new Error(`Expected one log entry for "${text}", got ${count}.`);
+const triggerLogCounts = new Map();
+for (const trigger of debug.systemMessageTriggers) {
+  for (const text of trigger.messages) {
+    const count = debug.systemDialogue.logs.filter((entry) => entry.id === trigger.id && entry.text === text).length;
+    if (count !== 1) throw new Error(`Expected one log entry for "${text}" from ${trigger.id}, got ${count}.`);
+    triggerLogCounts.set(`${trigger.id}:${text}`, count);
+  }
 }
-for (const x of [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920]) {
+for (const x of [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930]) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
 }
-for (const text of expectedTriggerMessages) {
-  const count = debug.systemDialogue.logs.filter((entry) => entry.text === text).length;
-  if (count !== 1) throw new Error(`Repeated trigger duplicated log entry for "${text}".`);
+for (const trigger of debug.systemMessageTriggers) {
+  for (const text of trigger.messages) {
+    const count = debug.systemDialogue.logs.filter((entry) => entry.id === trigger.id && entry.text === text).length;
+    if (count !== triggerLogCounts.get(`${trigger.id}:${text}`)) throw new Error(`Repeated trigger duplicated log entry for "${text}" from ${trigger.id}.`);
+  }
 }
 
 // System Pulse remains available as the basic attack even though the ability
@@ -240,21 +256,54 @@ if (debug.getCurrentRoomId() !== "room-1") {
   throw new Error(`Room 2 left-edge transition should return to Room 1; got ${debug.getCurrentRoomId()}.`);
 }
 
-// Room 2 right edge is prepared for Room 3, but Room 3 is intentionally not
-// created yet, so the player stays in Room 2 and receives the pending message.
+// Room 2 right edge now connects to Room 3. Room 3 can return left to Room 2.
 debug.enterRoom("room-2", { x: room2X + 900, y: 420 }, { grounded: true, facing: 1 });
-debug.systemDialogue.activeAmbient = null;
-debug.systemDialogue.ambientQueue.length = 0;
 debug.player.placeAt(room2X + 960 - debug.player.w, 420, { grounded: true });
 dispatch("keydown", keyEvent("d", "KeyD"));
 debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
-if (debug.getCurrentRoomId() !== "room-2") {
-  throw new Error(`Room 2 right-edge pending transition should not leave Room 2; got ${debug.getCurrentRoomId()}.`);
+if (debug.getCurrentRoomId() !== "room-3") {
+  throw new Error(`Room 2 right-edge transition should enter Room 3; got ${debug.getCurrentRoomId()}.`);
 }
-if (debug.levelRooms.some((room) => room.id === "room-3")) {
-  throw new Error("Room 3 should not be created yet.");
+if (debug.player.x < room3X || debug.player.x > room3X + 60) {
+  throw new Error(`Room 3 entry should place the player at the left start, got x=${debug.player.x}.`);
+}
+
+debug.player.placeAt(room3X, 420, { grounded: true });
+dispatch("keydown", keyEvent("a", "KeyA"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("a", "KeyA"));
+if (debug.getCurrentRoomId() !== "room-2") {
+  throw new Error(`Room 3 left-edge transition should return to Room 2; got ${debug.getCurrentRoomId()}.`);
+}
+
+// Room 3 right edge marks the future Room 4 transition point without creating
+// Room 4 yet, so it stays in Room 3 and logs the pending message once.
+debug.enterRoom("room-3", { x: room3X + 900, y: 420 }, { grounded: true, facing: 1 });
+debug.systemDialogue.activeAmbient = null;
+debug.systemDialogue.ambientQueue.length = 0;
+debug.player.placeAt(room3X + 960 - debug.player.w, 420, { grounded: true });
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-3") {
+  throw new Error(`Room 3 right-edge pending transition should not leave Room 3; got ${debug.getCurrentRoomId()}.`);
+}
+if (debug.levelRooms.some((room) => room.id === "room-4")) {
+  throw new Error("Room 4 should not be created yet.");
 }
 if (!debug.systemDialogue.logs.some((entry) => entry.text === "Room transition pending.")) {
-  throw new Error("Room 2 right screen-edge transition did not log the pending transition message.");
+  throw new Error("Room 3 right screen-edge transition did not log the pending transition message.");
+}
+
+const sprintGap = { left: room3X + 430, right: room3X + 660 };
+const walkingJumpRange = 230 * Math.abs((-480 * 2) / 1200);
+const sprintJumpRange = 340 * Math.abs((-480 * 2) / 1200);
+if (sprintGap.right - sprintGap.left <= walkingJumpRange + debug.player.w) {
+  throw new Error("Room 3 sprint gap is short enough for a walking jump.");
+}
+if (sprintGap.right - sprintGap.left >= sprintJumpRange) {
+  throw new Error("Room 3 sprint gap leaves no forgiving sprint-jump clearance.");
 }
