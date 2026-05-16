@@ -294,9 +294,8 @@ const platforms = [
   // normal floor progress, while the upper ceiling route teaches gravity flips
   // without enemies, hazards, spikes, doors, or timing pressure.
   { x: ROOM4_X, y: ROOM_FLOOR_Y, w: 330, h: 70 },
-  { x: ROOM4_X + 245, y: 96, w: 470, h: 24 },
+  { x: ROOM4_X + 245, y: 0, w: 470, h: 24 },
   { x: ROOM4_X + 365, y: 260, w: 54, h: 280 },
-  { x: ROOM4_X + 430, y: 505, w: 170, h: 35 },
   { x: ROOM4_X + 650, y: ROOM_FLOOR_Y, w: 310, h: 70 }
 ];
 const levelRooms = [
