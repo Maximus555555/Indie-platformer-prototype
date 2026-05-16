@@ -1693,7 +1693,9 @@ class Player extends Entity {
     this.sprintLockedUntilShiftRelease = false;
     this.stamina = MAX_STAMINA;
     this.staminaRegenDelayTimer = 0;
-    this.staminaBarAlpha = 1;
+    // Ability unlocks restore sprint stamina, but the unlock popup should not
+    // surface the stamina HUD when stamina is already full.
+    this.staminaBarAlpha = 0;
     this.vx = 0;
     this.attackTimer = 0;
     this.attackReleaseTimer = 0;

@@ -229,6 +229,9 @@ if (debug.abilityUnlockCutscene.pendingAbilityId !== "gravity") {
 if (debug.player.stamina !== debug.constants.MAX_STAMINA || debug.player.sprintLockedUntilShiftRelease || debug.player.isRunning) {
   throw new Error("Ability unlock cutscene did not reset stamina and sprint state.");
 }
+if (debug.player.staminaBarAlpha !== 0) {
+  throw new Error("Ability unlock cutscene should keep the stamina bar hidden after restoring stamina.");
+}
 const airborneCutsceneX = debug.player.x;
 debug.update(16 / 1000);
 if (debug.player.x !== airborneCutsceneX) {
@@ -245,6 +248,9 @@ if (debug.abilityUnlockNotice.abilityId !== "gravity" || !debug.abilityUnlockNot
 }
 if (!debug.player.onSurface || debug.player.vx !== 0 || debug.player.vy !== 0) {
   throw new Error("Ability unlock notice should begin with the player idle on a platform.");
+}
+if (debug.player.staminaBarAlpha !== 0) {
+  throw new Error("Ability unlock notice should not show the stamina bar when the popup appears.");
 }
 const groundedCutsceneX = debug.player.x;
 debug.update(16 / 1000);
