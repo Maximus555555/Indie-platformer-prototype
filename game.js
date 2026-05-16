@@ -1989,7 +1989,8 @@ class Player extends Entity {
     // but validate the remembered contact before using it. Gravity-reset edge
     // falls can leave a stale ceiling/edge platform that would respawn outside
     // the room, so fall back to the closest safe surface instead.
-    resetGravityField(true);
+    const wasGravityFieldActive = gravityFieldActive;
+    resetGravityField(true, wasGravityFieldActive);
     this.h = STAND_HEIGHT;
     const respawnPoint = this.getSafeFallRespawnPoint();
     this.placeAt(respawnPoint.x, respawnPoint.y, { resetGravity: false, grounded: true });

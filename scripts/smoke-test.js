@@ -326,7 +326,14 @@ if (!debug.activateSelectedAbility()) throw new Error("Gravity Field should be u
 if (debug.player.gravitySign !== -1) throw new Error("Gravity Field did not flip the player's gravity in Room 4.");
 const orientationLogCount = debug.systemDialogue.logs.filter((entry) => entry.id === "l1r4-orientation-shift" && entry.text === "Orientation shift confirmed.").length;
 if (orientationLogCount !== 1) throw new Error(`Expected one orientation shift log, got ${orientationLogCount}.`);
+debug.player.y = -debug.player.h - 4;
+debug.player.onSurface = false;
+debug.update(16 / 1000);
+if (debug.getActiveAbilityEffectState().gravityFieldActive) throw new Error("Top-boundary fall recovery should clear Gravity Field.");
+if (gravityAbility.cooldownRemaining <= 0) throw new Error("Top-boundary fall recovery should start Gravity Field cooldown.");
+if (gravityAbility.cooldownRemaining > gravityAbility.cooldownDuration) throw new Error("Gravity Field cooldown exceeded its configured duration after fall recovery.");
 debug.resetGravityField(true, false);
+gravityAbility.cooldownRemaining = 0;
 debug.enterRoom("room-1", { x: 86, y: 420 }, { grounded: true, facing: 1 });
 
 // System Pulse remains available as the basic attack even though the ability
