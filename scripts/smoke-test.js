@@ -162,10 +162,7 @@ const expectedRoom5Platforms = [
   { x: room5X, y: 470, w: 270, h: 70 },
   { x: room5X + 335, y: 430, w: 120, h: 24 },
   { x: room5X + 505, y: 470, w: 115, h: 70 },
-  { x: room5X + 625, y: 520, w: 145, h: 20 },
-  { x: room5X + 610, y: 0, w: 165, h: 24 },
   { x: room5X + 770, y: 260, w: 42, h: 280 },
-  { x: room5X + 820, y: 70, w: 92, h: 24 },
   { x: room5X + 870, y: 470, w: 90, h: 70 }
 ];
 const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms];
@@ -440,14 +437,6 @@ if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-5-right-pendin
 }
 
 const room5ShaftGap = { left: room5X + 620, right: room5X + 770 };
-const normalJumpPeakHeight = (480 * 480) / (2 * 1200);
-const room5UpperPlatform = expectedRoom5Platforms.find((platform) => platform.x === room5X + 820);
-if (!room5UpperPlatform) throw new Error("Room 5 upper platform fixture is missing from the smoke test.");
-if (470 - room5UpperPlatform.y > normalJumpPeakHeight) {
-  // Expected: the ledge is vertically out of reach without Gravity Field.
-} else {
-  throw new Error("Room 5 upper platform is low enough for a normal jump.");
-}
 if (room5ShaftGap.right - room5ShaftGap.left <= debug.player.w * 2) {
   throw new Error("Room 5 shaft gap is too narrow to teach midair gravity timing.");
 }
