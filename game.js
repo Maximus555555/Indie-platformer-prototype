@@ -300,11 +300,11 @@ const platforms = [
   { x: ROOM4_X + 365, y: 260, w: 54, h: 280 },
   { x: ROOM4_X + 650, y: ROOM_FLOOR_Y, w: 310, h: 70 },
 
-  // Level 1, Room 5: a sparse platforming connector. Thin lower
-  // platforms sit on both sides, with a thin upper platform centered between them.
-  { x: ROOM5_X, y: ROOM_FLOOR_Y, w: 270, h: 24 },
-  { x: ROOM5_X + 390, y: 315, w: 180, h: 24 },
-  { x: ROOM5_X + 690, y: ROOM_FLOOR_Y, w: 270, h: 24 },
+  // Level 1, Room 5: a sparse platforming connector. Short lower
+  // platforms sit on both sides, with a thin upper platform fixed to the ceiling.
+  { x: ROOM5_X, y: ROOM_FLOOR_Y, w: 210, h: 24 },
+  { x: ROOM5_X + 390, y: 0, w: 180, h: 24 },
+  { x: ROOM5_X + 750, y: ROOM_FLOOR_Y, w: 210, h: 24 },
 
   // Level 1, Room 6: the former Gravity Field timing classroom, shifted one
   // room later so play focuses on the lower starter hop, shaft wall, and exit floor.
