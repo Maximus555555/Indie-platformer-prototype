@@ -327,6 +327,17 @@ if (!context.calls.some((call) => call.name === "fillText" && call.args[0] === "
 if (!context.calls.some((call) => call.name === "fillText" && call.args[0] === "GRAVITY FIELD")) {
   throw new Error("Ability unlock popup did not draw the unlocked ability name.");
 }
+if (!context.calls.some((call) => call.name === "fillText" && call.args[0] === "ENTER")) {
+  throw new Error("Ability unlock popup did not draw its Enter confirmation prompt.");
+}
+debug.update(16 / 1000);
+if (debug.abilityUnlockNotice.abilityId !== "gravity") {
+  throw new Error("Ability unlock popup should wait through the Enter press that finished the system text.");
+}
+dispatch("keydown", keyEvent("Enter", "Enter"));
+debug.update(16 / 1000);
+dispatch("keyup", keyEvent("Enter", "Enter"));
+if (debug.abilityUnlockNotice.abilityId) throw new Error("Ability unlock popup did not dismiss after a dedicated Enter press.");
 for (const text of ["New function detected.", "Gravitational override available.", "Input authorization granted.", "Gravity Field unlocked."]) {
   const count = debug.systemDialogue.logs.filter((entry) => entry.id === "l1r4-gravity-unlock" && entry.text === text).length;
   if (count !== 1) throw new Error(`Expected one Room 4 unlock log for "${text}", got ${count}.`);
