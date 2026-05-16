@@ -8101,13 +8101,10 @@ function drawAbilityTile(ability, centerX, centerY, size, options = {}) {
     ctx.strokeStyle = "rgba(188, 217, 240, 0.8)";
     ctx.lineWidth = 1.5;
     const lockW = size * 0.28;
-    const lockH = size * 0.18;
-    const shackleRadius = lockW * 0.34;
-    // Center the full lock silhouette over the ability symbol rather than the lower half of the icon.
-    const lockY = (shackleRadius - lockH) / 2;
-    ctx.strokeRect(-lockW / 2, lockY, lockW, lockH);
+    const lockY = size * 0.2;
+    ctx.strokeRect(-lockW / 2, lockY, lockW, size * 0.18);
     ctx.beginPath();
-    ctx.arc(0, lockY, shackleRadius, Math.PI, 0);
+    ctx.arc(0, lockY, lockW * 0.34, Math.PI, 0);
     ctx.stroke();
   }
 
