@@ -123,8 +123,8 @@ if (debug.levelRooms.length !== 8 || debug.levelRooms[0].id !== "room-1" || debu
 if (debug.enemies.length !== 2 || debug.getActiveEnemies().length !== 0) {
   throw new Error("Level 1 Rooms 7 and 8 should create one Walker each, inactive while the player starts in Room 1.");
 }
-if (debug.spikes.length !== 2 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Rooms 7 and 8 should each include one spike strip and no phase barriers.");
+if (debug.spikes.length !== 3 || debug.phaseBarriers.length !== 0) {
+  throw new Error("Level 1 Rooms 7 and 8 should include three spike strips total and no phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
   throw new Error("Level 1 Rooms 1-8 should not include doors, gates, or exit markers.");
@@ -710,6 +710,9 @@ if (!debug.room8Progress.timingWindowDetected) {
 }
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r8-timing-window" && entry.text === "Timing window detected.")) {
   throw new Error("Room 8 timing-window message was not logged.");
+}
+if (!debug.spikes.some((spike) => spike.side === "top" && spike.x === room8X + 300 && spike.w === 430)) {
+  throw new Error("Room 8 top platform should be completely covered by spikes.");
 }
 if (!debug.spikes.some((spike) => spike.side === "top" && spike.x === room8X + 535 && spike.w === 140)) {
   throw new Error("Room 8 offset spike strip is missing or misplaced.");

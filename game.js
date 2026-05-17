@@ -370,12 +370,21 @@ let roomTransition = null;
 const phaseBarriers = [];
 const movingPlatforms = platforms.filter((platform) => platform.moveSpeed > 0);
 const room7SpikePlatform = platforms.find((platform) => platform.id === "room7-lower-platform");
+const room8TopPlatform = platforms.find((platform) => platform.id === "room8-walker-platform");
 const room8SpikePlatform = platforms.find((platform) => platform.id === "room8-spike-platform");
 const spikes = [
   {
     platform: room7SpikePlatform,
     x: ROOM7_X + 385,
     w: 150,
+    side: "top",
+    spikeWidth: SPIKE_WIDTH,
+    spikeHeight: SPIKE_HEIGHT
+  },
+  {
+    platform: room8TopPlatform,
+    x: room8TopPlatform.x,
+    w: room8TopPlatform.w,
     side: "top",
     spikeWidth: SPIKE_WIDTH,
     spikeHeight: SPIKE_HEIGHT
