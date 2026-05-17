@@ -290,6 +290,21 @@ if (room9RightTransition?.targetRoomId !== "room-10" || room10LeftTransition?.ta
   throw new Error("Room 10 edge transitions were not configured correctly.");
 }
 
+const room9ReturnBarrier = debug.platforms.find((platform) => platform.id === "room9-exit-barrier");
+if (!room9ReturnBarrier) throw new Error("Room 9 return-side barrier was not found.");
+debug.loadSelectedRoom("room-10");
+const room10 = debug.getCurrentRoom();
+const hpBeforeRoom9BottomEntry = debug.player.hp;
+debug.player.placeAt(room10.x, room10.y + room10.h - debug.constants.STAND_HEIGHT, { grounded: false });
+debug.enterRoom("room-9", debug.getDoorTransitionSpawn(room10LeftTransition), { facing: -1, grounded: false });
+if (debug.player.x + debug.player.w > room9ReturnBarrier.x) {
+  throw new Error(`Room 10-to-9 spawn should stay on the playable side of Room 9 barrier; got right=${debug.player.x + debug.player.w}, barrier=${room9ReturnBarrier.x}.`);
+}
+debug.update(16 / 1000);
+if (debug.getCurrentRoomId() !== "room-9" || debug.player.hp !== hpBeforeRoom9BottomEntry - 1 || debug.player.fallRespawnGraceTimer <= 0) {
+  throw new Error("Entering Room 9 from Room 10 on the bottom edge should apply fall damage and begin fall recovery.");
+}
+
 debug.loadSelectedRoom("room-2");
 const room2 = debug.getCurrentRoom();
 debug.player.placeAt(room2.x + room2.w + 8, 420, { grounded: true });
