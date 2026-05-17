@@ -248,8 +248,8 @@ const expectedRoom9Platforms = [
   { x: room9X + 195, y: 300, w: 185, h: 24 },
   { x: room9X + 360, y: 390, w: 200, h: 24 },
   { x: room9X + 540, y: 300, w: 210, h: 24 },
-  { x: room9X + 705, y: 470, w: 255, h: 70 },
-  { x: room9X + 885, y: 320, w: 34, h: 150 }
+  { x: room9X + 705, y: 292, w: 180, h: 8 },
+  { x: room9X + 885, y: 0, w: 34, h: 540 }
 ];
 const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
@@ -783,6 +783,14 @@ debug.update(16 / 1000);
 if (!debug.room9Progress.pressurePlateActive || room9Barrier.h !== 0) {
   throw new Error("Room 9 pressure plate should instantly remove the linked barrier while the Walker stands on it.");
 }
+context.calls.length = 0;
+debug.draw();
+const activePlateRect = context.calls.find((call) => call.name === "fillRect"
+  && call.args[0] === room9Plate.x
+  && call.args[1] === room9Plate.y + 4
+  && call.args[2] === room9Plate.w
+  && call.args[3] === room9Plate.h);
+if (!activePlateRect) throw new Error("Room 9 pressure plate should draw pushed down while active.");
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r9-access-route-available" && entry.text === "Access route available.")) {
   throw new Error("Room 9 pressure plate activation should log access availability once.");
 }
@@ -790,8 +798,16 @@ room9Walker.x = room9X + 640;
 room9Walker.onSurface = false;
 room9Walker.groundedPlatform = null;
 debug.update(16 / 1000);
-if (debug.room9Progress.pressurePlateActive || room9Barrier.h !== 150) {
-  throw new Error("Room 9 linked barrier should reform instantly when the Walker leaves the pressure plate.");
+if (debug.room9Progress.pressurePlateActive || room9Barrier.h !== 540 || room9Barrier.y !== 0) {
+  throw new Error("Room 9 linked barrier should reform as a full-height wall when the Walker leaves the pressure plate.");
+}
+room9Walker.onSurface = false;
+room9Walker.groundedPlatform = null;
+debug.player.placeAt(room9Plate.x + 20, room9Plate.y - debug.player.h, { grounded: true });
+debug.player.lastGroundedPlatform = room9Plate;
+debug.update(16 / 1000);
+if (!debug.room9Progress.pressurePlateActive || room9Barrier.h !== 0) {
+  throw new Error("Room 9 pressure plate should also activate when the player stands on it.");
 }
 
 const room7Walker = debug.enemies[0];

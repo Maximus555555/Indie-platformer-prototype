@@ -337,13 +337,13 @@ const platforms = [
 
   // Level 1, Room 9: the first multi-step Gravity Field routing puzzle. The
   // Walker starts with the player, then must be redirected through offset
-  // upper platforms before weighing down the far pressure-plate floor.
+  // upper platforms before weighing down the top-right pressure plate.
   { id: "room9-start-platform", x: ROOM9_X, y: ROOM_FLOOR_Y, w: 285, h: 70 },
   { id: "room9-upper-platform-a", x: ROOM9_X + 195, y: 300, w: 185, h: 24 },
   { id: "room9-upper-platform-b", x: ROOM9_X + 360, y: 390, w: 200, h: 24 },
   { id: "room9-upper-platform-c", x: ROOM9_X + 540, y: 300, w: 210, h: 24 },
-  { id: "room9-pressure-plate", type: "pressurePlate", x: ROOM9_X + 705, y: ROOM_FLOOR_Y, w: 255, h: 70 },
-  { id: "room9-exit-barrier", type: "linkedBarrier", x: ROOM9_X + 885, y: 320, w: 34, h: 150, baseH: 150 }
+  { id: "room9-pressure-plate", type: "pressurePlate", x: ROOM9_X + 705, y: 292, w: 180, h: 8 },
+  { id: "room9-exit-barrier", type: "linkedBarrier", x: ROOM9_X + 885, y: 0, w: 34, h: canvas.height, baseY: 0, baseH: canvas.height }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -7323,27 +7323,30 @@ function updateSystemMessages(dt) {
 
 function setRoom9BarrierActive(pressureActive) {
   if (!room9ExitBarrier) return;
-  const barrierHeight = room9ExitBarrier.baseH ?? 150;
+  const barrierHeight = room9ExitBarrier.baseH ?? canvas.height;
+  const barrierY = room9ExitBarrier.baseY ?? 0;
   room9Progress.pressurePlateActive = pressureActive;
-  // Keep the barrier as an ordinary platform when closed, and collapse its
+  // Keep the closed wall as a full-height ordinary platform, and collapse its
   // collision box instantly when the linked pressure plate is held down.
   room9ExitBarrier.h = pressureActive ? 0 : barrierHeight;
-  room9ExitBarrier.y = ROOM_FLOOR_Y - room9ExitBarrier.h;
+  room9ExitBarrier.y = pressureActive ? barrierY + barrierHeight : barrierY;
 }
 
-function isEnemyStandingOnPlatform(enemy, platform) {
-  if (!enemy || !platform || enemy.hp <= 0 || enemy.isDying) return false;
-  if (enemy.groundedPlatform === platform && enemy.onSurface) return true;
+function isEntityStandingOnPlatform(entity, platform) {
+  if (!entity || !platform || entity.hp <= 0 || entity.isDying) return false;
+  if (entity.groundedPlatform === platform && entity.onSurface) return true;
+  if (entity.lastGroundedPlatform === platform && entity.onSurface) return true;
 
-  const rect = enemy.getCollisionRect?.() ?? enemy;
-  const enemyFootY = enemy.gravitySign > 0 ? rect.y + rect.h : rect.y;
-  const platformSurfaceY = enemy.gravitySign > 0 ? platform.y : platform.y + platform.h;
+  const rect = entity.getCollisionRect?.() ?? entity;
+  const entityFootY = entity.gravitySign > 0 ? rect.y + rect.h : rect.y;
+  const platformSurfaceY = entity.gravitySign > 0 ? platform.y : platform.y + platform.h;
   const horizontallyOverPlate = rect.x + rect.w > platform.x && rect.x < platform.x + platform.w;
-  return horizontallyOverPlate && Math.abs(enemyFootY - platformSurfaceY) <= 3;
+  return horizontallyOverPlate && Math.abs(entityFootY - platformSurfaceY) <= 3;
 }
 
 function updateRoom9PressurePlate() {
-  const active = currentRoomId === "room-9" && isEnemyStandingOnPlatform(room9Walker, room9PressurePlate);
+  const active = currentRoomId === "room-9"
+    && (isEntityStandingOnPlatform(room9Walker, room9PressurePlate) || isEntityStandingOnPlatform(player, room9PressurePlate));
   if (active === room9Progress.pressurePlateActive) return;
 
   setRoom9BarrierActive(active);
@@ -8705,49 +8708,30 @@ function drawRoomTransitionFade() {
 
 function drawPressurePlatePlatform(platform) {
   const active = room9Progress.pressurePlateActive;
-  ctx.save();
-  ctx.fillStyle = active ? "#8fcff0" : "#92c7e9";
-  ctx.strokeStyle = active ? "rgba(170, 248, 255, 0.95)" : "rgba(91, 196, 235, 0.72)";
-  ctx.shadowColor = active ? "rgba(74, 226, 255, 0.78)" : "rgba(49, 183, 230, 0.36)";
-  ctx.shadowBlur = active ? 14 : 7;
-  ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
-  ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+  const pressOffset = active ? 4 : 0;
+  const visualY = platform.y + pressOffset;
 
-  // A shallow inset and thin cyan rails read as an integrated floor sensor.
-  ctx.shadowBlur = active ? 9 : 4;
-  ctx.fillStyle = active ? "rgba(136, 238, 255, 0.24)" : "rgba(67, 187, 231, 0.16)";
-  ctx.fillRect(platform.x + 10, platform.y + 6, platform.w - 20, 8);
-  ctx.strokeStyle = active ? "rgba(213, 255, 255, 0.96)" : "rgba(109, 221, 248, 0.72)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(platform.x + 12, platform.y + 7);
-  ctx.lineTo(platform.x + platform.w - 12, platform.y + 7);
-  ctx.moveTo(platform.x + 12, platform.y + platform.h - 7);
-  ctx.lineTo(platform.x + platform.w - 12, platform.y + platform.h - 7);
-  ctx.stroke();
+  ctx.save();
+  ctx.fillStyle = active ? "#75b8dd" : "#92c7e9";
+  ctx.strokeStyle = active ? "rgba(170, 248, 255, 0.95)" : "rgba(91, 196, 235, 0.72)";
+  ctx.shadowColor = active ? "rgba(74, 226, 255, 0.58)" : "rgba(49, 183, 230, 0.36)";
+  ctx.shadowBlur = active ? 6 : 7;
+  ctx.fillRect(platform.x, visualY, platform.w, platform.h);
+  ctx.strokeRect(platform.x + 0.5, visualY + 0.5, platform.w - 1, platform.h - 1);
+
+  // The sensor slab keeps its collision height stable while the drawn top drops
+  // down to make the plate visibly compress under any standing entity.
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = active ? "rgba(213, 255, 255, 0.42)" : "rgba(213, 255, 255, 0.26)";
+  ctx.fillRect(platform.x + 8, visualY + 2, platform.w - 16, 2);
   ctx.restore();
 }
 
 function drawLinkedBarrier(platform) {
   if (platform.h <= 0) return;
 
-  ctx.save();
-  ctx.fillStyle = "rgba(31, 100, 157, 0.92)";
-  ctx.strokeStyle = "rgba(152, 229, 255, 0.88)";
-  ctx.shadowColor = "rgba(55, 184, 239, 0.48)";
-  ctx.shadowBlur = 10;
   ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
   ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(189, 245, 255, 0.5)";
-  ctx.lineWidth = 1;
-  for (let y = platform.y + 14; y < platform.y + platform.h; y += 22) {
-    ctx.beginPath();
-    ctx.moveTo(platform.x + 5, y);
-    ctx.lineTo(platform.x + platform.w - 5, y + 7);
-    ctx.stroke();
-  }
-  ctx.restore();
 }
 
 function drawPlatform(platform) {
