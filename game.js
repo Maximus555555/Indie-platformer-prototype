@@ -581,17 +581,28 @@ function getDoorTransitionSpawn(door) {
   const sourceRoom = getRoomById(door.roomId);
   const targetRoom = getRoomById(door.targetRoomId);
   const direction = door.direction ?? door.facing ?? 1;
-  const targetX = direction > 0
+  let targetX = direction > 0
     ? targetRoom.x + EDGE_RESPAWN_INSET
     : targetRoom.x + targetRoom.w - EDGE_RESPAWN_INSET - player.w;
   const sourceTravelHeight = Math.max(1, sourceRoom.h - player.h);
   const targetTravelHeight = Math.max(0, targetRoom.h - STAND_HEIGHT);
   const verticalRatio = clamp((player.y - sourceRoom.y) / sourceTravelHeight, 0, 1);
+  const targetY = clamp(targetRoom.y + verticalRatio * targetTravelHeight, targetRoom.y, targetRoom.y + targetTravelHeight);
+  const spawnRect = { x: targetX, y: targetY, w: player.w, h: STAND_HEIGHT };
 
-  return {
-    x: targetX,
-    y: clamp(targetRoom.y + verticalRatio * targetTravelHeight, targetRoom.y, targetRoom.y + targetTravelHeight)
-  };
+  for (const platform of platforms) {
+    if (platform.type !== "linkedBarrier" || !isRectInRoom(platform, targetRoom) || !rectsOverlap(spawnRect, platform)) continue;
+
+    // Edge transitions can arrive beside a full-height linked barrier. Nudge the
+    // spawn to the playable side of that solid so collision resolution cannot
+    // reinterpret bottom-edge contact as a barrier landing.
+    targetX = direction > 0
+      ? platform.x + platform.w
+      : platform.x - player.w;
+    spawnRect.x = targetX;
+  }
+
+  return { x: targetX, y: targetY };
 }
 
 function cancelSystemPulseCarryover() {
