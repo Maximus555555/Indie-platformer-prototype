@@ -186,6 +186,16 @@ if (debug.doors.length !== 0 || debug.exitMarker !== null) {
   throw new Error("Level 1 Rooms 1-9 should not include doors, gates, or exit markers.");
 }
 
+const hpRowWidth = debug.player.maxHp * 14 + (debug.player.maxHp - 1) * 8;
+debug.loadSelectedRoom("room-9");
+debug.room9Progress.pressurePlateActive = false;
+debug.update(16 / 1000);
+const room9HudPlacement = debug.getHudPlacement(hpRowWidth, 14);
+if (room9HudPlacement.y < 0 || room9HudPlacement.y + 14 > 540) {
+  throw new Error(`Room 9 inactive barrier pushed health HUD off-screen to y=${room9HudPlacement.y}.`);
+}
+debug.loadSelectedRoom("room-1");
+
 const expectedPlatforms = [
   { x: 0, y: 470, w: 360, h: 70 },
   { x: 410, y: 420, w: 150, h: 20 },

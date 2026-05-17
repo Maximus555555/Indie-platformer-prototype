@@ -9358,7 +9358,15 @@ function getHudPlacement(width, height) {
       };
 
       if (!rectsOverlap(placement, screenPlatform)) continue;
-      placement.y = screenPlatform.y + screenPlatform.h + HP_DIAMOND_SPACING;
+
+      const nextY = screenPlatform.y + screenPlatform.h + HP_DIAMOND_SPACING;
+      // Full-height blockers, like Room 9's inactive linked barrier, can overlap
+      // the top-right HUD slot but have no valid below-platform position. In
+      // that case, keep health anchored on-screen instead of pushing it out of
+      // view.
+      if (nextY + height > canvas.height - HUD_MARGIN) continue;
+
+      placement.y = nextY;
       moved = true;
     }
   }
@@ -10246,6 +10254,7 @@ window.__indiePlatformerDebug = {
   room9Progress,
   enqueueSystemMessage,
   getSelectedAbility,
+  getHudPlacement,
   getEnergyLinkState: () => ({
     active: Boolean(energyLink?.active),
     a: energyLink?.a ?? null,
