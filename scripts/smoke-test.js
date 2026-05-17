@@ -139,7 +139,7 @@ context.calls.length = 0;
 debug.draw();
 const levelSelectText = context.calls.filter((call) => call.name === "fillText").map((call) => call.args[0]);
 if (!levelSelectText.includes("LEVEL 1")) throw new Error("Level select did not draw Level 1.");
-for (let room = 1; room <= 9; room += 1) {
+for (let room = 1; room <= 10; room += 1) {
   if (!levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select did not draw Room ${room}.`);
 }
 if (levelSelectText.some((text) => text.includes("ENTER:") || text.includes("ESC") || text.includes("CHOOSE"))) {
@@ -178,18 +178,18 @@ for (const ability of debug.abilities) {
 }
 debug.loadSelectedRoom("room-1");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should continue tests in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-const expectedRoomIds = Array.from({ length: 9 }, (_, index) => `room-${index + 1}`);
+const expectedRoomIds = Array.from({ length: 10 }, (_, index) => `room-${index + 1}`);
 if (debug.levelRooms.length !== expectedRoomIds.length || expectedRoomIds.some((id, index) => debug.levelRooms[index]?.id !== id)) {
-  throw new Error(`Expected Level 1 Rooms 1 through 9 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+  throw new Error(`Expected Level 1 Rooms 1 through 10 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
-if (debug.enemies.length !== 3 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Rooms 7, 8, and 9 should create one Walker each, inactive while the player starts in Room 1.");
+if (debug.enemies.length !== 4 || debug.getActiveEnemies().length !== 0) {
+  throw new Error("Level 1 Rooms 7, 8, 9, and 10 should create one Walker each, inactive while the player starts in Room 1.");
 }
 if (debug.spikes.length !== 3 || debug.phaseBarriers.length !== 0) {
   throw new Error("Level 1 Rooms 7 and 8 should include three spike strips total and no phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
-  throw new Error("Level 1 Rooms 1-9 should not include doors, gates, or exit markers.");
+  throw new Error("Level 1 Rooms 1-10 should not include doors, gates, or exit markers.");
 }
 
 const hpRowWidth = debug.player.maxHp * 14 + (debug.player.maxHp - 1) * 8;
@@ -216,6 +216,43 @@ const drewRoom9BarrierDissolve = context.calls.some((call) => call.name === "fil
   && call.args[0] >= room9IntroX + 870
   && call.args[0] <= room9IntroX + 920);
 if (!drewRoom9BarrierDissolve) throw new Error("Room 9 linked barrier dissolve animation did not draw while collision was open.");
+debug.loadSelectedRoom("room-10");
+const room10Bridge = debug.platforms.find((platform) => platform.id === "room10-temp-bridge");
+const room10Plate = debug.platforms.find((platform) => platform.id === "room10-pressure-plate");
+if (!room10Bridge || !room10Plate) throw new Error("Room 10 pressure plate or temporary bridge was not found.");
+if (room10Bridge.h !== 0 || room10Bridge.y !== 970) throw new Error("Room 10 bridge should start inactive and off the collision path.");
+debug.player.placeAt(room10Plate.x + 4, room10Plate.y - debug.constants.STAND_HEIGHT, { grounded: true });
+debug.update(16 / 1000);
+if (debug.room10Progress.pressurePlateActive || room10Bridge.h !== 0) {
+  throw new Error("Room 10 pressure plate should not activate from the player standing on it.");
+}
+debug.enemies[3].x = room10Plate.x + 12;
+debug.enemies[3].y = room10Plate.y - debug.enemies[3].h - 10;
+debug.enemies[3].groundedPlatform = room10Plate;
+debug.enemies[3].onSurface = true;
+debug.enemies[3].hp = 2;
+debug.enemies[3].isDying = false;
+debug.update(16 / 1000);
+if (!debug.room10Progress.pressurePlateActive || room10Bridge.h !== 20 || room10Bridge.y !== 430) {
+  throw new Error("Room 10 Walker pressure plate did not instantiate the temporary bridge.");
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r10-temporary-structure" && entry.text === "Temporary structure instantiated.")) {
+  throw new Error("Room 10 bridge activation did not log the temporary structure message.");
+}
+debug.enemies[3].x = room10Plate.x + room10Plate.w + 80;
+debug.enemies[3].groundedPlatform = null;
+debug.enemies[3].onSurface = false;
+debug.update(16 / 1000);
+if (debug.room10Progress.pressurePlateActive || room10Bridge.h !== 0 || room10Bridge.y !== 970) {
+  throw new Error("Room 10 bridge did not disappear instantly when the Walker left the plate.");
+}
+if (debug.levelRooms.some((room) => room.id === "room-11")) throw new Error("Room 11 should not exist yet.");
+const room9RightTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-9-to-room-10");
+const room10LeftTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-10-to-room-9");
+const room10RightPending = debug.screenEdgeTransitions.find((transition) => transition.id === "room-10-right-pending");
+if (room9RightTransition?.targetRoomId !== "room-10" || room10LeftTransition?.targetRoomId !== "room-9" || room10RightPending?.targetRoomId !== null) {
+  throw new Error("Room 10 edge transitions were not configured correctly.");
+}
 debug.loadSelectedRoom("room-1");
 
 const expectedPlatforms = [
@@ -233,6 +270,7 @@ const room6X = 4800;
 const room7X = 5760;
 const room8X = 6720;
 const room9X = 7680;
+const room10X = 8640;
 const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
@@ -283,9 +321,16 @@ const expectedRoom9Platforms = [
   { x: room9X + 540, y: 292, w: 210, h: 8 },
   { x: room9X + 885, y: 0, w: 34, h: 540 }
 ];
-const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms];
+const expectedRoom10Platforms = [
+  { x: room10X, y: 470, w: 260, h: 70 },
+  { x: room10X + 330, y: 350, w: 300, h: 24 },
+  { x: room10X + 438, y: 342, w: 84, h: 8 },
+  { x: room10X + 280, y: 970, w: 390, h: 0 },
+  { x: room10X + 690, y: 470, w: 270, h: 70 }
+];
+const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms, ...expectedRoom10Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
-  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Rooms 1-9 platforms, got ${debug.platforms.length}.`);
+  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Rooms 1-10 platforms, got ${debug.platforms.length}.`);
 }
 for (const expected of expectedAllPlatforms) {
   if (!debug.platforms.some((platform) => platform.x === expected.x && platform.y === expected.y && platform.w === expected.w && platform.h === expected.h)) {
@@ -397,6 +442,9 @@ const expectedTriggerMessages = [
   "Path obstruction detected.",
   "Hostile process movement may be redirected.",
   "Environmental state linked to external weight.",
+  "Environmental response system detected.",
+  "External weight modifies traversal path.",
+  "Traversal window unstable.",
   "Proceed."
 ];
 for (const text of expectedTriggerMessages) {
@@ -410,7 +458,7 @@ debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
-const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910, room8X + 350, room8X + 890, room9X + 45, room9X + 220, room9X + 560, room9X + 930];
+const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910, room8X + 350, room8X + 890, room9X + 45, room9X + 220, room9X + 560, room9X + 930, room10X + 45, room10X + 325, room10X + 300, room10X + 920];
 for (const x of nonBlockingTriggerPositions) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
@@ -784,21 +832,46 @@ if (debug.getCurrentRoomId() !== "room-8") {
   throw new Error(`Room 9 left-edge transition should return to Room 8; got ${debug.getCurrentRoomId()}.`);
 }
 
-// Room 9 right edge is reserved for a future transition.
+// Room 9 right edge connects to Room 10, Room 10 returns left to Room 9,
+// and Room 10's right edge is reserved for a future Room 11 transition.
 debug.enterRoom("room-9", { x: room9X + 900, y: 420 }, { grounded: true, facing: 1 });
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
 debug.player.placeAt(room9X + 960 - debug.player.w, 420, { grounded: true });
 dispatch("keydown", keyEvent("d", "KeyD"));
 debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
-if (debug.getCurrentRoomId() !== "room-9") {
-  throw new Error(`Room 9 right-edge pending transition should not leave Room 9; got ${debug.getCurrentRoomId()}.`);
+if (debug.getCurrentRoomId() !== "room-10") {
+  throw new Error(`Room 9 right-edge transition should enter Room 10; got ${debug.getCurrentRoomId()}.`);
 }
-if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-9-right-pending" && entry.text === "Room transition pending.")) {
-  throw new Error("Room 9 right screen-edge transition did not log the pending transition message.");
+if (debug.player.x < room10X || debug.player.x > room10X + 60) {
+  throw new Error(`Room 10 entry should place the player at the left start, got x=${debug.player.x}.`);
+}
+if (debug.getActiveEnemies().length !== 1 || debug.getActiveEnemies()[0].roomId !== "room-10") {
+  throw new Error("Room 10 should activate exactly one Walker.");
+}
+debug.player.placeAt(room10X, 420, { grounded: true });
+dispatch("keydown", keyEvent("a", "KeyA"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("a", "KeyA"));
+if (debug.getCurrentRoomId() !== "room-9") {
+  throw new Error(`Room 10 left-edge transition should return to Room 9; got ${debug.getCurrentRoomId()}.`);
+}
+debug.enterRoom("room-10", { x: room10X + 900, y: 420 }, { grounded: true, facing: 1 });
+debug.player.placeAt(room10X + 960 - debug.player.w, 420, { grounded: true });
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-10") {
+  throw new Error(`Room 10 right-edge pending transition should not leave Room 10; got ${debug.getCurrentRoomId()}.`);
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-10-right-pending" && entry.text === "Room transition pending.")) {
+  throw new Error("Room 10 right screen-edge transition did not log the pending transition message.");
 }
 
+debug.enterRoom("room-9", { x: room9X + 600, y: 420 }, { grounded: true, facing: 1 });
 const room9Plate = debug.platforms.find((platform) => platform.id === "room9-pressure-plate");
 const room9Barrier = debug.platforms.find((platform) => platform.id === "room9-exit-barrier");
 const room9Walker = debug.enemies.find((enemy) => enemy.roomId === "room-9");
