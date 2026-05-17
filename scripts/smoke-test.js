@@ -200,6 +200,22 @@ const room9HudPlacement = debug.getHudPlacement(hpRowWidth, 14);
 if (room9HudPlacement.y < 0 || room9HudPlacement.y + 14 > 540) {
   throw new Error(`Room 9 inactive barrier pushed health HUD off-screen to y=${room9HudPlacement.y}.`);
 }
+const room9IntroX = debug.getCurrentRoom().x;
+const room9IntroBarrier = debug.platforms.find((platform) => platform.id === "room9-exit-barrier");
+if (!room9IntroBarrier) throw new Error("Room 9 linked barrier was not found.");
+debug.player.placeAt(room9IntroX + 600, 292 - debug.constants.STAND_HEIGHT, { grounded: true });
+debug.update(16 / 1000);
+if (!debug.room9Progress.pressurePlateActive) throw new Error("Room 9 pressure plate did not open the linked barrier.");
+if (room9IntroBarrier.h !== 0 || room9IntroBarrier.y !== 540) throw new Error("Room 9 linked barrier collision did not collapse when opened.");
+if (debug.room9Progress.barrierDissolveTimer <= 0 || debug.room9Progress.barrierDissolveTimer >= debug.constants.ROOM9_BARRIER_DISSOLVE_DURATION) {
+  throw new Error("Room 9 linked barrier did not start a dissolve animation timer.");
+}
+context.calls.length = 0;
+debug.draw();
+const drewRoom9BarrierDissolve = context.calls.some((call) => call.name === "fillRect"
+  && call.args[0] >= room9IntroX + 870
+  && call.args[0] <= room9IntroX + 920);
+if (!drewRoom9BarrierDissolve) throw new Error("Room 9 linked barrier dissolve animation did not draw while collision was open.");
 debug.loadSelectedRoom("room-1");
 
 const expectedPlatforms = [
