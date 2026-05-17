@@ -212,7 +212,7 @@ const keys = new Set();
 const pressedThisFrame = new Set();
 let shiftIsDown = false;
 const JUMP_INPUT_KEYS = ["w", "arrowup"];
-const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "escape", "tab", "e", "q", "i"];
+const RESERVED_INPUT_KEYS = [" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "escape", "backspace", "tab", "e", "q", "i"];
 const INPUT_CODE_ALIASES = new Map([
   ["ArrowUp", "arrowup"],
   ["ArrowDown", "arrowdown"],
@@ -227,6 +227,7 @@ const INPUT_CODE_ALIASES = new Map([
   ["KeyI", "i"],
   ["Tab", "tab"],
   ["Escape", "escape"],
+  ["Backspace", "backspace"],
   ["ShiftLeft", "shift"],
   ["ShiftRight", "shift"],
   ["Space", " "]
@@ -366,6 +367,18 @@ const screenEdgeTransitions = [
 const exitMarker = null;
 let currentRoomId = levelRooms[0].id;
 let roomTransition = null;
+
+const MENU_STATE = { MAIN: "main-menu", LEVEL_SELECT: "level-select", PLAYING: "playing" };
+const mainMenuOptions = ["Start"];
+const roomSelectOptions = levelRooms.map((room, index) => ({
+  roomId: room.id,
+  label: `Room ${index + 1}`
+}));
+const menuState = {
+  screen: MENU_STATE.MAIN,
+  mainSelectionIndex: 0,
+  roomSelectionIndex: 0
+};
 
 const phaseBarriers = [];
 const movingPlatforms = platforms.filter((platform) => platform.moveSpeed > 0);
@@ -550,6 +563,116 @@ function enterRoom(roomId, spawn, options = {}) {
   if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: options.grounded ?? true });
   player.facing = options.facing ?? player.facing;
   cameraX = getCurrentRoom().x;
+}
+
+function getRoomProgressIndex(roomId) {
+  return Math.max(0, levelRooms.findIndex((room) => room.id === roomId));
+}
+
+function applyAbilityStateForRoom(roomId) {
+  const roomIndex = getRoomProgressIndex(roomId);
+  const gravityUnlocked = roomIndex >= 3;
+
+  for (const ability of abilities) {
+    ability.unlocked = ability.id === "gravity" && gravityUnlocked;
+    ability.cooldownRemaining = 0;
+    ability.activeRemaining = 0;
+    ability.readyPulseTimer = 0;
+    ability.unavailableTimer = 0;
+  }
+
+  room4Progress.gravityUnlockStarted = gravityUnlocked;
+  room4Progress.gravityUnlocked = gravityUnlocked;
+  selectedAbilityId = "gravity";
+  systemAccess.selectedAbilityId = "gravity";
+}
+
+function resetProgressForDirectRoomLoad(roomId) {
+  const roomIndex = getRoomProgressIndex(roomId);
+  const gravityUnlocked = roomIndex >= 3;
+  room4Progress.gravityUnlockStarted = gravityUnlocked;
+  room4Progress.gravityUnlocked = gravityUnlocked;
+  room4Progress.orientationConfirmed = false;
+  room7Progress.indirectTerminationConfirmed = false;
+  room8Progress.timingWindowDetected = false;
+  room8Progress.appliedCorrectionConfirmed = false;
+
+  for (const trigger of systemMessageTriggers) {
+    trigger.fired = gravityUnlocked && trigger.id === "l1r4-gravity-unlock";
+  }
+  systemDialogue.activeBlocking = null;
+  systemDialogue.blockingQueue.length = 0;
+  systemDialogue.activeAmbient = null;
+  systemDialogue.ambientQueue.length = 0;
+}
+
+function clearTransientGameplayState() {
+  roomTransition = null;
+  pulses.length = 0;
+  forcePulseVisuals.length = 0;
+  droneProjectiles.length = 0;
+  if (abilityWheel.open) closeAbilityWheel(false);
+  if (systemAccess.open) systemAccess.open = false;
+  dismissAbilityUnlockNotice();
+  abilityUnlockCutscene.pendingAbilityId = null;
+  player.hp = player.maxHp;
+  player.vx = 0;
+  player.vy = 0;
+  player.isDying = false;
+  player.deathTimer = 0;
+  player.fallRespawnGraceTimer = 0;
+  player.damageTimer = 0;
+  player.spikeRecoveryTimer = 0;
+}
+
+function loadSelectedRoom(roomId) {
+  const room = getRoomById(roomId);
+  clearTransientGameplayState();
+  resetEnemiesToSpawn();
+  resetMovingPlatformsForRoom(null);
+  resetProgressForDirectRoomLoad(room.id);
+  enterRoom(room.id, room.spawn, { grounded: true, facing: 1 });
+  applyAbilityStateForRoom(room.id);
+  menuState.screen = MENU_STATE.PLAYING;
+  clearMenuBlockingInputState();
+}
+
+function openLevelSelect() {
+  menuState.screen = MENU_STATE.LEVEL_SELECT;
+  menuState.roomSelectionIndex = clamp(menuState.roomSelectionIndex, 0, roomSelectOptions.length - 1);
+  clearMenuBlockingInputState();
+}
+
+function returnToMainMenu() {
+  menuState.screen = MENU_STATE.MAIN;
+  menuState.mainSelectionIndex = 0;
+  clearMenuBlockingInputState();
+}
+
+function stepRoomSelect(delta) {
+  menuState.roomSelectionIndex = (menuState.roomSelectionIndex + delta + roomSelectOptions.length) % roomSelectOptions.length;
+}
+
+function updateMenuInput() {
+  if (menuState.screen === MENU_STATE.MAIN) {
+    if (pressedThisFrame.has("enter")) openLevelSelect();
+    pressedThisFrame.clear();
+    return true;
+  }
+
+  if (menuState.screen === MENU_STATE.LEVEL_SELECT) {
+    if (pressedThisFrame.has("escape") || pressedThisFrame.has("backspace")) returnToMainMenu();
+    else if (pressedThisFrame.has("arrowup") || pressedThisFrame.has("w")) stepRoomSelect(-1);
+    else if (pressedThisFrame.has("arrowdown") || pressedThisFrame.has("s")) stepRoomSelect(1);
+    else if (pressedThisFrame.has("enter")) {
+      const option = roomSelectOptions[menuState.roomSelectionIndex];
+      if (option) loadSelectedRoom(option.roomId);
+    }
+    pressedThisFrame.clear();
+    return true;
+  }
+
+  return false;
 }
 
 function startRoomTransition(door) {
@@ -8228,6 +8351,11 @@ function getEnemyUpdateOrder() {
 }
 
 function update(dt) {
+  if (menuState.screen !== MENU_STATE.PLAYING) {
+    updateMenuInput();
+    return;
+  }
+
   systemAccess.deniedTimer = Math.max(0, systemAccess.deniedTimer - dt);
   updateAbilityUnlockNotice(dt);
   if (systemAccess.open) {
@@ -9660,6 +9788,81 @@ function drawSystemAccessInterface() {
   ctx.restore();
 }
 
+function drawMenuPanel(x, y, w, h) {
+  ctx.fillStyle = "rgba(3, 13, 26, 0.86)";
+  ctx.strokeStyle = "rgba(106, 213, 246, 0.72)";
+  ctx.lineWidth = 1.5;
+  fillRoundedRect(x, y, w, h, 14);
+  strokeRoundedRect(x, y, w, h, 14);
+}
+
+function drawMenuOption(label, x, y, w, selected, h = 42) {
+  ctx.fillStyle = selected ? "rgba(68, 181, 224, 0.28)" : "rgba(8, 31, 56, 0.5)";
+  ctx.strokeStyle = selected ? "rgba(197, 247, 255, 0.95)" : "rgba(88, 163, 202, 0.42)";
+  ctx.lineWidth = selected ? 2 : 1;
+  fillRoundedRect(x, y, w, h, 8);
+  strokeRoundedRect(x, y, w, h, 8);
+  drawSystemAccessText(label.toUpperCase(), x + w / 2, y + h / 2, {
+    size: 16,
+    weight: selected ? "bold" : "normal",
+    align: "center",
+    baseline: "middle",
+    color: selected ? "rgba(241, 254, 255, 0.98)" : "rgba(184, 224, 238, 0.86)"
+  });
+}
+
+function drawMainMenu() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#04101f";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const panelW = 360;
+  const panelH = 230;
+  const x = (canvas.width - panelW) / 2;
+  const y = (canvas.height - panelH) / 2;
+  drawMenuPanel(x, y, panelW, panelH);
+  drawSystemAccessText("COREBOUND", canvas.width / 2, y + 34, { size: 30, weight: "bold", align: "center" });
+  drawSystemAccessText("MAIN MENU", canvas.width / 2, y + 74, { size: 12, align: "center", color: "rgba(155, 229, 255, 0.74)" });
+  drawMenuOption(mainMenuOptions[0], x + 72, y + 122, panelW - 144, menuState.mainSelectionIndex === 0);
+  drawSystemAccessText("ENTER: SELECT", canvas.width / 2, y + panelH - 34, { size: 12, align: "center", color: "rgba(155, 229, 255, 0.72)" });
+  ctx.restore();
+}
+
+function drawLevelSelectMenu() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#04101f";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const panelW = 440;
+  const panelH = 460;
+  const x = (canvas.width - panelW) / 2;
+  const y = (canvas.height - panelH) / 2;
+  drawMenuPanel(x, y, panelW, panelH);
+  drawSystemAccessText("LEVEL SELECT", canvas.width / 2, y + 28, { size: 24, weight: "bold", align: "center" });
+  drawSystemAccessText("LEVEL", x + 46, y + 76, { size: 12, color: "rgba(155, 229, 255, 0.74)" });
+  drawSystemAccessText("LEVEL 1", x + 46, y + 100, { size: 18, weight: "bold" });
+  drawSystemAccessText("ROOM", x + 46, y + 142, { size: 12, color: "rgba(155, 229, 255, 0.74)" });
+
+  const optionX = x + 46;
+  const optionW = panelW - 92;
+  const optionStartY = y + 166;
+  for (let index = 0; index < roomSelectOptions.length; index += 1) {
+    drawMenuOption(roomSelectOptions[index].label, optionX, optionStartY + index * 32, optionW, index === menuState.roomSelectionIndex, 28);
+  }
+
+  drawSystemAccessText("↑/↓: CHOOSE   ENTER: LOAD   ESC/BACKSPACE: BACK", canvas.width / 2, y + panelH - 32, {
+    size: 11,
+    align: "center",
+    color: "rgba(155, 229, 255, 0.72)"
+  });
+  ctx.restore();
+}
+
+function drawMenu() {
+  if (menuState.screen === MENU_STATE.MAIN) drawMainMenu();
+  else if (menuState.screen === MENU_STATE.LEVEL_SELECT) drawLevelSelectMenu();
+}
+
 function drawSystemAccessDeniedMessage() {
   if (systemAccess.open || systemAccess.deniedTimer <= 0) return;
   const alpha = clamp(systemAccess.deniedTimer / SYSTEM_ACCESS_DENIED_DURATION, 0, 1);
@@ -9681,6 +9884,10 @@ function drawSystemAccessDeniedMessage() {
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (menuState.screen !== MENU_STATE.PLAYING) {
+    drawMenu();
+    return;
+  }
   ctx.save();
   ctx.translate(-cameraX, 0);
   drawRoom();
@@ -9742,6 +9949,14 @@ function clearInputState() {
 window.addEventListener("keydown", (event) => {
   const inputKeys = getInputKeys(event);
   if (inputKeys.some((key) => RESERVED_INPUT_KEYS.includes(key))) event.preventDefault();
+
+  if (menuState.screen !== MENU_STATE.PLAYING) {
+    for (const key of inputKeys) {
+      if (!keys.has(key)) pressedThisFrame.add(key);
+      keys.add(key);
+    }
+    return;
+  }
 
   if (inputKeys.some((key) => key === "tab" || key === "i" || key === "escape") || systemAccess.open) {
     for (const key of inputKeys) {
@@ -9889,6 +10104,11 @@ window.__indiePlatformerDebug = {
   getDoorTransitionSpawn,
   checkRoomEdgeTransitions,
   resetRoomState,
+  menuState,
+  mainMenuOptions,
+  roomSelectOptions,
+  loadSelectedRoom,
+  applyAbilityStateForRoom,
   bottomFallBoundary,
   roomHazardBounds,
   constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, CONTACT_DAMAGE_COOLDOWN, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
