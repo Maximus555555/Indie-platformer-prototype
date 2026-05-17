@@ -203,6 +203,8 @@ const SYSTEM_AMBIENT_DURATION = 3.2;
 const SYSTEM_AMBIENT_FADE = 0.45;
 const SYSTEM_ACCESS_COMBAT_RADIUS = 520;
 const SYSTEM_ACCESS_DENIED_DURATION = 1.15;
+const ROOM9_BARRIER_DISSOLVE_DURATION = 0.42;
+const ROOM9_BARRIER_DISSOLVE_STRIPS = 7;
 
 
 const checkpoint = config.checkpoint ?? { x: 86, y: 420 };
@@ -614,7 +616,7 @@ function resetProgressForDirectRoomLoad(roomId) {
   room8Progress.timingWindowDetected = false;
   room8Progress.appliedCorrectionConfirmed = false;
   room9Progress.accessRouteAvailable = false;
-  setRoom9BarrierActive(false);
+  setRoom9BarrierActive(false, { animate: false });
 
   for (const trigger of systemMessageTriggers) {
     trigger.fired = gravityUnlocked && trigger.id === "l1r4-gravity-unlock";
@@ -6748,7 +6750,8 @@ const room8Progress = {
 
 const room9Progress = {
   pressurePlateActive: false,
-  accessRouteAvailable: false
+  accessRouteAvailable: false,
+  barrierDissolveTimer: 0
 };
 
 function unlockGravityFieldFromRoom4() {
@@ -7321,15 +7324,26 @@ function updateSystemMessages(dt) {
 }
 
 
-function setRoom9BarrierActive(pressureActive) {
+function setRoom9BarrierActive(pressureActive, options = {}) {
   if (!room9ExitBarrier) return;
   const barrierHeight = room9ExitBarrier.baseH ?? canvas.height;
   const barrierY = room9ExitBarrier.baseY ?? 0;
+  const wasActive = room9Progress.pressurePlateActive;
+  const animate = options.animate ?? true;
   room9Progress.pressurePlateActive = pressureActive;
+  if (pressureActive && !wasActive && animate) {
+    room9Progress.barrierDissolveTimer = ROOM9_BARRIER_DISSOLVE_DURATION;
+  } else if (!pressureActive) {
+    room9Progress.barrierDissolveTimer = 0;
+  }
   // Keep the closed wall as a full-height ordinary platform, and collapse its
   // collision box instantly when the linked pressure plate is held down.
   room9ExitBarrier.h = pressureActive ? 0 : barrierHeight;
   room9ExitBarrier.y = pressureActive ? barrierY + barrierHeight : barrierY;
+}
+
+function updateRoom9BarrierAnimation(dt) {
+  room9Progress.barrierDissolveTimer = Math.max(0, room9Progress.barrierDissolveTimer - dt);
 }
 
 function isEntityStandingOnPlatform(entity, platform) {
@@ -8533,6 +8547,7 @@ function update(dt) {
   getEnemyUpdateOrder().forEach((enemy) => enemy.update(dt));
   updateRoom8WalkerTimingPrompt();
   updateRoom9PressurePlate();
+  updateRoom9BarrierAnimation(dt);
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
   forcePulseVisuals.forEach((visual) => visual.update(dt));
@@ -8730,7 +8745,58 @@ function drawPressurePlatePlatform(platform) {
   ctx.restore();
 }
 
+function drawRoom9BarrierDissolve(platform) {
+  const progress = easeOutCubic(1 - room9Progress.barrierDissolveTimer / ROOM9_BARRIER_DISSOLVE_DURATION);
+  const alpha = clamp(1 - progress, 0, 1);
+  if (alpha <= 0) return;
+
+  const baseY = platform.baseY ?? 0;
+  const baseH = platform.baseH ?? canvas.height;
+  const stripGap = 5;
+  const stripStride = baseH / ROOM9_BARRIER_DISSOLVE_STRIPS;
+
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.shadowColor = "rgba(92, 224, 255, 0.54)";
+  ctx.shadowBlur = 12 * alpha;
+  ctx.fillStyle = "rgba(111, 207, 243, 0.78)";
+  ctx.strokeStyle = "rgba(234, 253, 255, 0.84)";
+  ctx.lineWidth = 1.3;
+
+  // Split the wall into a few code-generated slats so the route visibly opens
+  // while collision has already been removed for responsive play.
+  for (let i = 0; i < ROOM9_BARRIER_DISSOLVE_STRIPS; i += 1) {
+    const stripH = Math.max(8, stripStride - stripGap);
+    const stripY = baseY + i * stripStride + stripGap / 2;
+    const drift = (i % 2 === 0 ? -1 : 1) * progress * (10 + (i % 3) * 3);
+    const stripW = platform.w * (1 - progress * 0.35);
+    const stripX = platform.x + (platform.w - stripW) / 2 + drift;
+    ctx.fillRect(stripX, stripY, stripW, stripH);
+    ctx.strokeRect(stripX + 0.5, stripY + 0.5, stripW - 1, stripH - 1);
+  }
+
+  ctx.fillStyle = "rgba(233, 252, 255, 0.9)";
+  for (let i = 0; i < 6; i += 1) {
+    const sparkY = baseY + baseH * ((i + 0.5) / 6);
+    const side = i % 2 === 0 ? -1 : 1;
+    const sparkX = platform.x + platform.w / 2 + side * (platform.w * 0.35 + progress * (12 + i * 2));
+    const size = 2.5 + (i % 3);
+    ctx.beginPath();
+    ctx.moveTo(sparkX, sparkY - size);
+    ctx.lineTo(sparkX + size, sparkY);
+    ctx.lineTo(sparkX, sparkY + size);
+    ctx.lineTo(sparkX - size, sparkY);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawLinkedBarrier(platform) {
+  if (platform === room9ExitBarrier && room9Progress.barrierDissolveTimer > 0) {
+    drawRoom9BarrierDissolve(platform);
+    return;
+  }
   if (platform.h <= 0) return;
 
   ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
@@ -8738,7 +8804,7 @@ function drawLinkedBarrier(platform) {
 }
 
 function drawPlatform(platform) {
-  if (platform.h <= 0 || platform.w <= 0) return;
+  if (platform.w <= 0) return;
   if (platform.type === "pressurePlate") {
     drawPressurePlatePlatform(platform);
     return;
@@ -8747,6 +8813,7 @@ function drawPlatform(platform) {
     drawLinkedBarrier(platform);
     return;
   }
+  if (platform.h <= 0) return;
 
   ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
   ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
@@ -10276,7 +10343,7 @@ window.__indiePlatformerDebug = {
   applyAbilityStateForRoom,
   bottomFallBoundary,
   roomHazardBounds,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, CONTACT_DAMAGE_COOLDOWN, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, CONTACT_DAMAGE_COOLDOWN, ROOM9_BARRIER_DISSOLVE_DURATION, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
