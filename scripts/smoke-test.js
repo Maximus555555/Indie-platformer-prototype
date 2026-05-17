@@ -181,7 +181,7 @@ const expectedRoom7Platforms = [
   { x: room7X + 835, y: 470, w: 125, h: 70 }
 ];
 const expectedRoom8Platforms = [
-  { x: room8X, y: 470, w: 280, h: 70 },
+  { x: room8X, y: 470, w: 240, h: 70 },
   { x: room8X + 300, y: 300, w: 430, h: 24 },
   { x: room8X + 285, y: 430, w: 500, h: 24 },
   { x: room8X + 815, y: 470, w: 145, h: 70 }
@@ -716,6 +716,22 @@ if (!debug.spikes.some((spike) => spike.side === "top" && spike.x === room8X + 3
 }
 if (!debug.spikes.some((spike) => spike.side === "top" && spike.x === room8X + 535 && spike.w === 140)) {
   throw new Error("Room 8 offset spike strip is missing or misplaced.");
+}
+const room8TopSpike = debug.spikes.find((spike) => spike.side === "top" && spike.x === room8X + 300 && spike.w === 430);
+debug.player.hp = 3;
+debug.player.damageTimer = 0;
+debug.player.fallRespawnGraceTimer = 0;
+debug.player.isDying = false;
+debug.player.x = room8X + 510;
+debug.player.y = room8TopSpike.platform.y - debug.player.h + 8;
+debug.player.takeSpikeDamage(room8TopSpike);
+const playerAfterRoom8SpikeRecovery = { x: debug.player.x, y: debug.player.y, w: debug.player.w, h: debug.player.h };
+if (playerAfterRoom8SpikeRecovery.x + playerAfterRoom8SpikeRecovery.w > room8TopSpike.platform.x
+  && playerAfterRoom8SpikeRecovery.x < room8TopSpike.platform.x + room8TopSpike.platform.w) {
+  throw new Error("Room 8 top spikes should eject the player fully off the spiked platform.");
+}
+if (debug.spikes.some((spike) => debug.rectTouchesSpikeStrip(playerAfterRoom8SpikeRecovery, spike))) {
+  throw new Error("Room 8 top spike recovery should place the player clear of all spikes.");
 }
 room8Walker.x = room8X + 570;
 room8Walker.y = 402;

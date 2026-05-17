@@ -328,7 +328,7 @@ const platforms = [
   // Level 1, Room 8: a forgiving Walker + Gravity Field timing puzzle. The
   // Walker patrols inverted under the central platform; a correctly timed
   // gravity flip drops it into the offset spike strip below.
-  { x: ROOM8_X, y: ROOM_FLOOR_Y, w: 280, h: 70 },
+  { x: ROOM8_X, y: ROOM_FLOOR_Y, w: 240, h: 70 },
   { id: "room8-walker-platform", x: ROOM8_X + 300, y: 300, w: 430, h: 24 },
   { id: "room8-spike-platform", x: ROOM8_X + 285, y: 430, w: 500, h: 24 },
   { x: ROOM8_X + 815, y: ROOM_FLOOR_Y, w: 145, h: 70 }
@@ -2134,36 +2134,55 @@ class Player extends Entity {
 
   getSpikeRecoveryPoint(spike, spikeBounds) {
     const platform = spike.platform;
+    const room = getRoomForPlatform(platform);
     const centerX = this.x + this.w / 2;
     const spikeCenterX = spikeBounds.x + spikeBounds.w / 2;
     const preferredDirection = centerX < spikeCenterX ? -1 : 1;
     const outwardY = spike.side === "top" ? -1 : 1;
     const y = spike.side === "top" ? platform.y - STAND_HEIGHT : platform.y + platform.h;
     const margin = 6;
-    const minX = platform.x + EDGE_RESPAWN_INSET;
-    const maxX = platform.x + platform.w - this.w - EDGE_RESPAWN_INSET;
+    const roomMinX = room.x;
+    const roomMaxX = room.x + room.w - this.w;
+    const platformMinX = platform.x + EDGE_RESPAWN_INSET;
+    const platformMaxX = platform.x + platform.w - this.w - EDGE_RESPAWN_INSET;
 
-    const scanDirection = (direction) => {
+    const isClearRecoverySpot = (x) => {
+      const candidate = { x, y, w: this.w, h: STAND_HEIGHT };
+      const blockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect));
+      return !blockedByEnemy && !rectTouchesSpikes(candidate);
+    };
+
+    const scanDirection = (direction, minX, maxX, distanceLimit) => {
+      if (minX > maxX) return null;
       const startX = direction < 0
         ? spikeBounds.x - this.w - margin
         : spikeBounds.x + spikeBounds.w + margin;
 
-      for (let distance = 0; distance <= platform.w; distance += 6) {
+      for (let distance = 0; distance <= distanceLimit; distance += 6) {
         const x = clamp(startX + direction * distance, minX, maxX);
-        const candidate = { x, y, w: this.w, h: STAND_HEIGHT };
-        const blockedByEnemy = getSolidEnemyRects().some((enemyRect) => rectsOverlap(candidate, enemyRect));
-        if (!blockedByEnemy && !rectTouchesSpikes(candidate)) return x;
+        if (isClearRecoverySpot(x)) return { x, direction };
         if (x === minX || x === maxX) break;
       }
 
       return null;
     };
 
-    const x = scanDirection(preferredDirection)
-      ?? scanDirection(-preferredDirection)
-      ?? findSafePlatformEdgeX(platform, getClosestPlatformEdge(platform, centerX), this.w, STAND_HEIGHT, y);
+    // First look beyond the spike strip itself instead of clamping to the
+    // owning platform. Fully spiked platforms (Room 8's upper platform) need to
+    // eject the player off the platform rather than pinning them to a spiked edge.
+    const roomScanDistance = Math.max(platform.w, spikeBounds.w) + this.w + margin;
+    const recovery = scanDirection(preferredDirection, roomMinX, roomMaxX, roomScanDistance)
+      ?? scanDirection(-preferredDirection, roomMinX, roomMaxX, roomScanDistance);
+    if (recovery) return { ...recovery, y, outwardY };
 
-    return { x, y, direction: preferredDirection, outwardY };
+    const platformRecovery = scanDirection(preferredDirection, platformMinX, platformMaxX, platform.w)
+      ?? scanDirection(-preferredDirection, platformMinX, platformMaxX, platform.w);
+    if (platformRecovery) return { ...platformRecovery, y, outwardY };
+
+    const fallbackEdge = getClosestPlatformEdge(platform, centerX);
+    const fallbackX = findSafePlatformEdgeX(platform, fallbackEdge, this.w, STAND_HEIGHT, y);
+    const fallbackDirection = fallbackEdge === "left" ? -1 : 1;
+    return { x: fallbackX, y, direction: fallbackDirection, outwardY };
   }
 
   respawnAtLastGroundedEdge() {
@@ -9796,6 +9815,7 @@ window.__indiePlatformerDebug = {
   platforms,
   spikes,
   phaseBarriers,
+  rectTouchesSpikeStrip,
   update,
   draw,
   getShiftIsDown: () => shiftIsDown,
