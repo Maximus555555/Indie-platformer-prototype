@@ -341,8 +341,8 @@ const platforms = [
   // Walker starts with the player, then must be redirected through offset
   // upper platforms before weighing down the top-right pressure plate.
   { id: "room9-start-platform", x: ROOM9_X, y: ROOM_FLOOR_Y, w: 285, h: 70 },
-  { id: "room9-upper-platform-a", x: ROOM9_X + 195, y: 300, w: 185, h: 24 },
-  { id: "room9-upper-platform-b", x: ROOM9_X + 360, y: 390, w: 200, h: 24 },
+  { id: "room9-upper-platform-a", x: ROOM9_X + 195, y: 260, w: 185, h: 24 },
+  { id: "room9-upper-platform-b", x: ROOM9_X + 360, y: 425, w: 260, h: 24 },
   { id: "room9-upper-platform-c", x: ROOM9_X + 540, y: 300, w: 210, h: 24 },
   { id: "room9-pressure-plate", type: "pressurePlate", x: ROOM9_X + 540, y: 292, w: 210, h: 8 },
   { id: "room9-exit-barrier", type: "linkedBarrier", x: ROOM9_X + 885, y: 0, w: 34, h: canvas.height, baseY: 0, baseH: canvas.height }
