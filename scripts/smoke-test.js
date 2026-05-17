@@ -24,7 +24,9 @@ const recordCanvasCall = (name) => function (...args) {
       lineWidth: context.lineWidth,
       strokeStyle: context.strokeStyle,
       fillStyle: context.fillStyle,
-      globalAlpha: context.globalAlpha
+      globalAlpha: context.globalAlpha,
+      shadowBlur: context.shadowBlur,
+      shadowColor: context.shadowColor
     }
   });
 };
@@ -199,8 +201,8 @@ const expectedRoomIds = Array.from({ length: 10 }, (_, index) => `room-${index +
 if (debug.levelRooms.length !== expectedRoomIds.length || expectedRoomIds.some((id, index) => debug.levelRooms[index]?.id !== id)) {
   throw new Error(`Expected Level 1 Rooms 1 through 10 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
-if (debug.enemies.length !== 4 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Rooms 7, 8, 9, and 10 should create one Walker each, inactive while the player starts in Room 1.");
+if (debug.enemies.length !== 5 || debug.getActiveEnemies().length !== 0) {
+  throw new Error("Level 1 Rooms 7, 8, and 9 should create one Walker each, and Room 10 should create two Walkers, all inactive while the player starts in Room 1.");
 }
 if (debug.spikes.length !== 3 || debug.phaseBarriers.length !== 0) {
   throw new Error("Level 1 Rooms 7 and 8 should include three spike strips total and no phase barriers.");
@@ -234,56 +236,51 @@ const drewRoom9BarrierDissolve = context.calls.some((call) => call.name === "fil
   && call.args[0] <= room9IntroX + 920);
 if (!drewRoom9BarrierDissolve) throw new Error("Room 9 linked barrier dissolve animation did not draw while collision was open.");
 debug.loadSelectedRoom("room-10");
-const room10Bridge = debug.platforms.find((platform) => platform.id === "room10-temp-bridge");
-const room10Plate = debug.platforms.find((platform) => platform.id === "room10-pressure-plate");
-if (!room10Bridge || !room10Plate) throw new Error("Room 10 pressure plate or temporary bridge was not found.");
-if (room10Bridge.h !== 0 || room10Bridge.y !== 970) throw new Error("Room 10 bridge should start inactive and off the collision path.");
-debug.player.placeAt(room10Plate.x + 4, room10Plate.y - debug.constants.STAND_HEIGHT, { grounded: true });
+const room10PlateA = debug.platforms.find((platform) => platform.id === "room10-pressure-plate-a");
+const room10PlateB = debug.platforms.find((platform) => platform.id === "room10-pressure-plate-b");
+const room10Barrier = debug.platforms.find((platform) => platform.id === "room10-exit-barrier");
+if (!room10PlateA || !room10PlateB || !room10Barrier) throw new Error("Room 10 pressure plates or system barrier were not found.");
+if (room10Barrier.h !== 540 || room10Barrier.y !== 0) throw new Error("Room 10 barrier should start closed across the exit route.");
+debug.player.placeAt(room10PlateA.x + 4, room10PlateA.y - debug.constants.STAND_HEIGHT, { grounded: true });
 debug.update(16 / 1000);
-if (debug.room10Progress.pressurePlateActive || room10Bridge.h !== 0) {
-  throw new Error("Room 10 pressure plate should not activate from the player standing on it.");
+if (debug.room10Progress.pressurePlateAActive || debug.room10Progress.barrierOpen || room10Barrier.h !== 540) {
+  throw new Error("Room 10 pressure plates should not activate from the player standing on them.");
 }
-debug.enemies[3].x = room10Plate.x + 12;
-debug.enemies[3].y = room10Plate.y - debug.enemies[3].h - 10;
-debug.enemies[3].groundedPlatform = room10Plate;
-debug.enemies[3].onSurface = true;
-debug.enemies[3].hp = 2;
-debug.enemies[3].isDying = false;
+const room10WalkerA = debug.enemies[3];
+const room10WalkerB = debug.enemies[4];
+room10WalkerA.x = room10PlateA.x + 12;
+room10WalkerA.y = room10PlateA.y - room10WalkerA.h - 10;
+room10WalkerA.groundedPlatform = room10PlateA;
+room10WalkerA.onSurface = true;
+room10WalkerA.hp = 2;
+room10WalkerA.isDying = false;
 debug.update(16 / 1000);
-if (!debug.room10Progress.pressurePlateActive || room10Bridge.h !== 20 || room10Bridge.y !== 430) {
-  throw new Error("Room 10 Walker pressure plate did not instantiate the temporary bridge.");
+if (!debug.room10Progress.pressurePlateAActive || debug.room10Progress.pressurePlateBActive || debug.room10Progress.barrierOpen || room10Barrier.h !== 540) {
+  throw new Error("Room 10 barrier should stay closed while only one Walker holds a plate.");
 }
-if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r10-temporary-structure" && entry.text === "Temporary structure instantiated.")) {
-  throw new Error("Room 10 bridge activation did not log the temporary structure message.");
+room10WalkerB.x = room10PlateB.x + 12;
+room10WalkerB.y = room10PlateB.y - room10WalkerB.h - 10;
+room10WalkerB.groundedPlatform = room10PlateB;
+room10WalkerB.onSurface = true;
+room10WalkerB.hp = 2;
+room10WalkerB.isDying = false;
+debug.update(16 / 1000);
+if (!debug.room10Progress.pressurePlateAActive || !debug.room10Progress.pressurePlateBActive || !debug.room10Progress.barrierOpen || room10Barrier.h !== 0 || room10Barrier.y !== 540) {
+  throw new Error("Room 10 barrier did not open only when both Walker pressure plates were active.");
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r10-access-route-available" && entry.text === "Access route available.")) {
+  throw new Error("Room 10 barrier activation did not log the access route message.");
 }
 context.calls.length = 0;
 debug.draw();
-const room10BridgeDrawCall = context.calls.find((call) => call.name === "fillRect"
-  && call.args[0] === room10Bridge.x
-  && call.args[1] === room10Bridge.y
-  && call.args[2] === room10Bridge.w
-  && call.args[3] === room10Bridge.h);
-if (room10BridgeDrawCall?.state.fillStyle !== "#9fd0f4") {
-  throw new Error("Room 10 temporary bridge should use the same fill style as ordinary platforms.");
-}
-debug.enemies[3].direction = 1;
-debug.enemies[3].walkerState = "patrolling";
-debug.enemies[3].reverseCooldown = 0;
-for (let i = 0; i < 80 && debug.room10Progress.pressurePlateActive; i += 1) debug.update(16 / 1000);
-if (debug.room10Progress.pressurePlateActive || debug.enemies[3].direction !== 1) {
-  throw new Error("Room 10 Walker should walk off the pressure plate instead of reversing at the plate edge.");
-}
-debug.enemies[3].x = room10Plate.x + 12;
-debug.enemies[3].y = room10Plate.y - debug.enemies[3].h - 10;
-debug.enemies[3].groundedPlatform = room10Plate;
-debug.enemies[3].onSurface = true;
+const activePlateGlow = context.calls.some((call) => call.name === "fill" && call.state.shadowBlur >= 6);
+if (!activePlateGlow) throw new Error("Room 10 active pressure plates did not draw with a glow.");
+room10WalkerB.x = room10PlateB.x + room10PlateB.w + 80;
+room10WalkerB.groundedPlatform = null;
+room10WalkerB.onSurface = false;
 debug.update(16 / 1000);
-debug.enemies[3].x = room10Plate.x + room10Plate.w + 80;
-debug.enemies[3].groundedPlatform = null;
-debug.enemies[3].onSurface = false;
-debug.update(16 / 1000);
-if (debug.room10Progress.pressurePlateActive || room10Bridge.h !== 0 || room10Bridge.y !== 970) {
-  throw new Error("Room 10 bridge did not disappear instantly when the Walker left the plate.");
+if (debug.room10Progress.pressurePlateBActive || debug.room10Progress.barrierOpen || room10Barrier.h !== 540 || room10Barrier.y !== 0) {
+  throw new Error("Room 10 barrier did not reform instantly when either Walker left a plate.");
 }
 if (debug.levelRooms.some((room) => room.id === "room-11")) throw new Error("Room 11 should not exist yet.");
 const room9RightTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-9-to-room-10");
@@ -361,11 +358,17 @@ const expectedRoom9Platforms = [
   { x: room9X + 885, y: 0, w: 34, h: 540 }
 ];
 const expectedRoom10Platforms = [
-  { x: room10X, y: 470, w: 260, h: 70 },
-  { x: room10X + 330, y: 300, w: 300, h: 24 },
-  { x: room10X + 438, y: 292, w: 84, h: 8 },
-  { x: room10X + 280, y: 970, w: 390, h: 0 },
-  { x: room10X + 690, y: 470, w: 270, h: 70 }
+  { x: room10X, y: 470, w: 245, h: 70 },
+  { x: room10X + 270, y: 405, w: 230, h: 24 },
+  { x: room10X + 360, y: 185, w: 270, h: 24 },
+  { x: room10X + 575, y: 315, w: 190, h: 24 },
+  { x: room10X + 675, y: 250, w: 170, h: 24 },
+  { x: room10X + 712, y: 242, w: 82, h: 8 },
+  { x: room10X + 510, y: 470, w: 155, h: 70 },
+  { x: room10X + 710, y: 470, w: 130, h: 70 },
+  { x: room10X + 735, y: 462, w: 76, h: 8 },
+  { x: room10X + 875, y: 470, w: 85, h: 70 },
+  { x: room10X + 850, y: 0, w: 34, h: 540 }
 ];
 const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms, ...expectedRoom10Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
@@ -481,9 +484,10 @@ const expectedTriggerMessages = [
   "Path obstruction detected.",
   "Hostile process movement may be redirected.",
   "Environmental state linked to external weight.",
-  "Environmental response system detected.",
-  "External weight modifies traversal path.",
-  "Traversal window unstable.",
+  "Multiple processes required.",
+  "Single correction insufficient.",
+  "Concurrent alignment required.",
+  "Access route available.",
   "Proceed."
 ];
 for (const text of expectedTriggerMessages) {
@@ -497,7 +501,7 @@ debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
-const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910, room8X + 350, room8X + 890, room9X + 45, room9X + 220, room9X + 560, room9X + 930, room10X + 45, room10X + 325, room10X + 300, room10X + 920];
+const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910, room8X + 350, room8X + 890, room9X + 45, room9X + 220, room9X + 560, room9X + 930, room10X + 45, room10X + 325, room10X + 610, room10X + 860, room10X + 920];
 for (const x of nonBlockingTriggerPositions) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
@@ -887,8 +891,8 @@ if (debug.getCurrentRoomId() !== "room-10") {
 if (debug.player.x < room10X || debug.player.x > room10X + 60) {
   throw new Error(`Room 10 entry should place the player at the left start, got x=${debug.player.x}.`);
 }
-if (debug.getActiveEnemies().length !== 1 || debug.getActiveEnemies()[0].roomId !== "room-10") {
-  throw new Error("Room 10 should activate exactly one Walker.");
+if (debug.getActiveEnemies().length !== 2 || debug.getActiveEnemies().some((enemy) => enemy.roomId !== "room-10")) {
+  throw new Error("Room 10 should activate exactly two Walkers.");
 }
 debug.player.placeAt(room10X, 420, { grounded: true });
 dispatch("keydown", keyEvent("a", "KeyA"));
