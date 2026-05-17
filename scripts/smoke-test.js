@@ -239,6 +239,28 @@ if (!debug.room10Progress.pressurePlateActive || room10Bridge.h !== 20 || room10
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r10-temporary-structure" && entry.text === "Temporary structure instantiated.")) {
   throw new Error("Room 10 bridge activation did not log the temporary structure message.");
 }
+context.calls.length = 0;
+debug.draw();
+const room10BridgeDrawCall = context.calls.find((call) => call.name === "fillRect"
+  && call.args[0] === room10Bridge.x
+  && call.args[1] === room10Bridge.y
+  && call.args[2] === room10Bridge.w
+  && call.args[3] === room10Bridge.h);
+if (room10BridgeDrawCall?.state.fillStyle !== "#9fd0f4") {
+  throw new Error("Room 10 temporary bridge should use the same fill style as ordinary platforms.");
+}
+debug.enemies[3].direction = 1;
+debug.enemies[3].walkerState = "patrolling";
+debug.enemies[3].reverseCooldown = 0;
+for (let i = 0; i < 80 && debug.room10Progress.pressurePlateActive; i += 1) debug.update(16 / 1000);
+if (debug.room10Progress.pressurePlateActive || debug.enemies[3].direction !== 1) {
+  throw new Error("Room 10 Walker should walk off the pressure plate instead of reversing at the plate edge.");
+}
+debug.enemies[3].x = room10Plate.x + 12;
+debug.enemies[3].y = room10Plate.y - debug.enemies[3].h - 10;
+debug.enemies[3].groundedPlatform = room10Plate;
+debug.enemies[3].onSurface = true;
+debug.update(16 / 1000);
 debug.enemies[3].x = room10Plate.x + room10Plate.w + 80;
 debug.enemies[3].groundedPlatform = null;
 debug.enemies[3].onSurface = false;
@@ -323,8 +345,8 @@ const expectedRoom9Platforms = [
 ];
 const expectedRoom10Platforms = [
   { x: room10X, y: 470, w: 260, h: 70 },
-  { x: room10X + 330, y: 350, w: 300, h: 24 },
-  { x: room10X + 438, y: 342, w: 84, h: 8 },
+  { x: room10X + 330, y: 300, w: 300, h: 24 },
+  { x: room10X + 438, y: 292, w: 84, h: 8 },
   { x: room10X + 280, y: 970, w: 390, h: 0 },
   { x: room10X + 690, y: 470, w: 270, h: 70 }
 ];
