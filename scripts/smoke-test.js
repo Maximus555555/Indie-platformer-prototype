@@ -139,9 +139,26 @@ context.calls.length = 0;
 debug.draw();
 const levelSelectText = context.calls.filter((call) => call.name === "fillText").map((call) => call.args[0]);
 if (!levelSelectText.includes("LEVEL 1")) throw new Error("Level select did not draw Level 1.");
-for (let room = 1; room <= 10; room += 1) {
-  if (!levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select did not draw Room ${room}.`);
+for (let room = 1; room <= debug.constants.ROOM_SELECT_VISIBLE_COUNT; room += 1) {
+  if (!levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select did not draw visible Room ${room}.`);
 }
+for (let room = debug.constants.ROOM_SELECT_VISIBLE_COUNT + 1; room <= 10; room += 1) {
+  if (levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select should hide Room ${room} until scrolled.`);
+}
+for (let i = 0; i < debug.constants.ROOM_SELECT_VISIBLE_COUNT; i += 1) {
+  dispatch("keydown", keyEvent("ArrowDown", "ArrowDown"));
+  tick();
+  dispatch("keyup", keyEvent("ArrowDown", "ArrowDown"));
+}
+context.calls.length = 0;
+debug.draw();
+const scrolledLevelSelectText = context.calls.filter((call) => call.name === "fillText").map((call) => call.args[0]);
+if (debug.menuState.roomScrollOffset <= 0 || !scrolledLevelSelectText.includes("ROOM 7")) {
+  throw new Error("Level select did not scroll down to reveal later rooms.");
+}
+if (scrolledLevelSelectText.includes("ROOM 1")) throw new Error("Scrolled level select should hide Room 1.");
+debug.menuState.roomSelectionIndex = 0;
+debug.syncRoomSelectScrollToSelection();
 if (levelSelectText.some((text) => text.includes("ENTER:") || text.includes("ESC") || text.includes("CHOOSE"))) {
   throw new Error("Level select drew control instructions.");
 }
@@ -337,8 +354,8 @@ const expectedRoom8Platforms = [
 ];
 const expectedRoom9Platforms = [
   { x: room9X, y: 470, w: 285, h: 70 },
-  { x: room9X + 195, y: 260, w: 185, h: 24 },
-  { x: room9X + 360, y: 425, w: 260, h: 24 },
+  { x: room9X + 195, y: 260, w: 245, h: 24 },
+  { x: room9X + 360, y: 425, w: 320, h: 24 },
   { x: room9X + 540, y: 300, w: 210, h: 24 },
   { x: room9X + 540, y: 292, w: 210, h: 8 },
   { x: room9X + 885, y: 0, w: 34, h: 540 }
