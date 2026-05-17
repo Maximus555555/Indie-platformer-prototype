@@ -608,7 +608,12 @@ function enterRoom(roomId, spawn, options = {}) {
   currentRoomId = getRoomById(roomId).id;
   negateActiveAbilityEffects();
   cancelSystemPulseCarryover();
-  if (spawn) player.placeAt(spawn.x, spawn.y, { grounded: options.grounded ?? true });
+  if (spawn) {
+    const spawnRect = { x: spawn.x, y: spawn.y, w: player.w, h: STAND_HEIGHT };
+    const hasSpawnSupport = hasSurfaceSupportForRect(spawnRect, 1, 3);
+    player.placeAt(spawn.x, spawn.y, { grounded: (options.grounded ?? true) && hasSpawnSupport });
+    if (!hasSpawnSupport) player.lastGroundedPlatform = null;
+  }
   player.facing = options.facing ?? player.facing;
   cameraX = getCurrentRoom().x;
 }
@@ -1165,6 +1170,58 @@ function enemyShouldDieOnVerticalWorldEdge(enemy) {
   return enemyTouchesVerticalWorldEdge(enemy) && (enemy.verticalEdgeKillTimer ?? 0) > 0;
 }
 
+
+function getSurfaceSupportForRect(rect, gravitySign = 1, maxDistance = 2) {
+  const surfaceY = gravitySign > 0 ? rect.y + rect.h : rect.y;
+  let bestPlatform = null;
+  let bestDistance = Infinity;
+
+  for (const platform of [...getPlayerPlatformSolids(), ...getPlayerEnemyCollisionRects()]) {
+    if (!rangesOverlap(rect.x, rect.x + rect.w, platform.x, platform.x + platform.w)) continue;
+    const platformSurfaceY = gravitySign > 0 ? platform.y : platform.y + platform.h;
+    const distanceToSurface = (platformSurfaceY - surfaceY) * gravitySign;
+    if (distanceToSurface < -0.5 || distanceToSurface > maxDistance) continue;
+    if (distanceToSurface < bestDistance) {
+      bestPlatform = platform;
+      bestDistance = distanceToSurface;
+    }
+  }
+
+  return bestPlatform;
+}
+
+function hasSurfaceSupportForRect(rect, gravitySign = 1, maxDistance = 2) {
+  return Boolean(getSurfaceSupportForRect(rect, gravitySign, maxDistance));
+}
+
+function enemyIsPinningPlayerAtVerticalEdge(enemy) {
+  if (!enemy || player.isDying || isPlayerPhased()) return false;
+  const enemyRect = enemy.getDamageRect?.() ?? enemy.getCollisionRect?.() ?? enemy;
+  if (!rectsTouchOrOverlap(player, enemyRect, 1)) return false;
+
+  const room = getCurrentRoom();
+  const playerAtLeftEdge = player.x <= room.x + 0.5 && enemyRect.x + enemyRect.w / 2 >= player.x + player.w / 2;
+  const playerAtRightEdge = player.x + player.w >= room.x + room.w - 0.5 && enemyRect.x + enemyRect.w / 2 <= player.x + player.w / 2;
+  return playerAtLeftEdge || playerAtRightEdge;
+}
+
+function nudgeEnemyAwayFromPinnedPlayer(enemy) {
+  const room = getCurrentRoom();
+  const direction = player.x <= room.x + 0.5 ? 1 : -1;
+  const body = enemy.getCollisionRect?.() ?? enemy;
+  const bodyOffsetX = body.x - enemy.x;
+  enemy.x = direction > 0
+    ? player.x + player.w + 1 - bodyOffsetX
+    : player.x - body.w - 1 - bodyOffsetX;
+  enemy.vx = Math.abs(enemy.vx ?? 0) * direction;
+  if (typeof enemy.reverseDirection === "function") {
+    enemy.direction = direction;
+    enemy.reverseCooldown = Math.max(enemy.reverseCooldown ?? 0, 0.18);
+  }
+  enemy.resolveWorldHorizontalBounds?.();
+  enemy.verticalEdgeKillTimer = 0;
+}
+
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -1712,6 +1769,11 @@ class Player extends Entity {
     else this.walkTime = 0;
     if (input !== 0 && this.onSurface && this.isCrouching) this.crouchWalkTime += dt;
     else this.crouchWalkTime = 0;
+
+    if (this.onSurface && !hasSurfaceSupportForRect(this, this.gravitySign, 3)) {
+      this.onSurface = false;
+      this.lastGroundedPlatform = null;
+    }
 
     if (wasAnyPressedThisFrame(JUMP_INPUT_KEYS) && this.onSurface) {
       this.vy = JUMP_VELOCITY * this.gravitySign;
@@ -3499,7 +3561,14 @@ class Enemy extends Entity {
 
     this.updateVerticalEdgeKillTimer(simDt);
 
-    if (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds()) {
+    if (enemyShouldDieOnVerticalWorldEdge(this)) {
+      if (enemyIsPinningPlayerAtVerticalEdge(this)) nudgeEnemyAwayFromPinnedPlayer(this);
+      else {
+        beginEnvironmentalEnemyDeath(this);
+        return;
+      }
+    }
+    if (this.isOutsideVerticalWorldBounds()) {
       beginEnvironmentalEnemyDeath(this);
       return;
     }
@@ -3513,7 +3582,11 @@ class Enemy extends Entity {
       this.updateAirbornePhysics(simDt);
     }
 
-    if (!this.isDying && (enemyShouldDieOnVerticalWorldEdge(this) || this.isOutsideVerticalWorldBounds())) beginEnvironmentalEnemyDeath(this);
+    if (!this.isDying && enemyShouldDieOnVerticalWorldEdge(this)) {
+      if (enemyIsPinningPlayerAtVerticalEdge(this)) nudgeEnemyAwayFromPinnedPlayer(this);
+      else beginEnvironmentalEnemyDeath(this);
+    }
+    if (!this.isDying && this.isOutsideVerticalWorldBounds()) beginEnvironmentalEnemyDeath(this);
   }
 
   updateHitReaction(dt) {

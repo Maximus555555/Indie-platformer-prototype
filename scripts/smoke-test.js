@@ -1093,3 +1093,45 @@ if (sprintGap.right - sprintGap.left <= walkingJumpRange + debug.player.w) {
 if (sprintGap.right - sprintGap.left >= sprintJumpRange) {
   throw new Error("Room 3 sprint gap leaves no forgiving sprint-jump clearance.");
 }
+
+const room5 = debug.levelRooms.find((room) => room.id === "room-5");
+debug.loadSelectedRoom("room-5");
+const room5Entry = { x: room5.x + 300, y: 420 };
+debug.enterRoom("room-5", room5Entry, { grounded: true, facing: 1 });
+if (debug.player.onSurface) {
+  throw new Error("Unsupported room-edge entry should not leave the player grounded on the horizontal boundary.");
+}
+dispatch("keydown", keyEvent("w", "KeyW"));
+debug.update(16 / 1000);
+dispatch("keyup", keyEvent("w", "KeyW"));
+if (debug.player.vy < 0) {
+  throw new Error("Unsupported room-edge entry allowed the player to jump from a non-platform boundary.");
+}
+if (debug.getCurrentRoomId() !== "room-5" || debug.player.x < room5.x || debug.player.x + debug.player.w > room5.x + room5.w) {
+  throw new Error("Unsupported room-edge entry should keep the player inside the target room while falling normally.");
+}
+
+const room9 = debug.levelRooms.find((room) => room.id === "room-9");
+const room9WalkerForPinTest = debug.enemies[2];
+debug.loadSelectedRoom("room-9");
+debug.player.placeAt(room9.x, 420, { grounded: true });
+debug.player.hp = 3;
+debug.player.damageTimer = 0;
+debug.player.isDying = false;
+room9WalkerForPinTest.x = room9.x;
+room9WalkerForPinTest.y = 420;
+room9WalkerForPinTest.hp = 2;
+room9WalkerForPinTest.isDying = false;
+room9WalkerForPinTest.gravitySign = 1;
+room9WalkerForPinTest.defaultGravitySign = 1;
+room9WalkerForPinTest.walkerState = "airborne";
+room9WalkerForPinTest.verticalEdgeKillTimer = 1;
+room9WalkerForPinTest.vx = -60;
+room9WalkerForPinTest.vy = 0;
+debug.update(16 / 1000);
+if (room9WalkerForPinTest.isDying || room9WalkerForPinTest.hp <= 0) {
+  throw new Error("A Walker pinning the player at a vertical edge should be nudged away instead of disappearing.");
+}
+if (debug.player.isDying || debug.player.hp <= 0) {
+  throw new Error("A player pinned at a vertical edge by a Walker should not disappear.");
+}
