@@ -116,7 +116,62 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
   throw new Error("Player position became invalid during smoke frames.");
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
-if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should start in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
+if (debug.menuState.screen !== "main-menu") throw new Error(`Game should boot to the main menu; got ${debug.menuState.screen}.`);
+if (debug.mainMenuOptions.length !== 1 || debug.mainMenuOptions[0] !== "Start") {
+  throw new Error(`Main menu should only contain Start; got ${debug.mainMenuOptions.join(", ")}.`);
+}
+context.calls.length = 0;
+debug.draw();
+const mainMenuText = context.calls.filter((call) => call.name === "fillText").map((call) => call.args[0]);
+if (!mainMenuText.includes("START")) throw new Error("Main menu did not draw the Start option.");
+if (mainMenuText.some((text) => /^ROOM [1-8]$/.test(text) || text === "LEVEL 1")) {
+  throw new Error("Main menu drew level/room select options before Start was chosen.");
+}
+
+dispatch("keydown", keyEvent("Enter", "Enter"));
+tick();
+dispatch("keyup", keyEvent("Enter", "Enter"));
+if (debug.menuState.screen !== "level-select") throw new Error(`Start should open level select; got ${debug.menuState.screen}.`);
+context.calls.length = 0;
+debug.draw();
+const levelSelectText = context.calls.filter((call) => call.name === "fillText").map((call) => call.args[0]);
+if (!levelSelectText.includes("LEVEL 1")) throw new Error("Level select did not draw Level 1.");
+for (let room = 1; room <= 8; room += 1) {
+  if (!levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select did not draw Room ${room}.`);
+}
+
+dispatch("keydown", keyEvent("Escape", "Escape"));
+tick();
+dispatch("keyup", keyEvent("Escape", "Escape"));
+if (debug.menuState.screen !== "main-menu") throw new Error(`Escape should return to the main menu; got ${debug.menuState.screen}.`);
+
+dispatch("keydown", keyEvent("Enter", "Enter"));
+tick();
+dispatch("keyup", keyEvent("Enter", "Enter"));
+for (let i = 0; i < 3; i += 1) {
+  dispatch("keydown", keyEvent("ArrowDown", "ArrowDown"));
+  tick();
+  dispatch("keyup", keyEvent("ArrowDown", "ArrowDown"));
+}
+dispatch("keydown", keyEvent("Enter", "Enter"));
+tick();
+dispatch("keyup", keyEvent("Enter", "Enter"));
+if (debug.menuState.screen !== "playing") throw new Error(`Choosing a room should enter gameplay; got ${debug.menuState.screen}.`);
+if (debug.getCurrentRoomId() !== "room-4") throw new Error(`Selecting Room 4 should load room-4; got ${debug.getCurrentRoomId()}.`);
+for (const ability of debug.abilities) {
+  const shouldBeUnlocked = ability.id === "gravity";
+  if (ability.unlocked !== shouldBeUnlocked) throw new Error(`${ability.name} had incorrect Room 4 unlock state.`);
+}
+
+debug.loadSelectedRoom("room-3");
+if (debug.abilities.some((ability) => ability.unlocked)) throw new Error("Rooms 1-3 should lock all upgrade abilities.");
+debug.loadSelectedRoom("room-5");
+for (const ability of debug.abilities) {
+  const shouldBeUnlocked = ability.id === "gravity";
+  if (ability.unlocked !== shouldBeUnlocked) throw new Error(`${ability.name} had incorrect Room 5 unlock state.`);
+}
+debug.loadSelectedRoom("room-1");
+if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should continue tests in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
 if (debug.levelRooms.length !== 8 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4" || debug.levelRooms[4].id !== "room-5" || debug.levelRooms[5].id !== "room-6" || debug.levelRooms[6].id !== "room-7" || debug.levelRooms[7].id !== "room-8") {
   throw new Error(`Expected Level 1 Rooms 1 through 8 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
