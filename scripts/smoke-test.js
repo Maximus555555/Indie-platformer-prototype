@@ -289,6 +289,15 @@ const room10RightPending = debug.screenEdgeTransitions.find((transition) => tran
 if (room9RightTransition?.targetRoomId !== "room-10" || room10LeftTransition?.targetRoomId !== "room-9" || room10RightPending?.targetRoomId !== null) {
   throw new Error("Room 10 edge transitions were not configured correctly.");
 }
+
+debug.loadSelectedRoom("room-2");
+const room2 = debug.getCurrentRoom();
+debug.player.placeAt(room2.x + room2.w + 8, 420, { grounded: true });
+debug.update(16 / 1000);
+if (debug.getCurrentRoomId() !== "room-2") throw new Error(`Enemy-style edge push should not change rooms without input; got ${debug.getCurrentRoomId()}.`);
+if (debug.player.x !== room2.x + room2.w - debug.player.w) {
+  throw new Error(`Enemy-style edge push should clamp player inside current room; got x=${debug.player.x}.`);
+}
 debug.loadSelectedRoom("room-1");
 
 const expectedPlatforms = [
@@ -351,8 +360,8 @@ const expectedRoom8Platforms = [
 ];
 const expectedRoom9Platforms = [
   { x: room9X, y: 470, w: 285, h: 70 },
-  { x: room9X + 195, y: 260, w: 245, h: 24 },
-  { x: room9X + 360, y: 425, w: 320, h: 24 },
+  { x: room9X + 195, y: 300, w: 185, h: 24 },
+  { x: room9X + 360, y: 390, w: 200, h: 24 },
   { x: room9X + 540, y: 300, w: 210, h: 24 },
   { x: room9X + 540, y: 292, w: 210, h: 8 },
   { x: room9X + 885, y: 0, w: 34, h: 540 }
