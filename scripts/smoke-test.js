@@ -248,7 +248,7 @@ const expectedRoom9Platforms = [
   { x: room9X + 195, y: 300, w: 185, h: 24 },
   { x: room9X + 360, y: 390, w: 200, h: 24 },
   { x: room9X + 540, y: 300, w: 210, h: 24 },
-  { x: room9X + 705, y: 292, w: 180, h: 8 },
+  { x: room9X + 540, y: 292, w: 210, h: 8 },
   { x: room9X + 885, y: 0, w: 34, h: 540 }
 ];
 const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms];
@@ -773,7 +773,7 @@ const room9Walker = debug.enemies.find((enemy) => enemy.roomId === "room-9");
 if (!room9Plate || !room9Barrier || !room9Walker) {
   throw new Error("Room 9 pressure plate, linked barrier, and Walker should all exist.");
 }
-room9Walker.x = room9X + 780;
+room9Walker.x = room9X + 620;
 room9Walker.y = room9Plate.y - room9Walker.h;
 room9Walker.hp = 2;
 room9Walker.isDying = false;
@@ -794,7 +794,7 @@ if (!activePlateRect) throw new Error("Room 9 pressure plate should draw pushed 
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r9-access-route-available" && entry.text === "Access route available.")) {
   throw new Error("Room 9 pressure plate activation should log access availability once.");
 }
-room9Walker.x = room9X + 640;
+room9Walker.x = room9X + 780;
 room9Walker.onSurface = false;
 room9Walker.groundedPlatform = null;
 debug.update(16 / 1000);
