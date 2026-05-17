@@ -785,12 +785,25 @@ if (!debug.room9Progress.pressurePlateActive || room9Barrier.h !== 0) {
 }
 context.calls.length = 0;
 debug.draw();
-const activePlateRect = context.calls.find((call) => call.name === "fillRect"
-  && call.args[0] === room9Plate.x
-  && call.args[1] === room9Plate.y + 4
-  && call.args[2] === room9Plate.w
-  && call.args[3] === room9Plate.h);
-if (!activePlateRect) throw new Error("Room 9 pressure plate should draw pushed down while active.");
+const plateTopInset = 10;
+const activePlateMoveIndex = context.calls.findIndex((call) => call.name === "moveTo"
+  && call.args[0] === room9Plate.x + plateTopInset
+  && call.args[1] === room9Plate.y + 4);
+const activePlateTrapezoid = activePlateMoveIndex >= 0
+  && context.calls[activePlateMoveIndex + 1]?.name === "lineTo"
+  && context.calls[activePlateMoveIndex + 1].args[0] === room9Plate.x + room9Plate.w - plateTopInset
+  && context.calls[activePlateMoveIndex + 1].args[1] === room9Plate.y + 4
+  && context.calls[activePlateMoveIndex + 2]?.name === "lineTo"
+  && context.calls[activePlateMoveIndex + 2].args[0] === room9Plate.x + room9Plate.w
+  && context.calls[activePlateMoveIndex + 2].args[1] === room9Plate.y + 4 + room9Plate.h
+  && context.calls[activePlateMoveIndex + 3]?.name === "lineTo"
+  && context.calls[activePlateMoveIndex + 3].args[0] === room9Plate.x
+  && context.calls[activePlateMoveIndex + 3].args[1] === room9Plate.y + 4 + room9Plate.h;
+if (!activePlateTrapezoid) throw new Error("Room 9 pressure plate should draw as a pushed-down trapezoid while active.");
+const activePlateStroke = context.calls.slice(activePlateMoveIndex).find((call) => call.name === "stroke");
+if (activePlateStroke?.state.strokeStyle !== "rgba(91, 196, 235, 0.72)") {
+  throw new Error("Room 9 pressure plate active outline should keep the inactive blue color instead of turning white.");
+}
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r9-access-route-available" && entry.text === "Access route available.")) {
   throw new Error("Room 9 pressure plate activation should log access availability once.");
 }

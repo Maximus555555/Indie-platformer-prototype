@@ -8710,20 +8710,34 @@ function drawPressurePlatePlatform(platform) {
   const active = room9Progress.pressurePlateActive;
   const pressOffset = active ? 4 : 0;
   const visualY = platform.y + pressOffset;
+  const topInset = 10;
+  const outlineColor = "rgba(91, 196, 235, 0.72)";
 
   ctx.save();
   ctx.fillStyle = active ? "#75b8dd" : "#92c7e9";
-  ctx.strokeStyle = active ? "rgba(170, 248, 255, 0.95)" : "rgba(91, 196, 235, 0.72)";
+  ctx.strokeStyle = outlineColor;
   ctx.shadowColor = active ? "rgba(74, 226, 255, 0.58)" : "rgba(49, 183, 230, 0.36)";
   ctx.shadowBlur = active ? 6 : 7;
-  ctx.fillRect(platform.x, visualY, platform.w, platform.h);
-  ctx.strokeRect(platform.x + 0.5, visualY + 0.5, platform.w - 1, platform.h - 1);
+  ctx.beginPath();
+  ctx.moveTo(platform.x + topInset, visualY);
+  ctx.lineTo(platform.x + platform.w - topInset, visualY);
+  ctx.lineTo(platform.x + platform.w, visualY + platform.h);
+  ctx.lineTo(platform.x, visualY + platform.h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
 
   // The sensor slab keeps its collision height stable while the drawn top drops
   // down to make the plate visibly compress under any standing entity.
   ctx.shadowBlur = 0;
   ctx.fillStyle = active ? "rgba(213, 255, 255, 0.42)" : "rgba(213, 255, 255, 0.26)";
-  ctx.fillRect(platform.x + 8, visualY + 2, platform.w - 16, 2);
+  ctx.beginPath();
+  ctx.moveTo(platform.x + topInset + 6, visualY + 2);
+  ctx.lineTo(platform.x + platform.w - topInset - 6, visualY + 2);
+  ctx.lineTo(platform.x + platform.w - topInset - 2, visualY + 4);
+  ctx.lineTo(platform.x + topInset + 2, visualY + 4);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 
