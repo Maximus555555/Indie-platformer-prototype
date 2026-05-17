@@ -539,7 +539,7 @@ function resetMovingPlatformsForRoom(roomId = currentRoomId) {
 
 function resetRoomState(roomId = currentRoomId) {
   resetMovingPlatformsForRoom(roomId);
-  if (roomId === "room-9") setRoom9BarrierActive(false);
+  if (roomId === "room-9") setRoom9BarrierActive(false, { animate: false });
   for (const spawn of enemySpawnStates) {
     if (spawn.roomId === roomId) resetEnemyToSpawn(spawn);
   }
@@ -6751,7 +6751,8 @@ const room8Progress = {
 const room9Progress = {
   pressurePlateActive: false,
   accessRouteAvailable: false,
-  barrierDissolveTimer: 0
+  barrierDissolveTimer: 0,
+  barrierReformTimer: 0
 };
 
 function unlockGravityFieldFromRoom4() {
@@ -7333,8 +7334,10 @@ function setRoom9BarrierActive(pressureActive, options = {}) {
   room9Progress.pressurePlateActive = pressureActive;
   if (pressureActive && !wasActive && animate) {
     room9Progress.barrierDissolveTimer = ROOM9_BARRIER_DISSOLVE_DURATION;
+    room9Progress.barrierReformTimer = 0;
   } else if (!pressureActive) {
     room9Progress.barrierDissolveTimer = 0;
+    room9Progress.barrierReformTimer = wasActive && animate ? ROOM9_BARRIER_DISSOLVE_DURATION : 0;
   }
   // Keep the closed wall as a full-height ordinary platform, and collapse its
   // collision box instantly when the linked pressure plate is held down.
@@ -7344,6 +7347,7 @@ function setRoom9BarrierActive(pressureActive, options = {}) {
 
 function updateRoom9BarrierAnimation(dt) {
   room9Progress.barrierDissolveTimer = Math.max(0, room9Progress.barrierDissolveTimer - dt);
+  room9Progress.barrierReformTimer = Math.max(0, room9Progress.barrierReformTimer - dt);
 }
 
 function isEntityStandingOnPlatform(entity, platform) {
@@ -8745,8 +8749,7 @@ function drawPressurePlatePlatform(platform) {
   ctx.restore();
 }
 
-function drawRoom9BarrierDissolve(platform) {
-  const progress = easeOutCubic(1 - room9Progress.barrierDissolveTimer / ROOM9_BARRIER_DISSOLVE_DURATION);
+function drawRoom9BarrierTransition(platform, progress) {
   const alpha = clamp(1 - progress, 0, 1);
   if (alpha <= 0) return;
 
@@ -8794,7 +8797,14 @@ function drawRoom9BarrierDissolve(platform) {
 
 function drawLinkedBarrier(platform) {
   if (platform === room9ExitBarrier && room9Progress.barrierDissolveTimer > 0) {
-    drawRoom9BarrierDissolve(platform);
+    const progress = easeOutCubic(1 - room9Progress.barrierDissolveTimer / ROOM9_BARRIER_DISSOLVE_DURATION);
+    drawRoom9BarrierTransition(platform, progress);
+    return;
+  }
+  if (platform === room9ExitBarrier && room9Progress.barrierReformTimer > 0) {
+    // Reuse the dissolve slats in reverse so the wall visibly rebuilds.
+    const progress = easeOutCubic(room9Progress.barrierReformTimer / ROOM9_BARRIER_DISSOLVE_DURATION);
+    drawRoom9BarrierTransition(platform, progress);
     return;
   }
   if (platform.h <= 0) return;

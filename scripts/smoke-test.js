@@ -849,6 +849,15 @@ debug.update(16 / 1000);
 if (debug.room9Progress.pressurePlateActive || room9Barrier.h !== 540 || room9Barrier.y !== 0) {
   throw new Error("Room 9 linked barrier should reform as a full-height wall when the Walker leaves the pressure plate.");
 }
+if (debug.room9Progress.barrierReformTimer <= 0 || debug.room9Progress.barrierReformTimer >= debug.constants.ROOM9_BARRIER_DISSOLVE_DURATION) {
+  throw new Error("Room 9 linked barrier did not start a reform animation timer.");
+}
+context.calls.length = 0;
+debug.draw();
+const reformDrawCall = context.calls.find((call) => call.name === "fillRect"
+  && call.args[0] >= room9X + 870
+  && call.args[0] <= room9X + 920);
+if (!reformDrawCall) throw new Error("Room 9 linked barrier reform animation did not draw while collision was closed.");
 room9Walker.onSurface = false;
 room9Walker.groundedPlatform = null;
 debug.player.placeAt(room9Plate.x + 20, room9Plate.y - debug.player.h, { grounded: true });
