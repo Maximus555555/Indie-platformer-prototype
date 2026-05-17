@@ -352,8 +352,8 @@ const platforms = [
   // briefly energizes a small plate on its patrol route, instantiating a bridge
   // over the central gap only while the Walker's weight remains on the plate.
   { id: "room10-start-platform", x: ROOM10_X, y: ROOM_FLOOR_Y, w: 260, h: 70 },
-  { id: "room10-walker-platform", x: ROOM10_X + 330, y: 350, w: 300, h: 24 },
-  { id: "room10-pressure-plate", type: "pressurePlate", x: ROOM10_X + 438, y: 342, w: 84, h: 8 },
+  { id: "room10-walker-platform", x: ROOM10_X + 330, y: 300, w: 300, h: 24 },
+  { id: "room10-pressure-plate", type: "pressurePlate", x: ROOM10_X + 438, y: 292, w: 84, h: 8 },
   { id: "room10-temp-bridge", type: "temporaryBridge", x: ROOM10_X + 280, y: canvas.height + 430, w: 390, h: 0, baseY: 430, baseH: 20 },
   { id: "room10-exit-platform", x: ROOM10_X + 690, y: ROOM_FLOOR_Y, w: 270, h: 70 }
 ];
@@ -3620,7 +3620,13 @@ class Enemy extends Entity {
 
   hasGroundAhead() {
     const probeX = this.getGroundProbeX();
-    const platform = this.getSurfacePlatformAt(probeX, this.getEdgeProbeRange());
+    // Pressure plates sit slightly above their host platform. Give the edge
+    // probe enough vertical reach to see that host so Walkers step off plates
+    // instead of treating plate edges as patrol turnarounds.
+    const edgeProbeRange = this.groundedPlatform?.type === "pressurePlate"
+      ? this.getEdgeProbeRange() + this.groundedPlatform.h + 4
+      : this.getEdgeProbeRange();
+    const platform = this.getSurfacePlatformAt(probeX, edgeProbeRange);
     return Boolean(platform) && !hasSpikesAtSurface(platform, probeX, this.gravitySign, this.w * 0.45);
   }
 
@@ -3636,7 +3642,8 @@ class Enemy extends Entity {
       h: Math.max(4, body.h - 8)
     };
 
-    return platforms.some((platform) => rectsOverlap(wallProbe, platform));
+    // A raised plate is a floor sensor, not a wall that should trap patrol logic.
+    return platforms.some((platform) => platform.type !== "pressurePlate" && rectsOverlap(wallProbe, platform));
   }
 
   reverseDirection() {
@@ -8883,28 +8890,15 @@ function drawRoom9BarrierTransition(platform, progress) {
   ctx.restore();
 }
 
-function drawTemporaryBridge(platform) {
+function drawStandardPlatformRect(platform) {
   if (platform.h <= 0) return;
 
-  ctx.save();
-  ctx.shadowColor = "rgba(80, 226, 255, 0.5)";
-  ctx.shadowBlur = 9;
-  ctx.fillStyle = "rgba(128, 210, 243, 0.86)";
-  ctx.strokeStyle = "rgba(219, 250, 255, 0.92)";
-  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 1;
+  ctx.fillStyle = "#9fd0f4";
+  ctx.strokeStyle = "rgba(45, 126, 204, 0.48)";
   ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
   ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
-
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(56, 162, 218, 0.48)";
-  ctx.lineWidth = 1;
-  for (let x = platform.x + 18; x < platform.x + platform.w; x += 34) {
-    ctx.beginPath();
-    ctx.moveTo(x, platform.y + 3);
-    ctx.lineTo(x + 12, platform.y + platform.h - 3);
-    ctx.stroke();
-  }
-  ctx.restore();
 }
 
 function drawLinkedBarrier(platform) {
@@ -8919,10 +8913,7 @@ function drawLinkedBarrier(platform) {
     drawRoom9BarrierTransition(platform, progress);
     return;
   }
-  if (platform.h <= 0) return;
-
-  ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
-  ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+  drawStandardPlatformRect(platform);
 }
 
 function drawPlatform(platform) {
@@ -8936,13 +8927,10 @@ function drawPlatform(platform) {
     return;
   }
   if (platform.type === "temporaryBridge") {
-    drawTemporaryBridge(platform);
+    drawStandardPlatformRect(platform);
     return;
   }
-  if (platform.h <= 0) return;
-
-  ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
-  ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+  drawStandardPlatformRect(platform);
 }
 
 function drawRoom() {
