@@ -277,8 +277,8 @@ const expectedRoom8Platforms = [
 ];
 const expectedRoom9Platforms = [
   { x: room9X, y: 470, w: 285, h: 70 },
-  { x: room9X + 195, y: 300, w: 185, h: 24 },
-  { x: room9X + 360, y: 390, w: 200, h: 24 },
+  { x: room9X + 195, y: 260, w: 185, h: 24 },
+  { x: room9X + 360, y: 425, w: 260, h: 24 },
   { x: room9X + 540, y: 300, w: 210, h: 24 },
   { x: room9X + 540, y: 292, w: 210, h: 8 },
   { x: room9X + 885, y: 0, w: 34, h: 540 }
