@@ -144,7 +144,7 @@ if (!levelSelectText.includes("LEVEL 1")) throw new Error("Level select did not 
 for (let room = 1; room <= debug.constants.ROOM_SELECT_VISIBLE_COUNT; room += 1) {
   if (!levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select did not draw visible Room ${room}.`);
 }
-for (let room = debug.constants.ROOM_SELECT_VISIBLE_COUNT + 1; room <= 10; room += 1) {
+for (let room = debug.constants.ROOM_SELECT_VISIBLE_COUNT + 1; room <= 11; room += 1) {
   if (levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select should hide Room ${room} until scrolled.`);
 }
 for (let i = 0; i < debug.constants.ROOM_SELECT_VISIBLE_COUNT; i += 1) {
@@ -197,12 +197,12 @@ for (const ability of debug.abilities) {
 }
 debug.loadSelectedRoom("room-1");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should continue tests in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-const expectedRoomIds = Array.from({ length: 10 }, (_, index) => `room-${index + 1}`);
+const expectedRoomIds = Array.from({ length: 11 }, (_, index) => `room-${index + 1}`);
 if (debug.levelRooms.length !== expectedRoomIds.length || expectedRoomIds.some((id, index) => debug.levelRooms[index]?.id !== id)) {
-  throw new Error(`Expected Level 1 Rooms 1 through 10 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+  throw new Error(`Expected Level 1 Rooms 1 through 11 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
-if (debug.enemies.length !== 5 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Rooms 7, 8, and 9 should create one Walker each, and Room 10 should create two Walkers, all inactive while the player starts in Room 1.");
+if (debug.enemies.length !== 9 || debug.getActiveEnemies().length !== 0) {
+  throw new Error("Level 1 Rooms 7, 8, and 9 should create one Walker each, Room 10 should create two Walkers, and Room 11 should create two Walkers and two Jumpers, all inactive while the player starts in Room 1.");
 }
 if (debug.spikes.length !== 3 || debug.phaseBarriers.length !== 0) {
   throw new Error("Level 1 Rooms 7 and 8 should include three spike strips total and no phase barriers.");
@@ -282,13 +282,41 @@ debug.update(16 / 1000);
 if (debug.room10Progress.pressurePlateBActive || debug.room10Progress.barrierOpen || room10Barrier.h !== 540 || room10Barrier.y !== 0) {
   throw new Error("Room 10 barrier did not reform instantly when either Walker left a plate.");
 }
-if (debug.levelRooms.some((room) => room.id === "room-11")) throw new Error("Room 11 should not exist yet.");
 const room9RightTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-9-to-room-10");
 const room10LeftTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-10-to-room-9");
-const room10RightPending = debug.screenEdgeTransitions.find((transition) => transition.id === "room-10-right-pending");
-if (room9RightTransition?.targetRoomId !== "room-10" || room10LeftTransition?.targetRoomId !== "room-9" || room10RightPending?.targetRoomId !== null) {
-  throw new Error("Room 10 edge transitions were not configured correctly.");
+const room10RightTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-10-to-room-11");
+const room11LeftTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-11-to-room-10");
+const room11RightPending = debug.screenEdgeTransitions.find((transition) => transition.id === "room-11-right-pending");
+if (room9RightTransition?.targetRoomId !== "room-10"
+  || room10LeftTransition?.targetRoomId !== "room-9"
+  || room10RightTransition?.targetRoomId !== "room-11"
+  || room11LeftTransition?.targetRoomId !== "room-10"
+  || room11RightPending?.targetRoomId !== null) {
+  throw new Error("Room 10 and Room 11 edge transitions were not configured correctly.");
 }
+
+
+debug.loadSelectedRoom("room-11");
+const room11 = debug.getCurrentRoom();
+const room11Ceiling = debug.platforms.find((platform) => platform.id === "room11-ceiling-platform");
+const room11Floor = debug.platforms.find((platform) => platform.id === "room11-floor-platform");
+if (!room11Ceiling || !room11Floor) throw new Error("Room 11 ceiling and floor platforms were not found.");
+if (room11Ceiling.x !== room11.x || room11Ceiling.y !== 0 || room11Ceiling.w !== room11.w || room11Ceiling.h !== 24) {
+  throw new Error("Room 11 ceiling should be completely covered by one full-width platform.");
+}
+if (room11Floor.x !== room11.x || room11Floor.y !== 470 || room11Floor.w !== room11.w || room11Floor.h !== 70) {
+  throw new Error("Room 11 floor should be completely covered by one full-width platform.");
+}
+const room11Enemies = debug.enemies.filter((enemy) => enemy.roomId === "room-11");
+const room11EnemyLabel = (enemy) => enemy.constructor.name === "Enemy" ? "Walker" : enemy.constructor.name;
+if (room11Enemies.length !== 4) throw new Error(`Room 11 should have exactly four enemies, got ${room11Enemies.length}.`);
+if (room11Enemies.filter((enemy) => room11EnemyLabel(enemy) === "Walker" && enemy.gravitySign === 1).length !== 1
+  || room11Enemies.filter((enemy) => room11EnemyLabel(enemy) === "Jumper" && enemy.gravitySign === 1).length !== 1
+  || room11Enemies.filter((enemy) => room11EnemyLabel(enemy) === "Walker" && enemy.gravitySign === -1).length !== 1
+  || room11Enemies.filter((enemy) => room11EnemyLabel(enemy) === "Jumper" && enemy.gravitySign === -1).length !== 1) {
+  throw new Error(`Room 11 should have a Walker and Jumper on the floor plus an upside-down Walker and Jumper on the ceiling; got ${room11Enemies.map((enemy) => `${room11EnemyLabel(enemy)}:${enemy.gravitySign}`).join(", ")}.`);
+}
+debug.loadSelectedRoom("room-1");
 
 const room9ReturnBarrier = debug.platforms.find((platform) => platform.id === "room9-exit-barrier");
 if (!room9ReturnBarrier) throw new Error("Room 9 return-side barrier was not found.");
@@ -331,6 +359,7 @@ const room7X = 5760;
 const room8X = 6720;
 const room9X = 7680;
 const room10X = 8640;
+const room11X = 9600;
 const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
@@ -394,9 +423,13 @@ const expectedRoom10Platforms = [
   { x: room10X + 875, y: 470, w: 85, h: 70 },
   { x: room10X + 850, y: 0, w: 34, h: 540 }
 ];
-const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms, ...expectedRoom10Platforms];
+const expectedRoom11Platforms = [
+  { x: room11X, y: 0, w: 960, h: 24 },
+  { x: room11X, y: 470, w: 960, h: 70 }
+];
+const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms, ...expectedRoom9Platforms, ...expectedRoom10Platforms, ...expectedRoom11Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
-  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Rooms 1-10 platforms, got ${debug.platforms.length}.`);
+  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Rooms 1-11 platforms, got ${debug.platforms.length}.`);
 }
 for (const expected of expectedAllPlatforms) {
   if (!debug.platforms.some((platform) => platform.x === expected.x && platform.y === expected.y && platform.w === expected.w && platform.h === expected.h)) {
@@ -899,8 +932,8 @@ if (debug.getCurrentRoomId() !== "room-8") {
   throw new Error(`Room 9 left-edge transition should return to Room 8; got ${debug.getCurrentRoomId()}.`);
 }
 
-// Room 9 right edge connects to Room 10, Room 10 returns left to Room 9,
-// and Room 10's right edge is reserved for a future Room 11 transition.
+// Room 9 right edge connects to Room 10, Room 10 connects onward to
+// Room 11, and Room 11's right edge remains reserved for a future room.
 debug.enterRoom("room-9", { x: room9X + 900, y: 420 }, { grounded: true, facing: 1 });
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
@@ -930,12 +963,35 @@ debug.enterRoom("room-10", { x: room10X + 900, y: 420 }, { grounded: true, facin
 debug.player.placeAt(room10X + 960 - debug.player.w, 420, { grounded: true });
 dispatch("keydown", keyEvent("d", "KeyD"));
 debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
-if (debug.getCurrentRoomId() !== "room-10") {
-  throw new Error(`Room 10 right-edge pending transition should not leave Room 10; got ${debug.getCurrentRoomId()}.`);
+if (debug.getCurrentRoomId() !== "room-11") {
+  throw new Error(`Room 10 right-edge transition should enter Room 11; got ${debug.getCurrentRoomId()}.`);
 }
-if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-10-right-pending" && entry.text === "Room transition pending.")) {
-  throw new Error("Room 10 right screen-edge transition did not log the pending transition message.");
+if (debug.player.x < room11X || debug.player.x > room11X + 60) {
+  throw new Error(`Room 11 entry should place the player at the left start, got x=${debug.player.x}.`);
+}
+if (debug.getActiveEnemies().length !== 4 || debug.getActiveEnemies().some((enemy) => enemy.roomId !== "room-11")) {
+  throw new Error("Room 11 should activate exactly two Walkers and two Jumpers.");
+}
+debug.player.placeAt(room11X, 420, { grounded: true });
+dispatch("keydown", keyEvent("a", "KeyA"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("a", "KeyA"));
+if (debug.getCurrentRoomId() !== "room-10") {
+  throw new Error(`Room 11 left-edge transition should return to Room 10; got ${debug.getCurrentRoomId()}.`);
+}
+debug.enterRoom("room-11", { x: room11X + 900, y: 420 }, { grounded: true, facing: 1 });
+debug.player.placeAt(room11X + 960 - debug.player.w, 420, { grounded: true });
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-11") {
+  throw new Error(`Room 11 right-edge pending transition should not leave Room 11; got ${debug.getCurrentRoomId()}.`);
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-11-right-pending" && entry.text === "Room transition pending.")) {
+  throw new Error("Room 11 right screen-edge transition did not log the pending transition message.");
 }
 
 debug.enterRoom("room-9", { x: room9X + 600, y: 420 }, { grounded: true, facing: 1 });
