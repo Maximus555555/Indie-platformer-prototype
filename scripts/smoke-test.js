@@ -124,6 +124,9 @@ context.calls.length = 0;
 debug.draw();
 const mainMenuText = context.calls.filter((call) => call.name === "fillText").map((call) => call.args[0]);
 if (!mainMenuText.includes("START")) throw new Error("Main menu did not draw the Start option.");
+if (mainMenuText.some((text) => text.includes("ENTER:") || text.includes("ESC") || text.includes("CHOOSE"))) {
+  throw new Error("Main menu drew control instructions.");
+}
 if (mainMenuText.some((text) => /^ROOM [1-8]$/.test(text) || text === "LEVEL 1")) {
   throw new Error("Main menu drew level/room select options before Start was chosen.");
 }
@@ -138,6 +141,9 @@ const levelSelectText = context.calls.filter((call) => call.name === "fillText")
 if (!levelSelectText.includes("LEVEL 1")) throw new Error("Level select did not draw Level 1.");
 for (let room = 1; room <= 9; room += 1) {
   if (!levelSelectText.includes(`ROOM ${room}`)) throw new Error(`Level select did not draw Room ${room}.`);
+}
+if (levelSelectText.some((text) => text.includes("ENTER:") || text.includes("ESC") || text.includes("CHOOSE"))) {
+  throw new Error("Level select drew control instructions.");
 }
 
 dispatch("keydown", keyEvent("Escape", "Escape"));
@@ -805,14 +811,17 @@ const activePlateTrapezoid = activePlateMoveIndex >= 0
   && context.calls[activePlateMoveIndex + 1].args[1] === room9Plate.y + 4
   && context.calls[activePlateMoveIndex + 2]?.name === "lineTo"
   && context.calls[activePlateMoveIndex + 2].args[0] === room9Plate.x + room9Plate.w
-  && context.calls[activePlateMoveIndex + 2].args[1] === room9Plate.y + 4 + room9Plate.h
+  && context.calls[activePlateMoveIndex + 2].args[1] === room9Plate.y + room9Plate.h
   && context.calls[activePlateMoveIndex + 3]?.name === "lineTo"
   && context.calls[activePlateMoveIndex + 3].args[0] === room9Plate.x
-  && context.calls[activePlateMoveIndex + 3].args[1] === room9Plate.y + 4 + room9Plate.h;
-if (!activePlateTrapezoid) throw new Error("Room 9 pressure plate should draw as a pushed-down trapezoid while active.");
+  && context.calls[activePlateMoveIndex + 3].args[1] === room9Plate.y + room9Plate.h;
+if (!activePlateTrapezoid) throw new Error("Room 9 pressure plate should draw as a compressed trapezoid while active.");
 const activePlateStroke = context.calls.slice(activePlateMoveIndex).find((call) => call.name === "stroke");
 if (activePlateStroke?.state.strokeStyle !== "rgba(91, 196, 235, 0.72)") {
   throw new Error("Room 9 pressure plate active outline should keep the inactive blue color instead of turning white.");
+}
+if (context.calls.slice(activePlateMoveIndex).some((call) => call.name === "fill" && String(call.state.fillStyle).includes("213, 255, 255"))) {
+  throw new Error("Room 9 pressure plate should not draw the pale center line.");
 }
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r9-access-route-available" && entry.text === "Access route available.")) {
   throw new Error("Room 9 pressure plate activation should log access availability once.");
