@@ -268,6 +268,7 @@ const ROOM5_X = ROOM4_X + LEVEL1_ROOM_WIDTH;
 const ROOM6_X = ROOM5_X + LEVEL1_ROOM_WIDTH;
 const ROOM7_X = ROOM6_X + LEVEL1_ROOM_WIDTH;
 const ROOM8_X = ROOM7_X + LEVEL1_ROOM_WIDTH;
+const ROOM9_X = ROOM8_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -332,7 +333,17 @@ const platforms = [
   { x: ROOM8_X, y: ROOM_FLOOR_Y, w: 240, h: 70 },
   { id: "room8-walker-platform", x: ROOM8_X + 300, y: 300, w: 430, h: 24 },
   { id: "room8-spike-platform", x: ROOM8_X + 285, y: 430, w: 500, h: 24 },
-  { x: ROOM8_X + 815, y: ROOM_FLOOR_Y, w: 145, h: 70 }
+  { x: ROOM8_X + 815, y: ROOM_FLOOR_Y, w: 145, h: 70 },
+
+  // Level 1, Room 9: the first multi-step Gravity Field routing puzzle. The
+  // Walker starts with the player, then must be redirected through offset
+  // upper platforms before weighing down the far pressure-plate floor.
+  { id: "room9-start-platform", x: ROOM9_X, y: ROOM_FLOOR_Y, w: 285, h: 70 },
+  { id: "room9-upper-platform-a", x: ROOM9_X + 195, y: 300, w: 185, h: 24 },
+  { id: "room9-upper-platform-b", x: ROOM9_X + 360, y: 390, w: 200, h: 24 },
+  { id: "room9-upper-platform-c", x: ROOM9_X + 540, y: 300, w: 210, h: 24 },
+  { id: "room9-pressure-plate", type: "pressurePlate", x: ROOM9_X + 705, y: ROOM_FLOOR_Y, w: 255, h: 70 },
+  { id: "room9-exit-barrier", type: "linkedBarrier", x: ROOM9_X + 885, y: 320, w: 34, h: 150, baseH: 150 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -342,7 +353,8 @@ const levelRooms = [
   { id: "room-5", name: "Level 1, Room 5", x: ROOM5_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM5_X + 18, y: 420 }, tutorial: "CENTER PLATFORM" },
   { id: "room-6", name: "Level 1, Room 6", x: ROOM6_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM6_X + 18, y: 420 }, tutorial: "GRAVITY TIMING ROOM" },
   { id: "room-7", name: "Level 1, Room 7", x: ROOM7_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM7_X + 18, y: 420 }, tutorial: "INDIRECT TERMINATION" },
-  { id: "room-8", name: "Level 1, Room 8", x: ROOM8_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM8_X + 18, y: 420 }, tutorial: "TIMING WINDOW" }
+  { id: "room-8", name: "Level 1, Room 8", x: ROOM8_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM8_X + 18, y: 420 }, tutorial: "TIMING WINDOW" },
+  { id: "room-9", name: "Level 1, Room 9", x: ROOM9_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM9_X + 18, y: 420 }, tutorial: "LINKED PRESSURE" }
 ];
 
 const doors = [];
@@ -361,7 +373,9 @@ const screenEdgeTransitions = [
   { id: "room-7-to-room-6", roomId: "room-7", direction: -1, targetRoomId: "room-6" },
   { id: "room-7-to-room-8", roomId: "room-7", direction: 1, targetRoomId: "room-8" },
   { id: "room-8-to-room-7", roomId: "room-8", direction: -1, targetRoomId: "room-7" },
-  { id: "room-8-right-pending", roomId: "room-8", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-8-to-room-9", roomId: "room-8", direction: 1, targetRoomId: "room-9" },
+  { id: "room-9-to-room-8", roomId: "room-9", direction: -1, targetRoomId: "room-8" },
+  { id: "room-9-right-pending", roomId: "room-9", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -385,6 +399,8 @@ const movingPlatforms = platforms.filter((platform) => platform.moveSpeed > 0);
 const room7SpikePlatform = platforms.find((platform) => platform.id === "room7-lower-platform");
 const room8TopPlatform = platforms.find((platform) => platform.id === "room8-walker-platform");
 const room8SpikePlatform = platforms.find((platform) => platform.id === "room8-spike-platform");
+const room9PressurePlate = platforms.find((platform) => platform.id === "room9-pressure-plate");
+const room9ExitBarrier = platforms.find((platform) => platform.id === "room9-exit-barrier");
 const spikes = [
   {
     platform: room7SpikePlatform,
@@ -521,6 +537,7 @@ function resetMovingPlatformsForRoom(roomId = currentRoomId) {
 
 function resetRoomState(roomId = currentRoomId) {
   resetMovingPlatformsForRoom(roomId);
+  if (roomId === "room-9") setRoom9BarrierActive(false);
   for (const spawn of enemySpawnStates) {
     if (spawn.roomId === roomId) resetEnemyToSpawn(spawn);
   }
@@ -596,6 +613,8 @@ function resetProgressForDirectRoomLoad(roomId) {
   room7Progress.indirectTerminationConfirmed = false;
   room8Progress.timingWindowDetected = false;
   room8Progress.appliedCorrectionConfirmed = false;
+  room9Progress.accessRouteAvailable = false;
+  setRoom9BarrierActive(false);
 
   for (const trigger of systemMessageTriggers) {
     trigger.fired = gravityUnlocked && trigger.id === "l1r4-gravity-unlock";
@@ -6606,7 +6625,14 @@ room8Walker.defaultGravitySign = -1;
 room8Walker.gravitySign = -1;
 room8Walker.direction = 1;
 room8Walker.roomId = "room-8";
-const enemies = [room7Walker, room8Walker];
+
+const room9StartPlatform = platforms.find((platform) => platform.id === "room9-start-platform");
+const room9Walker = new Enemy(ROOM9_X + 120, room9StartPlatform.y - WALKER_HEIGHT);
+room9Walker.defaultGravitySign = 1;
+room9Walker.gravitySign = 1;
+room9Walker.direction = 1;
+room9Walker.roomId = "room-9";
+const enemies = [room7Walker, room8Walker, room9Walker];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
   x: enemy.x,
@@ -6718,6 +6744,11 @@ const room7Progress = {
 const room8Progress = {
   timingWindowDetected: false,
   appliedCorrectionConfirmed: false
+};
+
+const room9Progress = {
+  pressurePlateActive: false,
+  accessRouteAvailable: false
 };
 
 function unlockGravityFieldFromRoom4() {
@@ -7006,6 +7037,50 @@ const systemMessageTriggers = [
     fired: false,
     messages: ["Proceed."],
     blocking: false
+  },
+  {
+    id: "l1r9-path-obstruction",
+    x: ROOM9_X + 20,
+    y: 330,
+    w: 150,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Path obstruction detected."],
+    blocking: false
+  },
+  {
+    id: "l1r9-hostile-movement",
+    x: ROOM9_X + 185,
+    y: 250,
+    w: 205,
+    h: 220,
+    repeat: false,
+    fired: false,
+    messages: ["Hostile process movement may be redirected."],
+    blocking: false
+  },
+  {
+    id: "l1r9-weight-link",
+    x: ROOM9_X + 535,
+    y: 250,
+    w: 185,
+    h: 220,
+    repeat: false,
+    fired: false,
+    messages: ["Environmental state linked to external weight."],
+    blocking: false
+  },
+  {
+    id: "l1r9-proceed",
+    x: ROOM9_X + 920,
+    y: 330,
+    w: 40,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
+    blocking: false
   }
 ];
 function normalizeSystemLines(messages) {
@@ -7242,6 +7317,44 @@ function updateSystemMessages(dt) {
   ambient.visibleChars = Math.min(ambient.text.length, ambient.visibleChars + SYSTEM_TEXT_SPEED * dt);
   if (ambient.age >= ambient.duration) {
     activateAmbientSystemMessage(systemDialogue.ambientQueue.shift() ?? null);
+  }
+}
+
+
+function setRoom9BarrierActive(pressureActive) {
+  if (!room9ExitBarrier) return;
+  const barrierHeight = room9ExitBarrier.baseH ?? 150;
+  room9Progress.pressurePlateActive = pressureActive;
+  // Keep the barrier as an ordinary platform when closed, and collapse its
+  // collision box instantly when the linked pressure plate is held down.
+  room9ExitBarrier.h = pressureActive ? 0 : barrierHeight;
+  room9ExitBarrier.y = ROOM_FLOOR_Y - room9ExitBarrier.h;
+}
+
+function isEnemyStandingOnPlatform(enemy, platform) {
+  if (!enemy || !platform || enemy.hp <= 0 || enemy.isDying) return false;
+  if (enemy.groundedPlatform === platform && enemy.onSurface) return true;
+
+  const rect = enemy.getCollisionRect?.() ?? enemy;
+  const enemyFootY = enemy.gravitySign > 0 ? rect.y + rect.h : rect.y;
+  const platformSurfaceY = enemy.gravitySign > 0 ? platform.y : platform.y + platform.h;
+  const horizontallyOverPlate = rect.x + rect.w > platform.x && rect.x < platform.x + platform.w;
+  return horizontallyOverPlate && Math.abs(enemyFootY - platformSurfaceY) <= 3;
+}
+
+function updateRoom9PressurePlate() {
+  const active = currentRoomId === "room-9" && isEnemyStandingOnPlatform(room9Walker, room9PressurePlate);
+  if (active === room9Progress.pressurePlateActive) return;
+
+  setRoom9BarrierActive(active);
+  if (active && !room9Progress.accessRouteAvailable) {
+    room9Progress.accessRouteAvailable = true;
+    enqueueSystemMessage("Access route available.", {
+      id: "l1r9-access-route-available",
+      type: "system",
+      blocking: false,
+      duration: SYSTEM_AMBIENT_DURATION
+    });
   }
 }
 
@@ -8416,6 +8529,7 @@ function update(dt) {
 
   getEnemyUpdateOrder().forEach((enemy) => enemy.update(dt));
   updateRoom8WalkerTimingPrompt();
+  updateRoom9PressurePlate();
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
   forcePulseVisuals.forEach((visual) => visual.update(dt));
@@ -8588,6 +8702,69 @@ function drawRoomTransitionFade() {
   ctx.restore();
 }
 
+
+function drawPressurePlatePlatform(platform) {
+  const active = room9Progress.pressurePlateActive;
+  ctx.save();
+  ctx.fillStyle = active ? "#8fcff0" : "#92c7e9";
+  ctx.strokeStyle = active ? "rgba(170, 248, 255, 0.95)" : "rgba(91, 196, 235, 0.72)";
+  ctx.shadowColor = active ? "rgba(74, 226, 255, 0.78)" : "rgba(49, 183, 230, 0.36)";
+  ctx.shadowBlur = active ? 14 : 7;
+  ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+  ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+
+  // A shallow inset and thin cyan rails read as an integrated floor sensor.
+  ctx.shadowBlur = active ? 9 : 4;
+  ctx.fillStyle = active ? "rgba(136, 238, 255, 0.24)" : "rgba(67, 187, 231, 0.16)";
+  ctx.fillRect(platform.x + 10, platform.y + 6, platform.w - 20, 8);
+  ctx.strokeStyle = active ? "rgba(213, 255, 255, 0.96)" : "rgba(109, 221, 248, 0.72)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(platform.x + 12, platform.y + 7);
+  ctx.lineTo(platform.x + platform.w - 12, platform.y + 7);
+  ctx.moveTo(platform.x + 12, platform.y + platform.h - 7);
+  ctx.lineTo(platform.x + platform.w - 12, platform.y + platform.h - 7);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLinkedBarrier(platform) {
+  if (platform.h <= 0) return;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(31, 100, 157, 0.92)";
+  ctx.strokeStyle = "rgba(152, 229, 255, 0.88)";
+  ctx.shadowColor = "rgba(55, 184, 239, 0.48)";
+  ctx.shadowBlur = 10;
+  ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+  ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(189, 245, 255, 0.5)";
+  ctx.lineWidth = 1;
+  for (let y = platform.y + 14; y < platform.y + platform.h; y += 22) {
+    ctx.beginPath();
+    ctx.moveTo(platform.x + 5, y);
+    ctx.lineTo(platform.x + platform.w - 5, y + 7);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPlatform(platform) {
+  if (platform.h <= 0 || platform.w <= 0) return;
+  if (platform.type === "pressurePlate") {
+    drawPressurePlatePlatform(platform);
+    return;
+  }
+  if (platform.type === "linkedBarrier") {
+    drawLinkedBarrier(platform);
+    return;
+  }
+
+  ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+  ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+}
+
 function drawRoom() {
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
   sky.addColorStop(0, "#dff5ff");
@@ -8597,10 +8774,7 @@ function drawRoom() {
 
   ctx.fillStyle = "#9fd0f4";
   ctx.strokeStyle = "rgba(45, 126, 204, 0.48)";
-  for (const platform of platforms) {
-    ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
-    ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
-  }
+  for (const platform of platforms) drawPlatform(platform);
 
   for (const barrier of phaseBarriers) {
     ctx.save();
@@ -10071,6 +10245,7 @@ window.__indiePlatformerDebug = {
   room4Progress,
   room7Progress,
   room8Progress,
+  room9Progress,
   enqueueSystemMessage,
   getSelectedAbility,
   getEnergyLinkState: () => ({
