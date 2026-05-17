@@ -342,8 +342,8 @@ const platforms = [
   // Walker starts with the player, then must be redirected through offset
   // upper platforms before weighing down the top-right pressure plate.
   { id: "room9-start-platform", x: ROOM9_X, y: ROOM_FLOOR_Y, w: 285, h: 70 },
-  { id: "room9-upper-platform-a", x: ROOM9_X + 195, y: 260, w: 185, h: 24 },
-  { id: "room9-upper-platform-b", x: ROOM9_X + 360, y: 425, w: 260, h: 24 },
+  { id: "room9-upper-platform-a", x: ROOM9_X + 195, y: 260, w: 245, h: 24 },
+  { id: "room9-upper-platform-b", x: ROOM9_X + 360, y: 425, w: 320, h: 24 },
   { id: "room9-upper-platform-c", x: ROOM9_X + 540, y: 300, w: 210, h: 24 },
   { id: "room9-pressure-plate", type: "pressurePlate", x: ROOM9_X + 540, y: 292, w: 210, h: 8 },
   { id: "room9-exit-barrier", type: "linkedBarrier", x: ROOM9_X + 885, y: 0, w: 34, h: canvas.height, baseY: 0, baseH: canvas.height },
@@ -403,10 +403,12 @@ const roomSelectOptions = levelRooms.map((room, index) => ({
   roomId: room.id,
   label: `Room ${index + 1}`
 }));
+const ROOM_SELECT_VISIBLE_COUNT = 6;
 const menuState = {
   screen: MENU_STATE.MAIN,
   mainSelectionIndex: 0,
-  roomSelectionIndex: 0
+  roomSelectionIndex: 0,
+  roomScrollOffset: 0
 };
 
 const phaseBarriers = [];
@@ -676,9 +678,25 @@ function loadSelectedRoom(roomId) {
   clearMenuBlockingInputState();
 }
 
+function clampRoomSelectScrollOffset() {
+  const maxOffset = Math.max(0, roomSelectOptions.length - ROOM_SELECT_VISIBLE_COUNT);
+  menuState.roomScrollOffset = clamp(menuState.roomScrollOffset, 0, maxOffset);
+}
+
+function syncRoomSelectScrollToSelection() {
+  clampRoomSelectScrollOffset();
+  if (menuState.roomSelectionIndex < menuState.roomScrollOffset) {
+    menuState.roomScrollOffset = menuState.roomSelectionIndex;
+  } else if (menuState.roomSelectionIndex >= menuState.roomScrollOffset + ROOM_SELECT_VISIBLE_COUNT) {
+    menuState.roomScrollOffset = menuState.roomSelectionIndex - ROOM_SELECT_VISIBLE_COUNT + 1;
+  }
+  clampRoomSelectScrollOffset();
+}
+
 function openLevelSelect() {
   menuState.screen = MENU_STATE.LEVEL_SELECT;
   menuState.roomSelectionIndex = clamp(menuState.roomSelectionIndex, 0, roomSelectOptions.length - 1);
+  syncRoomSelectScrollToSelection();
   clearMenuBlockingInputState();
 }
 
@@ -690,6 +708,7 @@ function returnToMainMenu() {
 
 function stepRoomSelect(delta) {
   menuState.roomSelectionIndex = (menuState.roomSelectionIndex + delta + roomSelectOptions.length) % roomSelectOptions.length;
+  syncRoomSelectScrollToSelection();
 }
 
 function updateMenuInput() {
@@ -10195,9 +10214,39 @@ function drawLevelSelectMenu() {
   const optionX = x + 46;
   const optionW = panelW - 92;
   const optionStartY = y + 166;
-  for (let index = 0; index < roomSelectOptions.length; index += 1) {
-    drawMenuOption(roomSelectOptions[index].label, optionX, optionStartY + index * 32, optionW, index === menuState.roomSelectionIndex, 28);
+  const rowGap = 32;
+  const visibleCount = Math.min(ROOM_SELECT_VISIBLE_COUNT, roomSelectOptions.length);
+  const firstVisibleIndex = menuState.roomScrollOffset;
+  const lastVisibleIndex = Math.min(roomSelectOptions.length, firstVisibleIndex + visibleCount);
+
+  for (let index = firstVisibleIndex; index < lastVisibleIndex; index += 1) {
+    const row = index - firstVisibleIndex;
+    drawMenuOption(roomSelectOptions[index].label, optionX, optionStartY + row * rowGap, optionW, index === menuState.roomSelectionIndex, 28);
   }
+
+  const scrollbarX = optionX + optionW + 16;
+  const scrollbarY = optionStartY;
+  const scrollbarH = visibleCount * rowGap - 4;
+  ctx.fillStyle = "rgba(52, 135, 176, 0.2)";
+  fillRoundedRect(scrollbarX, scrollbarY, 6, scrollbarH, 3);
+  if (roomSelectOptions.length > visibleCount) {
+    const thumbH = Math.max(28, scrollbarH * (visibleCount / roomSelectOptions.length));
+    const maxOffset = roomSelectOptions.length - visibleCount;
+    const scrollProgress = maxOffset > 0 ? menuState.roomScrollOffset / maxOffset : 0;
+    const thumbY = scrollbarY + (scrollbarH - thumbH) * scrollProgress;
+    ctx.fillStyle = "rgba(151, 238, 255, 0.72)";
+    fillRoundedRect(scrollbarX, thumbY, 6, thumbH, 3);
+  }
+
+  const hintY = optionStartY + visibleCount * rowGap + 18;
+  const canScrollUp = menuState.roomScrollOffset > 0;
+  const canScrollDown = lastVisibleIndex < roomSelectOptions.length;
+  const hint = `${canScrollUp ? "▲" : " "} ${menuState.roomSelectionIndex + 1}/${roomSelectOptions.length} ${canScrollDown ? "▼" : " "}`;
+  drawSystemAccessText(hint, canvas.width / 2, hintY, {
+    size: 12,
+    align: "center",
+    color: "rgba(155, 229, 255, 0.74)"
+  });
 
   ctx.restore();
 }
@@ -10316,6 +10365,13 @@ window.addEventListener("keydown", (event) => {
     keys.add(key);
     if (key === "shift") shiftIsDown = true;
   }
+});
+
+window.addEventListener("wheel", (event) => {
+  if (menuState.screen !== MENU_STATE.LEVEL_SELECT) return;
+  event.preventDefault();
+  if (event.deltaY > 0) stepRoomSelect(1);
+  else if (event.deltaY < 0) stepRoomSelect(-1);
 });
 
 window.addEventListener("keyup", (event) => {
@@ -10454,11 +10510,12 @@ window.__indiePlatformerDebug = {
   menuState,
   mainMenuOptions,
   roomSelectOptions,
+  syncRoomSelectScrollToSelection,
   loadSelectedRoom,
   applyAbilityStateForRoom,
   bottomFallBoundary,
   roomHazardBounds,
-  constants: { PLAYER_WIDTH, STAND_HEIGHT, CROUCH_HEIGHT, CONTACT_DAMAGE_COOLDOWN, ROOM9_BARRIER_DISSOLVE_DURATION, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
+  constants: { PLAYER_WIDTH, ROOM_SELECT_VISIBLE_COUNT, STAND_HEIGHT, CROUCH_HEIGHT, CONTACT_DAMAGE_COOLDOWN, ROOM9_BARRIER_DISSOLVE_DURATION, WALK_SPEED, RUN_SPEED, PULSE_LIFETIME, PULSE_THICKNESS, PULSE_MIN_THICKNESS, PULSE_TAIL_THICKNESS, MAX_STAMINA, SPRINT_STAMINA_DRAIN_RATE, SPRINT_STAMINA_REGEN_DELAY, SPRINT_STAMINA_REGEN_RATE, SPRINT_STAMINA_RESTART_THRESHOLD, GRAVITY_FIELD_RADIUS, GRAVITY_FIELD_DURATION, TIME_SLOW_RADIUS, TIME_SLOW_DURATION, TIME_SLOW_COOLDOWN, TIME_SLOW_MULTIPLIER, ANCHOR_FIELD_RADIUS, ANCHOR_FIELD_DURATION, ANCHOR_FIELD_COOLDOWN, FORCE_PULSE_RANGE, FORCE_PULSE_KNOCKBACK, FORCE_PULSE_STUN, SWARM_DETECTION_RANGE, PHASE_SHIFT_EXPOSURE_RADIUS, PHASE_SHIFT_EXPOSURE_MIN_TIME, ENERGY_LINK_RANGE, ENERGY_LINK_PENDING_TIMEOUT, ENERGY_LINK_DURATION, ENERGY_LINK_COOLDOWN, ENERGY_LINK_DAMAGE_TRANSFER, ENERGY_LINK_FORCE_TRANSFER, PHASE_SHIFT_DURATION, PHASE_SHIFT_COOLDOWN }
 };
 
 requestAnimationFrame(gameLoop);
