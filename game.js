@@ -6945,10 +6945,14 @@ function completeAbilityUnlockCutscene() {
   showAbilityUnlockNotice(ability);
 }
 
+function updateCutscenePlayerMode(dt) {
+  player.updateAbilityUnlockCutscene(dt);
+}
+
 function updateAbilityUnlockCutscene(dt) {
   if (!abilityUnlockCutscene.pendingAbilityId) return false;
 
-  player.updateAbilityUnlockCutscene(dt);
+  updateCutscenePlayerMode(dt);
   if (isPlayerTouchingAbilityUnlockPlatform()) completeAbilityUnlockCutscene();
   return true;
 }
@@ -8139,10 +8143,16 @@ function update(dt) {
     return;
   }
   if (isSystemMessageBlocking()) {
+    // Blocking system prompts use the same non-interactive cutscene player
+    // handling as ability unlocks: input is ignored, motion is neutralized, and
+    // airborne players can settle safely before control returns.
+    updateCutscenePlayerMode(dt);
     if (abilityWheel.open) closeAbilityWheel(false);
     eHoldTimer = 0;
     eWheelOpenedThisHold = false;
     eReleasedThisFrame = false;
+    const room = getCurrentRoom();
+    cameraX = room.x;
     pressedThisFrame.clear();
     return;
   }

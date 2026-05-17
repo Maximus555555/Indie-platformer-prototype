@@ -358,6 +358,20 @@ debug.player.placeAt(room4X + 90, 420, { grounded: true });
 debug.update(16 / 1000);
 if (!debug.systemDialogue.activeBlocking) throw new Error("Room 4 unlock trigger did not start blocking system text.");
 if (gravityAbility.unlocked) throw new Error("Gravity Field unlocked before the Room 4 sequence completed.");
+debug.player.stamina = 12;
+debug.player.staminaRegenDelayTimer = 1;
+debug.player.sprintLockedUntilShiftRelease = true;
+debug.player.vx = 120;
+dispatch("keydown", keyEvent("d", "KeyD"));
+const blockingSystemMessageX = debug.player.x;
+debug.update(16 / 1000);
+if (debug.player.x !== blockingSystemMessageX) {
+  throw new Error("Blocking system text accepted movement input instead of using cutscene controls.");
+}
+if (debug.player.stamina !== debug.constants.MAX_STAMINA || debug.player.sprintLockedUntilShiftRelease || debug.player.isRunning || debug.player.vx !== 0) {
+  throw new Error("Blocking system text did not use the ability unlock cutscene player state.");
+}
+dispatch("keyup", keyEvent("d", "KeyD"));
 function advanceBlockingLine() {
   for (let frame = 0; frame < 60; frame += 1) debug.update(16 / 1000);
   dispatch("keydown", keyEvent("Enter", "Enter"));
