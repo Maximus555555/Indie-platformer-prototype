@@ -8710,6 +8710,7 @@ function drawPressurePlatePlatform(platform) {
   const active = room9Progress.pressurePlateActive;
   const pressOffset = active ? 4 : 0;
   const visualY = platform.y + pressOffset;
+  const visualH = platform.h - pressOffset;
   const topInset = 10;
   const outlineColor = "rgba(91, 196, 235, 0.72)";
 
@@ -8721,23 +8722,11 @@ function drawPressurePlatePlatform(platform) {
   ctx.beginPath();
   ctx.moveTo(platform.x + topInset, visualY);
   ctx.lineTo(platform.x + platform.w - topInset, visualY);
-  ctx.lineTo(platform.x + platform.w, visualY + platform.h);
-  ctx.lineTo(platform.x, visualY + platform.h);
+  ctx.lineTo(platform.x + platform.w, visualY + visualH);
+  ctx.lineTo(platform.x, visualY + visualH);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-
-  // The sensor slab keeps its collision height stable while the drawn top drops
-  // down to make the plate visibly compress under any standing entity.
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = active ? "rgba(213, 255, 255, 0.42)" : "rgba(213, 255, 255, 0.26)";
-  ctx.beginPath();
-  ctx.moveTo(platform.x + topInset + 6, visualY + 2);
-  ctx.lineTo(platform.x + platform.w - topInset - 6, visualY + 2);
-  ctx.lineTo(platform.x + platform.w - topInset - 2, visualY + 4);
-  ctx.lineTo(platform.x + topInset + 2, visualY + 4);
-  ctx.closePath();
-  ctx.fill();
   ctx.restore();
 }
 
@@ -10004,7 +9993,6 @@ function drawMainMenu() {
   drawSystemAccessText("COREBOUND", canvas.width / 2, y + 34, { size: 30, weight: "bold", align: "center" });
   drawSystemAccessText("MAIN MENU", canvas.width / 2, y + 74, { size: 12, align: "center", color: "rgba(155, 229, 255, 0.74)" });
   drawMenuOption(mainMenuOptions[0], x + 72, y + 122, panelW - 144, menuState.mainSelectionIndex === 0);
-  drawSystemAccessText("ENTER: SELECT", canvas.width / 2, y + panelH - 34, { size: 12, align: "center", color: "rgba(155, 229, 255, 0.72)" });
   ctx.restore();
 }
 
@@ -10030,11 +10018,6 @@ function drawLevelSelectMenu() {
     drawMenuOption(roomSelectOptions[index].label, optionX, optionStartY + index * 32, optionW, index === menuState.roomSelectionIndex, 28);
   }
 
-  drawSystemAccessText("↑/↓: CHOOSE   ENTER: LOAD   ESC/BACKSPACE: BACK", canvas.width / 2, y + panelH - 32, {
-    size: 11,
-    align: "center",
-    color: "rgba(155, 229, 255, 0.72)"
-  });
   ctx.restore();
 }
 
