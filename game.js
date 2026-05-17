@@ -8763,11 +8763,8 @@ function drawRoom9BarrierTransition(platform, progress) {
   ctx.shadowColor = "rgba(92, 224, 255, 0.54)";
   ctx.shadowBlur = 12 * alpha;
   ctx.fillStyle = "rgba(111, 207, 243, 0.78)";
-  ctx.strokeStyle = "rgba(234, 253, 255, 0.84)";
-  ctx.lineWidth = 1.3;
-
-  // Split the wall into a few code-generated slats so the route visibly opens
-  // while collision has already been removed for responsive play.
+  // Split the wall into a few solid code-generated slats so the route visibly
+  // opens while collision has already been removed for responsive play.
   for (let i = 0; i < ROOM9_BARRIER_DISSOLVE_STRIPS; i += 1) {
     const stripH = Math.max(8, stripStride - stripGap);
     const stripY = baseY + i * stripStride + stripGap / 2;
@@ -8775,22 +8772,6 @@ function drawRoom9BarrierTransition(platform, progress) {
     const stripW = platform.w * (1 - progress * 0.35);
     const stripX = platform.x + (platform.w - stripW) / 2 + drift;
     ctx.fillRect(stripX, stripY, stripW, stripH);
-    ctx.strokeRect(stripX + 0.5, stripY + 0.5, stripW - 1, stripH - 1);
-  }
-
-  ctx.fillStyle = "rgba(233, 252, 255, 0.9)";
-  for (let i = 0; i < 6; i += 1) {
-    const sparkY = baseY + baseH * ((i + 0.5) / 6);
-    const side = i % 2 === 0 ? -1 : 1;
-    const sparkX = platform.x + platform.w / 2 + side * (platform.w * 0.35 + progress * (12 + i * 2));
-    const size = 2.5 + (i % 3);
-    ctx.beginPath();
-    ctx.moveTo(sparkX, sparkY - size);
-    ctx.lineTo(sparkX + size, sparkY);
-    ctx.lineTo(sparkX, sparkY + size);
-    ctx.lineTo(sparkX - size, sparkY);
-    ctx.closePath();
-    ctx.fill();
   }
   ctx.restore();
 }
