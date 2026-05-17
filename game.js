@@ -272,6 +272,7 @@ const ROOM7_X = ROOM6_X + LEVEL1_ROOM_WIDTH;
 const ROOM8_X = ROOM7_X + LEVEL1_ROOM_WIDTH;
 const ROOM9_X = ROOM8_X + LEVEL1_ROOM_WIDTH;
 const ROOM10_X = ROOM9_X + LEVEL1_ROOM_WIDTH;
+const ROOM11_X = ROOM10_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -361,7 +362,12 @@ const platforms = [
   { id: "room10-lower-right-platform", x: ROOM10_X + 710, y: ROOM_FLOOR_Y, w: 130, h: 70 },
   { id: "room10-pressure-plate-b", type: "pressurePlate", x: ROOM10_X + 735, y: ROOM_FLOOR_Y - 8, w: 76, h: 8 },
   { id: "room10-exit-platform", x: ROOM10_X + 875, y: ROOM_FLOOR_Y, w: 85, h: 70 },
-  { id: "room10-exit-barrier", type: "linkedBarrier", x: ROOM10_X + 850, y: 0, w: 34, h: canvas.height, baseY: 0, baseH: canvas.height }
+  { id: "room10-exit-barrier", type: "linkedBarrier", x: ROOM10_X + 850, y: 0, w: 34, h: canvas.height, baseY: 0, baseH: canvas.height },
+
+  // Level 1, Room 11: a clean mirrored combat space. Only full-width
+  // floor and ceiling platforms remain, with grounded enemies on each side.
+  { id: "room11-ceiling-platform", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: 24 },
+  { id: "room11-floor-platform", x: ROOM11_X, y: ROOM_FLOOR_Y, w: LEVEL1_ROOM_WIDTH, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -373,7 +379,8 @@ const levelRooms = [
   { id: "room-7", name: "Level 1, Room 7", x: ROOM7_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM7_X + 18, y: 420 }, tutorial: "INDIRECT TERMINATION" },
   { id: "room-8", name: "Level 1, Room 8", x: ROOM8_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM8_X + 18, y: 420 }, tutorial: "TIMING WINDOW" },
   { id: "room-9", name: "Level 1, Room 9", x: ROOM9_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM9_X + 18, y: 420 }, tutorial: "LINKED PRESSURE" },
-  { id: "room-10", name: "Level 1, Room 10", x: ROOM10_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM10_X + 18, y: 420 }, tutorial: "CONCURRENT ALIGNMENT" }
+  { id: "room-10", name: "Level 1, Room 10", x: ROOM10_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM10_X + 18, y: 420 }, tutorial: "CONCURRENT ALIGNMENT" },
+  { id: "room-11", name: "Level 1, Room 11", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM11_X + 18, y: 420 }, tutorial: "MIRRORED PATROL" }
 ];
 
 const doors = [];
@@ -396,7 +403,9 @@ const screenEdgeTransitions = [
   { id: "room-9-to-room-8", roomId: "room-9", direction: -1, targetRoomId: "room-8" },
   { id: "room-9-to-room-10", roomId: "room-9", direction: 1, targetRoomId: "room-10" },
   { id: "room-10-to-room-9", roomId: "room-10", direction: -1, targetRoomId: "room-9" },
-  { id: "room-10-right-pending", roomId: "room-10", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-10-to-room-11", roomId: "room-10", direction: 1, targetRoomId: "room-11" },
+  { id: "room-11-to-room-10", roomId: "room-11", direction: -1, targetRoomId: "room-10" },
+  { id: "room-11-right-pending", roomId: "room-11", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -6788,7 +6797,34 @@ room10WalkerB.defaultGravitySign = 1;
 room10WalkerB.gravitySign = 1;
 room10WalkerB.direction = 1;
 room10WalkerB.roomId = "room-10";
-const enemies = [room7Walker, room8Walker, room9Walker, room10WalkerA, room10WalkerB];
+
+const room11FloorPlatform = platforms.find((platform) => platform.id === "room11-floor-platform");
+const room11CeilingPlatform = platforms.find((platform) => platform.id === "room11-ceiling-platform");
+const room11BottomWalker = new Enemy(ROOM11_X + 220, room11FloorPlatform.y - WALKER_HEIGHT - 10);
+room11BottomWalker.defaultGravitySign = 1;
+room11BottomWalker.gravitySign = 1;
+room11BottomWalker.direction = 1;
+room11BottomWalker.roomId = "room-11";
+
+const room11BottomJumper = new Jumper(ROOM11_X + 345, room11FloorPlatform.y - JUMPER_HEIGHT - 7);
+room11BottomJumper.defaultGravitySign = 1;
+room11BottomJumper.gravitySign = 1;
+room11BottomJumper.facing = -1;
+room11BottomJumper.roomId = "room-11";
+
+const room11TopWalker = new Enemy(ROOM11_X + 615, room11CeilingPlatform.y + room11CeilingPlatform.h + 10);
+room11TopWalker.defaultGravitySign = -1;
+room11TopWalker.gravitySign = -1;
+room11TopWalker.direction = -1;
+room11TopWalker.roomId = "room-11";
+
+const room11TopJumper = new Jumper(ROOM11_X + 490, room11CeilingPlatform.y + room11CeilingPlatform.h + 7);
+room11TopJumper.defaultGravitySign = -1;
+room11TopJumper.gravitySign = -1;
+room11TopJumper.facing = 1;
+room11TopJumper.roomId = "room-11";
+
+const enemies = [room7Walker, room8Walker, room9Walker, room10WalkerA, room10WalkerB, room11BottomWalker, room11BottomJumper, room11TopWalker, room11TopJumper];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
   x: enemy.x,
