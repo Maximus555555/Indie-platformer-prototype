@@ -117,17 +117,17 @@ if (!Number.isFinite(debug.player.x) || !Number.isFinite(debug.player.y)) {
 }
 if (debug.player.hp <= 0) throw new Error("Player unexpectedly died during idle smoke test.");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should start in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-if (debug.levelRooms.length !== 7 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4" || debug.levelRooms[4].id !== "room-5" || debug.levelRooms[5].id !== "room-6" || debug.levelRooms[6].id !== "room-7") {
-  throw new Error(`Expected Level 1 Rooms 1 through 7 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+if (debug.levelRooms.length !== 8 || debug.levelRooms[0].id !== "room-1" || debug.levelRooms[1].id !== "room-2" || debug.levelRooms[2].id !== "room-3" || debug.levelRooms[3].id !== "room-4" || debug.levelRooms[4].id !== "room-5" || debug.levelRooms[5].id !== "room-6" || debug.levelRooms[6].id !== "room-7" || debug.levelRooms[7].id !== "room-8") {
+  throw new Error(`Expected Level 1 Rooms 1 through 8 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
-if (debug.enemies.length !== 1 || debug.getActiveEnemies().length !== 0) {
-  throw new Error("Level 1 Room 7 should create exactly one Walker, inactive while the player starts in Room 1.");
+if (debug.enemies.length !== 2 || debug.getActiveEnemies().length !== 0) {
+  throw new Error("Level 1 Rooms 7 and 8 should create one Walker each, inactive while the player starts in Room 1.");
 }
-if (debug.spikes.length !== 1 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Room 7 should include one lower-platform spike strip and no phase barriers.");
+if (debug.spikes.length !== 2 || debug.phaseBarriers.length !== 0) {
+  throw new Error("Level 1 Rooms 7 and 8 should each include one spike strip and no phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
-  throw new Error("Level 1 Rooms 1-6 should not include doors, gates, or exit markers.");
+  throw new Error("Level 1 Rooms 1-8 should not include doors, gates, or exit markers.");
 }
 
 const expectedPlatforms = [
@@ -143,6 +143,7 @@ const room4X = 2880;
 const room5X = 3840;
 const room6X = 4800;
 const room7X = 5760;
+const room8X = 6720;
 const expectedRoom2Platforms = [
   { x: room2X, y: 470, w: 260, h: 70 },
   { x: room2X + 360, y: 430, w: 150, h: 24 },
@@ -179,9 +180,15 @@ const expectedRoom7Platforms = [
   { x: room7X + 685, y: 430, w: 115, h: 24 },
   { x: room7X + 835, y: 470, w: 125, h: 70 }
 ];
-const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms];
+const expectedRoom8Platforms = [
+  { x: room8X, y: 470, w: 280, h: 70 },
+  { x: room8X + 300, y: 300, w: 430, h: 24 },
+  { x: room8X + 285, y: 430, w: 500, h: 24 },
+  { x: room8X + 815, y: 470, w: 145, h: 70 }
+];
+const expectedAllPlatforms = [...expectedPlatforms, ...expectedRoom2Platforms, ...expectedRoom3Platforms, ...expectedRoom4Platforms, ...expectedRoom5Platforms, ...expectedRoom6Platforms, ...expectedRoom7Platforms, ...expectedRoom8Platforms];
 if (debug.platforms.length !== expectedAllPlatforms.length) {
-  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Room 1-6 platforms, got ${debug.platforms.length}.`);
+  throw new Error(`Expected ${expectedAllPlatforms.length} Level 1 Rooms 1-8 platforms, got ${debug.platforms.length}.`);
 }
 for (const expected of expectedAllPlatforms) {
   if (!debug.platforms.some((platform) => platform.x === expected.x && platform.y === expected.y && platform.w === expected.w && platform.h === expected.h)) {
@@ -288,7 +295,9 @@ const expectedTriggerMessages = [
   "Trajectory may be corrected mid-motion.",
   "Arc deviation confirmed.",
   "Hostile process detected.",
-  "Environmental correction may be applied."
+  "Environmental correction may be applied.",
+  "Pattern recognition required.",
+  "Proceed."
 ];
 for (const text of expectedTriggerMessages) {
   const trigger = debug.systemMessageTriggers.find((candidate) => candidate.messages.includes(text));
@@ -301,7 +310,7 @@ debug.systemDialogue.logs.length = 0;
 debug.systemDialogue.loggedMessageKeys.clear();
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
-const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910];
+const nonBlockingTriggerPositions = [86, 250, 360, 850, room2X + 40, room2X + 525, room2X + 780, room2X + 920, room3X + 40, room3X + 250, room3X + 700, room3X + 930, room4X + 900, room6X + 40, room6X + 525, room6X + 920, room7X + 170, room7X + 315, room7X + 910, room8X + 350, room8X + 890];
 for (const x of nonBlockingTriggerPositions) {
   debug.player.placeAt(x, 420, { grounded: true });
   debug.update(16 / 1000);
@@ -611,22 +620,55 @@ if (debug.getCurrentRoomId() !== "room-6") {
   throw new Error(`Room 7 left-edge transition should return to Room 6; got ${debug.getCurrentRoomId()}.`);
 }
 
-// Room 7 right edge is reserved for the future Room 8 transition.
+// Room 7 right edge connects to Room 8, and Room 8 can return left to Room 7.
 debug.enterRoom("room-7", { x: room7X + 900, y: 420 }, { grounded: true, facing: 1 });
 debug.systemDialogue.activeAmbient = null;
 debug.systemDialogue.ambientQueue.length = 0;
 debug.player.placeAt(room7X + 960 - debug.player.w, 420, { grounded: true });
 dispatch("keydown", keyEvent("d", "KeyD"));
 debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
 dispatch("keyup", keyEvent("d", "KeyD"));
-if (debug.getCurrentRoomId() !== "room-7") {
-  throw new Error(`Room 7 right-edge pending transition should not leave Room 7; got ${debug.getCurrentRoomId()}.`);
+if (debug.getCurrentRoomId() !== "room-8") {
+  throw new Error(`Room 7 right-edge transition should enter Room 8; got ${debug.getCurrentRoomId()}.`);
 }
-if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-7-right-pending" && entry.text === "Room transition pending.")) {
-  throw new Error("Room 7 right screen-edge transition did not log the pending transition message.");
+if (debug.player.x < room8X || debug.player.x > room8X + 60) {
+  throw new Error(`Room 8 entry should place the player at the left start, got x=${debug.player.x}.`);
+}
+if (debug.getActiveEnemies().length !== 1) {
+  throw new Error("Room 8 should activate exactly one Walker.");
+}
+const activeRoom8Walker = debug.getActiveEnemies()[0];
+if (activeRoom8Walker.roomId !== "room-8" || activeRoom8Walker.gravitySign !== -1 || activeRoom8Walker.defaultGravitySign !== -1) {
+  throw new Error("Room 8 Walker should be the only active Walker and should spawn with reversed default gravity.");
+}
+
+debug.player.placeAt(room8X, 420, { grounded: true });
+dispatch("keydown", keyEvent("a", "KeyA"));
+debug.checkRoomEdgeTransitions();
+for (let frame = 0; frame < 24; frame += 1) debug.update(16 / 1000);
+dispatch("keyup", keyEvent("a", "KeyA"));
+if (debug.getCurrentRoomId() !== "room-7") {
+  throw new Error(`Room 8 left-edge transition should return to Room 7; got ${debug.getCurrentRoomId()}.`);
+}
+
+// Room 8 right edge is reserved for the future Room 9 transition.
+debug.enterRoom("room-8", { x: room8X + 900, y: 420 }, { grounded: true, facing: 1 });
+debug.systemDialogue.activeAmbient = null;
+debug.systemDialogue.ambientQueue.length = 0;
+debug.player.placeAt(room8X + 960 - debug.player.w, 420, { grounded: true });
+dispatch("keydown", keyEvent("d", "KeyD"));
+debug.checkRoomEdgeTransitions();
+dispatch("keyup", keyEvent("d", "KeyD"));
+if (debug.getCurrentRoomId() !== "room-8") {
+  throw new Error(`Room 8 right-edge pending transition should not leave Room 8; got ${debug.getCurrentRoomId()}.`);
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "room-8-right-pending" && entry.text === "Room transition pending.")) {
+  throw new Error("Room 8 right screen-edge transition did not log the pending transition message.");
 }
 
 const room7Walker = debug.enemies[0];
+debug.enterRoom("room-7", { x: room7X + 360, y: 420 }, { grounded: true, facing: 1 });
 debug.resetRoomState("room-7");
 debug.room7Progress.indirectTerminationConfirmed = false;
 debug.systemDialogue.logs.length = 0;
@@ -646,6 +688,44 @@ if (!room7Walker.isDying || !debug.room7Progress.indirectTerminationConfirmed) {
 }
 if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r7-indirect-termination" && entry.text === "Indirect termination confirmed.")) {
   throw new Error("Room 7 spike kill did not log the indirect termination message.");
+}
+
+const room8Walker = debug.enemies[1];
+debug.resetRoomState("room-8");
+debug.room8Progress.timingWindowDetected = false;
+debug.room8Progress.appliedCorrectionConfirmed = false;
+debug.systemDialogue.logs.length = 0;
+debug.systemDialogue.loggedMessageKeys.clear();
+debug.enterRoom("room-8", { x: room8X + 360, y: 420 }, { grounded: true, facing: 1 });
+room8Walker.x = room8X + 560;
+room8Walker.y = 334;
+room8Walker.hp = 2;
+room8Walker.isDying = false;
+room8Walker.gravitySign = -1;
+room8Walker.defaultGravitySign = -1;
+room8Walker.walkerState = "patrolling";
+debug.update(16 / 1000);
+if (!debug.room8Progress.timingWindowDetected) {
+  throw new Error("Room 8 Walker did not announce the timing window when crossing the spike kill zone.");
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r8-timing-window" && entry.text === "Timing window detected.")) {
+  throw new Error("Room 8 timing-window message was not logged.");
+}
+if (!debug.spikes.some((spike) => spike.side === "top" && spike.x === room8X + 535 && spike.w === 140)) {
+  throw new Error("Room 8 offset spike strip is missing or misplaced.");
+}
+room8Walker.x = room8X + 570;
+room8Walker.y = 402;
+room8Walker.hp = 2;
+room8Walker.isDying = false;
+room8Walker.gravitySign = 1;
+room8Walker.walkerState = "gravity-flipped";
+debug.update(16 / 1000);
+if (!room8Walker.isDying || !debug.room8Progress.appliedCorrectionConfirmed) {
+  throw new Error("Room 8 Walker did not die and confirm applied correction when touching spikes.");
+}
+if (!debug.systemDialogue.logs.some((entry) => entry.id === "l1r8-applied-correction" && entry.text === "Applied correction successful.")) {
+  throw new Error("Room 8 spike kill did not log the applied correction message.");
 }
 
 const room6ShaftGap = { left: room6X + 620, right: room6X + 770 };

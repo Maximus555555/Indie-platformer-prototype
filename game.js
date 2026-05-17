@@ -266,6 +266,7 @@ const ROOM4_X = ROOM3_X + LEVEL1_ROOM_WIDTH;
 const ROOM5_X = ROOM4_X + LEVEL1_ROOM_WIDTH;
 const ROOM6_X = ROOM5_X + LEVEL1_ROOM_WIDTH;
 const ROOM7_X = ROOM6_X + LEVEL1_ROOM_WIDTH;
+const ROOM8_X = ROOM7_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -322,7 +323,15 @@ const platforms = [
   { id: "room7-lower-platform", x: ROOM7_X + 300, y: 430, w: 315, h: 24 },
   { id: "room7-top-platform", x: ROOM7_X + 380, y: 190, w: 170, h: 24 },
   { x: ROOM7_X + 685, y: 430, w: 115, h: 24 },
-  { x: ROOM7_X + 835, y: ROOM_FLOOR_Y, w: 125, h: 70 }
+  { x: ROOM7_X + 835, y: ROOM_FLOOR_Y, w: 125, h: 70 },
+
+  // Level 1, Room 8: a forgiving Walker + Gravity Field timing puzzle. The
+  // Walker patrols inverted under the central platform; a correctly timed
+  // gravity flip drops it into the offset spike strip below.
+  { x: ROOM8_X, y: ROOM_FLOOR_Y, w: 280, h: 70 },
+  { id: "room8-walker-platform", x: ROOM8_X + 300, y: 300, w: 430, h: 24 },
+  { id: "room8-spike-platform", x: ROOM8_X + 285, y: 430, w: 500, h: 24 },
+  { x: ROOM8_X + 815, y: ROOM_FLOOR_Y, w: 145, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -331,7 +340,8 @@ const levelRooms = [
   { id: "room-4", name: "Level 1, Room 4", x: ROOM4_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM4_X + 18, y: 420 }, tutorial: "GRAVITY FIELD" },
   { id: "room-5", name: "Level 1, Room 5", x: ROOM5_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM5_X + 18, y: 420 }, tutorial: "CENTER PLATFORM" },
   { id: "room-6", name: "Level 1, Room 6", x: ROOM6_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM6_X + 18, y: 420 }, tutorial: "GRAVITY TIMING ROOM" },
-  { id: "room-7", name: "Level 1, Room 7", x: ROOM7_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM7_X + 18, y: 420 }, tutorial: "INDIRECT TERMINATION" }
+  { id: "room-7", name: "Level 1, Room 7", x: ROOM7_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM7_X + 18, y: 420 }, tutorial: "INDIRECT TERMINATION" },
+  { id: "room-8", name: "Level 1, Room 8", x: ROOM8_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM8_X + 18, y: 420 }, tutorial: "TIMING WINDOW" }
 ];
 
 const doors = [];
@@ -348,7 +358,9 @@ const screenEdgeTransitions = [
   { id: "room-6-to-room-5", roomId: "room-6", direction: -1, targetRoomId: "room-5" },
   { id: "room-6-to-room-7", roomId: "room-6", direction: 1, targetRoomId: "room-7" },
   { id: "room-7-to-room-6", roomId: "room-7", direction: -1, targetRoomId: "room-6" },
-  { id: "room-7-right-pending", roomId: "room-7", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-7-to-room-8", roomId: "room-7", direction: 1, targetRoomId: "room-8" },
+  { id: "room-8-to-room-7", roomId: "room-8", direction: -1, targetRoomId: "room-7" },
+  { id: "room-8-right-pending", roomId: "room-8", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -358,11 +370,20 @@ let roomTransition = null;
 const phaseBarriers = [];
 const movingPlatforms = platforms.filter((platform) => platform.moveSpeed > 0);
 const room7SpikePlatform = platforms.find((platform) => platform.id === "room7-lower-platform");
+const room8SpikePlatform = platforms.find((platform) => platform.id === "room8-spike-platform");
 const spikes = [
   {
     platform: room7SpikePlatform,
     x: ROOM7_X + 385,
     w: 150,
+    side: "top",
+    spikeWidth: SPIKE_WIDTH,
+    spikeHeight: SPIKE_HEIGHT
+  },
+  {
+    platform: room8SpikePlatform,
+    x: ROOM8_X + 535,
+    w: 140,
     side: "top",
     spikeWidth: SPIKE_WIDTH,
     spikeHeight: SPIKE_HEIGHT
@@ -6317,6 +6338,19 @@ function beginEnvironmentalEnemyDeath(sourceEnemy, cause = "environment") {
     });
   }
 
+  if (cause === "spike"
+    && sourceEnemy === room8Walker
+    && currentRoomId === "room-8"
+    && !room8Progress.appliedCorrectionConfirmed) {
+    room8Progress.appliedCorrectionConfirmed = true;
+    enqueueSystemMessage("Applied correction successful.", {
+      id: "l1r8-applied-correction",
+      type: "system",
+      blocking: false,
+      duration: SYSTEM_AMBIENT_DURATION
+    });
+  }
+
   // Environmental hazards are lethal through Energy Link: spikes and armed edge
   // kills shatter every other linked non-boss enemy instead of dealing damage.
   for (const target of linkedTargets) {
@@ -6414,7 +6448,14 @@ room7Walker.defaultGravitySign = -1;
 room7Walker.gravitySign = -1;
 room7Walker.direction = -1;
 room7Walker.roomId = "room-7";
-const enemies = [room7Walker];
+
+const room8WalkerPlatform = platforms.find((platform) => platform.id === "room8-walker-platform");
+const room8Walker = new Enemy(ROOM8_X + 330, room8WalkerPlatform.y + room8WalkerPlatform.h + 10);
+room8Walker.defaultGravitySign = -1;
+room8Walker.gravitySign = -1;
+room8Walker.direction = 1;
+room8Walker.roomId = "room-8";
+const enemies = [room7Walker, room8Walker];
 const enemySpawnStates = enemies.map((enemy) => ({
   enemy,
   x: enemy.x,
@@ -6422,6 +6463,7 @@ const enemySpawnStates = enemies.map((enemy) => ({
   hp: enemy.hp,
   gravitySign: enemy.gravitySign,
   defaultGravitySign: enemy.getDefaultGravitySign(),
+  direction: enemy.direction ?? -1,
   roomId: enemy.roomId ?? getRoomAtPoint(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2).id
 }));
 for (const spawn of enemySpawnStates) spawn.enemy.roomId = spawn.roomId;
@@ -6460,7 +6502,7 @@ function resetEnemyToSpawn(spawn) {
   enemy.deathTimer = 0;
   enemy.deathFragments = [];
   if (enemy instanceof Enemy) {
-    enemy.direction = -1;
+    enemy.direction = spawn.direction ?? -1;
     enemy.reverseCooldown = 0;
     enemy.walkerState = "recovering";
     enemy.landingRecoveryTimer = 0.1;
@@ -6520,6 +6562,11 @@ const room4Progress = {
 
 const room7Progress = {
   indirectTerminationConfirmed: false
+};
+
+const room8Progress = {
+  timingWindowDetected: false,
+  appliedCorrectionConfirmed: false
 };
 
 function unlockGravityFieldFromRoom4() {
@@ -6786,6 +6833,28 @@ const systemMessageTriggers = [
     fired: false,
     messages: ["Proceed."],
     blocking: false
+  },
+  {
+    id: "l1r8-pattern-recognition",
+    x: ROOM8_X + 320,
+    y: 330,
+    w: 160,
+    h: 170,
+    repeat: false,
+    fired: false,
+    messages: ["Pattern recognition required."],
+    blocking: false
+  },
+  {
+    id: "l1r8-proceed",
+    x: ROOM8_X + 850,
+    y: 330,
+    w: 90,
+    h: 160,
+    repeat: false,
+    fired: false,
+    messages: ["Proceed."],
+    blocking: false
   }
 ];
 function normalizeSystemLines(messages) {
@@ -7023,6 +7092,23 @@ function updateSystemMessages(dt) {
   if (ambient.age >= ambient.duration) {
     activateAmbientSystemMessage(systemDialogue.ambientQueue.shift() ?? null);
   }
+}
+
+function updateRoom8WalkerTimingPrompt() {
+  if (room8Progress.timingWindowDetected || currentRoomId !== "room-8") return;
+  if (!room8Walker || room8Walker.hp <= 0 || room8Walker.isDying) return;
+
+  const walkerCenter = centerOf(room8Walker);
+  const spike = room8SpikePlatform ? spikes.find((candidate) => candidate.platform === room8SpikePlatform) : null;
+  if (!spike || walkerCenter.x < spike.x || walkerCenter.x > spike.x + spike.w) return;
+
+  room8Progress.timingWindowDetected = true;
+  enqueueSystemMessage("Timing window detected.", {
+    id: "l1r8-timing-window",
+    type: "system",
+    blocking: false,
+    duration: SYSTEM_AMBIENT_DURATION
+  });
 }
 
 function updateSystemMessageTriggers() {
@@ -8173,6 +8259,7 @@ function update(dt) {
   if (!player.isDying && pressedThisFrame.has(" ")) player.firePulse();
 
   getEnemyUpdateOrder().forEach((enemy) => enemy.update(dt));
+  updateRoom8WalkerTimingPrompt();
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
   forcePulseVisuals.forEach((visual) => visual.update(dt));
@@ -9739,6 +9826,7 @@ window.__indiePlatformerDebug = {
   systemMessageTriggers,
   room4Progress,
   room7Progress,
+  room8Progress,
   enqueueSystemMessage,
   getSelectedAbility,
   getEnergyLinkState: () => ({
