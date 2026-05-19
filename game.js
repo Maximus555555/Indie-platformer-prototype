@@ -273,6 +273,7 @@ const ROOM8_X = ROOM7_X + LEVEL1_ROOM_WIDTH;
 const ROOM9_X = ROOM8_X + LEVEL1_ROOM_WIDTH;
 const ROOM10_X = ROOM9_X + LEVEL1_ROOM_WIDTH;
 const ROOM11_X = ROOM10_X + LEVEL1_ROOM_WIDTH;
+const ROOM12_X = ROOM11_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -367,7 +368,11 @@ const platforms = [
   // Level 1, Room 11: a clean mirrored combat space. Only full-width
   // floor and ceiling platforms remain, with grounded enemies on each side.
   { id: "room11-ceiling-platform", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: 24 },
-  { id: "room11-floor-platform", x: ROOM11_X, y: ROOM_FLOOR_Y, w: LEVEL1_ROOM_WIDTH, h: 70 }
+  { id: "room11-floor-platform", x: ROOM11_X, y: ROOM_FLOOR_Y, w: LEVEL1_ROOM_WIDTH, h: 70 },
+
+  // Level 1, Room 12: a no-combat recovery room with a single platform
+  // that spans the full lower half of the room.
+  { id: "room12-bottom-half-platform", x: ROOM12_X, y: canvas.height / 2, w: LEVEL1_ROOM_WIDTH, h: canvas.height / 2 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -380,7 +385,8 @@ const levelRooms = [
   { id: "room-8", name: "Level 1, Room 8", x: ROOM8_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM8_X + 18, y: 420 }, tutorial: "TIMING WINDOW" },
   { id: "room-9", name: "Level 1, Room 9", x: ROOM9_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM9_X + 18, y: 420 }, tutorial: "LINKED PRESSURE" },
   { id: "room-10", name: "Level 1, Room 10", x: ROOM10_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM10_X + 18, y: 420 }, tutorial: "CONCURRENT ALIGNMENT" },
-  { id: "room-11", name: "Level 1, Room 11", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM11_X + 18, y: 420 }, tutorial: "MIRRORED PATROL" }
+  { id: "room-11", name: "Level 1, Room 11", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM11_X + 18, y: 420 }, tutorial: "MIRRORED PATROL" },
+  { id: "room-12", name: "Level 1, Room 12", x: ROOM12_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM12_X + 18, y: 420 }, tutorial: "SAFE PLATFORM" }
 ];
 
 const doors = [];
@@ -405,7 +411,9 @@ const screenEdgeTransitions = [
   { id: "room-10-to-room-9", roomId: "room-10", direction: -1, targetRoomId: "room-9" },
   { id: "room-10-to-room-11", roomId: "room-10", direction: 1, targetRoomId: "room-11" },
   { id: "room-11-to-room-10", roomId: "room-11", direction: -1, targetRoomId: "room-10" },
-  { id: "room-11-right-pending", roomId: "room-11", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-11-to-room-12", roomId: "room-11", direction: 1, targetRoomId: "room-12" },
+  { id: "room-12-to-room-11", roomId: "room-12", direction: -1, targetRoomId: "room-11" },
+  { id: "room-12-right-pending", roomId: "room-12", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
