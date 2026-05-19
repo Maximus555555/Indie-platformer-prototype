@@ -197,15 +197,15 @@ for (const ability of debug.abilities) {
 }
 debug.loadSelectedRoom("room-1");
 if (debug.getCurrentRoomId() !== "room-1") throw new Error(`Game should continue tests in Level 1, Room 1; got ${debug.getCurrentRoomId()}.`);
-const expectedRoomIds = Array.from({ length: 12 }, (_, index) => `room-${index + 1}`);
+const expectedRoomIds = Array.from({ length: 13 }, (_, index) => `room-${index + 1}`);
 if (debug.levelRooms.length !== expectedRoomIds.length || expectedRoomIds.some((id, index) => debug.levelRooms[index]?.id !== id)) {
-  throw new Error(`Expected Level 1 Rooms 1 through 12 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
+  throw new Error(`Expected Level 1 Rooms 1 through 13 only, got ${debug.levelRooms.map((room) => room.id).join(", ")}.`);
 }
 if (debug.enemies.length !== 9 || debug.getActiveEnemies().length !== 0) {
   throw new Error("Level 1 Rooms 7, 8, and 9 should create one Walker each, Room 10 should create two Walkers, and Room 11 should create two Walkers and two Jumpers, all inactive while the player starts in Room 1.");
 }
-if (debug.spikes.length !== 3 || debug.phaseBarriers.length !== 0) {
-  throw new Error("Level 1 Rooms 7 and 8 should include three spike strips total and no phase barriers.");
+if (debug.spikes.length !== 5 || debug.phaseBarriers.length !== 0) {
+  throw new Error("Level 1 Rooms 7, 8, and 13 should include five spike strips total and no phase barriers.");
 }
 if (debug.doors.length !== 0 || debug.exitMarker !== null) {
   throw new Error("Level 1 Rooms 1-10 should not include doors, gates, or exit markers.");
@@ -288,15 +288,19 @@ const room10RightTransition = debug.screenEdgeTransitions.find((transition) => t
 const room11LeftTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-11-to-room-10");
 const room11RightTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-11-to-room-12");
 const room12LeftTransition = debug.screenEdgeTransitions.find((transition) => transition.id === "room-12-to-room-11");
-const room12RightPending = debug.screenEdgeTransitions.find((transition) => transition.id === "room-12-right-pending");
+const room12ToRoom13 = debug.screenEdgeTransitions.find((transition) => transition.id === "room-12-to-room-13");
+const room13ToRoom12 = debug.screenEdgeTransitions.find((transition) => transition.id === "room-13-to-room-12");
+const room13RightPending = debug.screenEdgeTransitions.find((transition) => transition.id === "room-13-right-pending");
 if (room9RightTransition?.targetRoomId !== "room-10"
   || room10LeftTransition?.targetRoomId !== "room-9"
   || room10RightTransition?.targetRoomId !== "room-11"
   || room11LeftTransition?.targetRoomId !== "room-10"
   || room11RightTransition?.targetRoomId !== "room-12"
   || room12LeftTransition?.targetRoomId !== "room-11"
-  || room12RightPending?.targetRoomId !== null) {
-  throw new Error("Room 9 through Room 12 edge transitions were not configured correctly.");
+  || room12ToRoom13?.targetRoomId !== "room-13"
+  || room13ToRoom12?.targetRoomId !== "room-12"
+  || room13RightPending?.targetRoomId !== null) {
+  throw new Error("Room 9 through Room 13 edge transitions were not configured correctly.");
 }
 
 

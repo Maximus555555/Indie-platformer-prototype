@@ -274,6 +274,8 @@ const ROOM9_X = ROOM8_X + LEVEL1_ROOM_WIDTH;
 const ROOM10_X = ROOM9_X + LEVEL1_ROOM_WIDTH;
 const ROOM11_X = ROOM10_X + LEVEL1_ROOM_WIDTH;
 const ROOM12_X = ROOM11_X + LEVEL1_ROOM_WIDTH;
+const ROOM13_X = ROOM12_X + LEVEL1_ROOM_WIDTH;
+const ROOM13_WIDTH = Math.floor(LEVEL1_ROOM_WIDTH * 1.7);
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -372,7 +374,14 @@ const platforms = [
 
   // Level 1, Room 12: a no-combat recovery room with a single platform
   // that spans the full lower half of the room.
-  { id: "room12-bottom-half-platform", x: ROOM12_X, y: canvas.height / 2, w: LEVEL1_ROOM_WIDTH, h: canvas.height / 2 }
+  { id: "room12-bottom-half-platform", x: ROOM12_X, y: canvas.height / 2, w: LEVEL1_ROOM_WIDTH, h: canvas.height / 2 },
+
+  // Level 1, Room 13: Gravity Boss arena. Wider than tutorial rooms.
+  { id: "room13-floor-left", x: ROOM13_X, y: ROOM_FLOOR_Y, w: ROOM13_WIDTH, h: 70 },
+  { id: "room13-lower-platform", x: ROOM13_X + 520, y: 380, w: 370, h: 24 },
+  { id: "room13-ceiling-platform", x: ROOM13_X + 1060, y: 0, w: 430, h: 24 },
+  { id: "room13-moving-spike-a", roomId: "room-13", x: ROOM13_X + 350, y: 330, w: 170, h: 16, moveSpeed: 98, minX: ROOM13_X + 260, maxX: ROOM13_X + 1060, startX: ROOM13_X + 350, initialMoveDirection: 1 },
+  { id: "room13-moving-spike-b", roomId: "room-13", x: ROOM13_X + 920, y: 230, w: 170, h: 16, moveSpeed: 124, minX: ROOM13_X + 700, maxX: ROOM13_X + 1460, startX: ROOM13_X + 920, initialMoveDirection: -1 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -386,7 +395,8 @@ const levelRooms = [
   { id: "room-9", name: "Level 1, Room 9", x: ROOM9_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM9_X + 18, y: 420 }, tutorial: "LINKED PRESSURE" },
   { id: "room-10", name: "Level 1, Room 10", x: ROOM10_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM10_X + 18, y: 420 }, tutorial: "CONCURRENT ALIGNMENT" },
   { id: "room-11", name: "Level 1, Room 11", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM11_X + 18, y: 420 }, tutorial: "MIRRORED PATROL" },
-  { id: "room-12", name: "Level 1, Room 12", x: ROOM12_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM12_X + 18, y: 420 }, tutorial: "SAFE PLATFORM" }
+  { id: "room-12", name: "Level 1, Room 12", x: ROOM12_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM12_X + 18, y: 420 }, tutorial: "SAFE PLATFORM" },
+  { id: "room-13", name: "Level 1, Room 13", x: ROOM13_X, y: 0, w: ROOM13_WIDTH, h: canvas.height, spawn: { x: ROOM13_X + 34, y: 420 }, tutorial: "GRAVITY AUTHORITY" }
 ];
 
 const doors = [];
@@ -413,7 +423,9 @@ const screenEdgeTransitions = [
   { id: "room-11-to-room-10", roomId: "room-11", direction: -1, targetRoomId: "room-10" },
   { id: "room-11-to-room-12", roomId: "room-11", direction: 1, targetRoomId: "room-12" },
   { id: "room-12-to-room-11", roomId: "room-12", direction: -1, targetRoomId: "room-11" },
-  { id: "room-12-right-pending", roomId: "room-12", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-12-to-room-13", roomId: "room-12", direction: 1, targetRoomId: "room-13" },
+  { id: "room-13-to-room-12", roomId: "room-13", direction: -1, targetRoomId: "room-12" },
+  { id: "room-13-right-pending", roomId: "room-13", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -444,6 +456,8 @@ const room9ExitBarrier = platforms.find((platform) => platform.id === "room9-exi
 const room10PressurePlateA = platforms.find((platform) => platform.id === "room10-pressure-plate-a");
 const room10PressurePlateB = platforms.find((platform) => platform.id === "room10-pressure-plate-b");
 const room10ExitBarrier = platforms.find((platform) => platform.id === "room10-exit-barrier");
+const room13SpikeMoverA = platforms.find((platform) => platform.id === "room13-moving-spike-a");
+const room13SpikeMoverB = platforms.find((platform) => platform.id === "room13-moving-spike-b");
 const spikes = [
   {
     platform: room7SpikePlatform,
@@ -466,6 +480,22 @@ const spikes = [
     x: ROOM8_X + 535,
     w: 140,
     side: "top",
+    spikeWidth: SPIKE_WIDTH,
+    spikeHeight: SPIKE_HEIGHT
+  },
+  {
+    platform: room13SpikeMoverA,
+    x: room13SpikeMoverA?.x ?? ROOM13_X + 350,
+    w: room13SpikeMoverA?.w ?? 170,
+    side: "top",
+    spikeWidth: SPIKE_WIDTH,
+    spikeHeight: SPIKE_HEIGHT
+  },
+  {
+    platform: room13SpikeMoverB,
+    x: room13SpikeMoverB?.x ?? ROOM13_X + 920,
+    w: room13SpikeMoverB?.w ?? 170,
+    side: "bottom",
     spikeWidth: SPIKE_WIDTH,
     spikeHeight: SPIKE_HEIGHT
   }
@@ -580,6 +610,7 @@ function resetMovingPlatformsForRoom(roomId = currentRoomId) {
 
 function resetRoomState(roomId = currentRoomId) {
   resetMovingPlatformsForRoom(roomId);
+  if (roomId === "room-13") resetRoom13BossFight();
   if (roomId === "room-9") setRoom9BarrierActive(false, { animate: false });
   if (roomId === "room-10") {
     room10Progress.pressurePlateAActive = false;
@@ -808,6 +839,7 @@ function updateRoomTransition(dt) {
 }
 
 function getRoomEdgeTransition(direction, roomId = currentRoomId) {
+  if (roomId === "room-13" && !room13Boss.defeated) return null;
   return screenEdgeTransitions.find((transition) => transition.roomId === roomId && transition.direction === direction)
     ?? getRoomDoors(roomId).find((door) => door.facing === direction)
     ?? null;
@@ -1049,8 +1081,9 @@ function rectsTouchOrOverlap(a, b, margin = 0) {
 
 function spikeStripBounds(spike) {
   const baseY = spike.side === "top" ? spike.platform.y : spike.platform.y + spike.platform.h;
+  const spikeX = spike.platform?.moveSpeed ? spike.platform.x : spike.x;
   return {
-    x: spike.x,
+    x: spikeX,
     y: spike.side === "top" ? baseY - spike.spikeHeight : baseY,
     w: spike.w,
     h: spike.spikeHeight
@@ -1058,6 +1091,7 @@ function spikeStripBounds(spike) {
 }
 
 function getSpikeTriangles(spike) {
+  const spikeX = spike.platform?.moveSpeed ? spike.platform.x : spike.x;
   const count = Math.max(1, Math.floor(spike.w / spike.spikeWidth));
   const width = spike.w / count;
   const baseY = spike.side === "top" ? spike.platform.y : spike.platform.y + spike.platform.h;
@@ -1065,8 +1099,8 @@ function getSpikeTriangles(spike) {
   const triangles = [];
 
   for (let i = 0; i < count; i += 1) {
-    const left = spike.x + i * width;
-    const right = spike.x + (i + 1) * width;
+    const left = spikeX + i * width;
+    const right = spikeX + (i + 1) * width;
     triangles.push([
       { x: left, y: baseY },
       { x: right, y: baseY },
@@ -6976,6 +7010,25 @@ const room10Progress = {
   accessRouteAvailable: false
 };
 
+const room13Boss = {
+  active: false,
+  defeated: false,
+  hp: 3,
+  maxHp: 3,
+  x: ROOM13_X + 1080,
+  y: 260,
+  w: 84,
+  h: 84,
+  vx: 0,
+  vy: 0,
+  vulnerableTimer: 0,
+  phase2: false,
+  zoneSign: 1,
+  zoneTimer: 0,
+  firstZoneFired: false,
+  firstCrashFired: false
+};
+
 
 function captureAbilitySnapshot() {
   return {
@@ -8842,6 +8895,51 @@ function getEnemyUpdateOrder() {
     .map((entry) => entry.enemy);
 }
 
+function resetRoom13BossFight() {
+  room13Boss.active = false;
+  room13Boss.defeated = false;
+  room13Boss.hp = room13Boss.maxHp;
+  room13Boss.x = ROOM13_X + 1080;
+  room13Boss.y = 260;
+  room13Boss.vx = 0;
+  room13Boss.vy = 0;
+  room13Boss.vulnerableTimer = 0;
+  room13Boss.phase2 = false;
+  room13Boss.zoneSign = 1;
+  room13Boss.zoneTimer = 1.2;
+  room13Boss.firstZoneFired = false;
+  room13Boss.firstCrashFired = false;
+}
+
+function updateRoom13Boss(dt) {
+  if (currentRoomId !== "room-13" || room13Boss.defeated) return;
+  if (!room13Boss.active) {
+    room13Boss.active = true;
+    enqueueSystemMessage("Anomalous gravity authority detected.", { id: "room13-intro", type: "system", blocking: false, duration: SYSTEM_AMBIENT_DURATION });
+  }
+  room13Boss.zoneTimer -= dt;
+  if (room13Boss.zoneTimer <= 0) {
+    room13Boss.zoneSign *= -1;
+    player.gravitySign = room13Boss.zoneSign;
+    player.vy *= 0.4;
+    room13Boss.zoneTimer = room13Boss.phase2 ? 1.2 : 2.1;
+    if (!room13Boss.firstZoneFired) {
+      room13Boss.firstZoneFired = true;
+      enqueueSystemMessage("External gravity command identified.", { id: "room13-zone-first", type: "system", blocking: false, duration: SYSTEM_AMBIENT_DURATION });
+    }
+  }
+  if (gravityFieldActive) {
+    room13Boss.vy += GRAVITY * dt * room13Boss.zoneSign;
+  } else {
+    const topY = 40;
+    const bottomY = 300;
+    room13Boss.y = room13Boss.zoneSign > 0 ? topY : bottomY;
+    room13Boss.vy = 0;
+  }
+  room13Boss.y += room13Boss.vy * dt;
+  room13Boss.vulnerableTimer = Math.max(0, room13Boss.vulnerableTimer - dt);
+}
+
 function update(dt) {
   if (menuState.screen !== MENU_STATE.PLAYING) {
     updateMenuInput();
@@ -8911,6 +9009,7 @@ function update(dt) {
   updateRoom9PressurePlate();
   updateRoom10PressurePlate();
   updateRoom9BarrierAnimation(dt);
+  updateRoom13Boss(dt);
   player.update(dt);
   pulses.forEach((pulse) => pulse.update(dt));
   forcePulseVisuals.forEach((visual) => visual.update(dt));
@@ -8936,6 +9035,38 @@ function update(dt) {
   const touchedSpike = isPlayerPhased() ? null : getFirstTouchedSpike(playerHazardRect);
   if (touchedSpike) player.takeSpikeDamage(touchedSpike);
 
+  if (currentRoomId === "room-13" && room13Boss.active && !room13Boss.defeated) {
+    if (rectTouchesSpikes({ x: room13Boss.x, y: room13Boss.y, w: room13Boss.w, h: room13Boss.h })) {
+      room13Boss.vulnerableTimer = 2.0;
+      room13Boss.vy = -120;
+      if (!room13Boss.firstCrashFired) {
+        room13Boss.firstCrashFired = true;
+        enqueueSystemMessage("Authority destabilized.", { id: "room13-crash-first", type: "system", blocking: false, duration: SYSTEM_AMBIENT_DURATION });
+      }
+    }
+    for (const pulse of pulses) {
+      if (!pulse.active) continue;
+      const hit = pulse.direction > 0
+        ? pulse.x <= room13Boss.x + room13Boss.w && pulse.x + pulse.length >= room13Boss.x
+        : pulse.x >= room13Boss.x && pulse.x - pulse.length <= room13Boss.x + room13Boss.w;
+      const yHit = pulse.y >= room13Boss.y && pulse.y <= room13Boss.y + room13Boss.h;
+      if (hit && yHit) {
+        pulse.active = false;
+        if (room13Boss.vulnerableTimer > 0) room13Boss.hp -= 1;
+      }
+    }
+    if (!room13Boss.phase2 && room13Boss.hp <= Math.ceil(room13Boss.maxHp / 2)) {
+      room13Boss.phase2 = true;
+      if (room13SpikeMoverA) room13SpikeMoverA.moveSpeed = 138;
+      if (room13SpikeMoverB) room13SpikeMoverB.moveSpeed = 170;
+      enqueueSystemMessage("Correction resistance increasing.", { id: "room13-phase2", type: "system", blocking: false, duration: SYSTEM_AMBIENT_DURATION });
+    }
+    if (room13Boss.hp <= 0) {
+      room13Boss.defeated = true;
+      enqueueSystemMessage("Gravity authority removed.", { id: "room13-defeat", type: "system", blocking: false, duration: SYSTEM_AMBIENT_DURATION });
+    }
+  }
+
   for (const enemy of getActiveEnemies()) {
     if (enemy.hp <= 0 || enemy.isDying) continue;
     if (rectTouchesSpikes(enemy.getDamageRect())) beginEnvironmentalEnemyDeath(enemy, "spike");
@@ -8944,7 +9075,7 @@ function update(dt) {
   if (!player.isDying && player.isInvalidEdgeFallState()) player.fallOutOfWorld();
   checkRoomEdgeTransitions();
   const room = getCurrentRoom();
-  cameraX = room.x;
+  cameraX = room.id === "room-13" ? clamp(player.x + player.w / 2 - canvas.width / 2, room.x, room.x + room.w - canvas.width) : room.x;
   pressedThisFrame.clear();
 }
 
@@ -10541,6 +10672,19 @@ function drawSystemAccessDeniedMessage() {
   ctx.restore();
 }
 
+function drawRoom13Boss() {
+  if (currentRoomId !== "room-13" || !room13Boss.active || room13Boss.defeated) return;
+  ctx.save();
+  const alpha = room13Boss.vulnerableTimer > 0 ? 0.75 : 1;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = room13Boss.vulnerableTimer > 0 ? "rgba(255,120,140,0.9)" : "rgba(141,208,255,0.9)";
+  ctx.strokeStyle = "rgba(212,241,255,0.95)";
+  ctx.lineWidth = 2;
+  ctx.fillRect(room13Boss.x, room13Boss.y, room13Boss.w, room13Boss.h);
+  ctx.strokeRect(room13Boss.x, room13Boss.y, room13Boss.w, room13Boss.h);
+  ctx.restore();
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (menuState.screen !== MENU_STATE.PLAYING) {
@@ -10557,6 +10701,7 @@ function draw() {
   forcePulseVisuals.forEach((visual) => visual.draw());
   pulses.forEach((pulse) => pulse.draw());
   getActiveEnemies().forEach((enemy) => enemy.draw());
+  drawRoom13Boss();
   drawActiveAnchorMarkers();
   drawEnergyLinkMarkers();
   droneProjectiles.forEach((projectile) => projectile.draw());
