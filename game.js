@@ -273,7 +273,6 @@ const ROOM8_X = ROOM7_X + LEVEL1_ROOM_WIDTH;
 const ROOM9_X = ROOM8_X + LEVEL1_ROOM_WIDTH;
 const ROOM10_X = ROOM9_X + LEVEL1_ROOM_WIDTH;
 const ROOM11_X = ROOM10_X + LEVEL1_ROOM_WIDTH;
-const ROOM12_X = ROOM11_X + LEVEL1_ROOM_WIDTH;
 const ROOM_FLOOR_Y = 470;
 
 const platforms = [
@@ -368,11 +367,7 @@ const platforms = [
   // Level 1, Room 11: a clean mirrored combat space. Only full-width
   // floor and ceiling platforms remain, with grounded enemies on each side.
   { id: "room11-ceiling-platform", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: 24 },
-  { id: "room11-floor-platform", x: ROOM11_X, y: ROOM_FLOOR_Y, w: LEVEL1_ROOM_WIDTH, h: 70 },
-
-  // Level 1, Room 12: a quiet boss approach. The simple flat route gives the
-  // player a calm pre-boss reset with no enemies, hazards, doors, or gates.
-  { id: "room12-floor-platform", x: ROOM12_X, y: ROOM_FLOOR_Y, w: LEVEL1_ROOM_WIDTH, h: 70 }
+  { id: "room11-floor-platform", x: ROOM11_X, y: ROOM_FLOOR_Y, w: LEVEL1_ROOM_WIDTH, h: 70 }
 ];
 const levelRooms = [
   { id: "room-1", name: "Level 1, Room 1", x: ROOM1_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: 86, y: 420 }, tutorial: "BASIC MOVEMENT SPACE" },
@@ -385,8 +380,7 @@ const levelRooms = [
   { id: "room-8", name: "Level 1, Room 8", x: ROOM8_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM8_X + 18, y: 420 }, tutorial: "TIMING WINDOW" },
   { id: "room-9", name: "Level 1, Room 9", x: ROOM9_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM9_X + 18, y: 420 }, tutorial: "LINKED PRESSURE" },
   { id: "room-10", name: "Level 1, Room 10", x: ROOM10_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM10_X + 18, y: 420 }, tutorial: "CONCURRENT ALIGNMENT" },
-  { id: "room-11", name: "Level 1, Room 11", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM11_X + 18, y: 420 }, tutorial: "MIRRORED PATROL" },
-  { id: "room-12", name: "Level 1, Room 12", x: ROOM12_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM12_X + 18, y: 420 }, tutorial: "BOSS APPROACH" }
+  { id: "room-11", name: "Level 1, Room 11", x: ROOM11_X, y: 0, w: LEVEL1_ROOM_WIDTH, h: canvas.height, spawn: { x: ROOM11_X + 18, y: 420 }, tutorial: "MIRRORED PATROL" }
 ];
 
 const doors = [];
@@ -411,9 +405,7 @@ const screenEdgeTransitions = [
   { id: "room-10-to-room-9", roomId: "room-10", direction: -1, targetRoomId: "room-9" },
   { id: "room-10-to-room-11", roomId: "room-10", direction: 1, targetRoomId: "room-11" },
   { id: "room-11-to-room-10", roomId: "room-11", direction: -1, targetRoomId: "room-10" },
-  { id: "room-11-to-room-12", roomId: "room-11", direction: 1, targetRoomId: "room-12" },
-  { id: "room-12-to-room-11", roomId: "room-12", direction: -1, targetRoomId: "room-11" },
-  { id: "room-12-right-pending", roomId: "room-12", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
+  { id: "room-11-right-pending", roomId: "room-11", direction: 1, targetRoomId: null, pendingMessage: "Room transition pending.", pendingFired: false }
 ];
 
 const exitMarker = null;
@@ -643,7 +635,6 @@ function enterRoom(roomId, spawn, options = {}) {
     if (!hasSpawnSupport) player.lastGroundedPlatform = null;
   }
   player.facing = options.facing ?? player.facing;
-  if (currentRoomId === "room-12") enforceRoom12AbilityState();
   cameraX = getCurrentRoom().x;
 }
 
@@ -6939,19 +6930,7 @@ const systemDialogue = {
   nextLogOrder: 1
 };
 
-const roomCheckpoints = [
-  {
-    id: "l1r12-checkpoint",
-    roomId: "room-12",
-    x: ROOM12_X + 335,
-    y: 420,
-    w: 42,
-    h: 50,
-    spawn: { x: ROOM12_X + 310, y: 420 },
-    activated: false,
-    abilitySnapshot: null
-  }
-];
+const roomCheckpoints = [];
 const activeCheckpoint = {
   id: "initial-checkpoint",
   roomId: "room-1",
@@ -6989,20 +6968,6 @@ const room10Progress = {
   accessRouteAvailable: false
 };
 
-
-function enforceRoom12AbilityState() {
-  for (const ability of abilities) {
-    ability.unlocked = ability.id === "gravity";
-    ability.cooldownRemaining = 0;
-    ability.activeRemaining = 0;
-    ability.readyPulseTimer = 0;
-    ability.unavailableTimer = 0;
-  }
-  room4Progress.gravityUnlockStarted = true;
-  room4Progress.gravityUnlocked = true;
-  selectedAbilityId = "gravity";
-  systemAccess.selectedAbilityId = "gravity";
-}
 
 function captureAbilitySnapshot() {
   return {
@@ -7432,55 +7397,6 @@ const systemMessageTriggers = [
     messages: ["Proceed."],
     blocking: false
   },
-  {
-    id: "l1r12-combat-pattern-stabilized",
-    roomId: "room-12",
-    x: ROOM12_X + 30,
-    y: 330,
-    w: 160,
-    h: 160,
-    repeat: false,
-    fired: false,
-    messages: ["Combat pattern stabilized."],
-    blocking: false
-  },
-  {
-    id: "l1r12-checkpoint-established",
-    roomId: "room-12",
-    x: ROOM12_X + 285,
-    y: 330,
-    w: 140,
-    h: 160,
-    repeat: false,
-    fired: false,
-    messages: ["Checkpoint established."],
-    blocking: false,
-    onTrigger: () => activateCheckpoint(roomCheckpoints.find((candidate) => candidate.id === "l1r12-checkpoint"))
-  },
-  {
-    id: "l1r12-gravity-activity",
-    roomId: "room-12",
-    x: ROOM12_X + 650,
-    y: 330,
-    w: 160,
-    h: 160,
-    repeat: false,
-    fired: false,
-    messages: ["Unusual gravitational activity detected."],
-    blocking: false
-  },
-  {
-    id: "l1r12-proceed-caution",
-    roomId: "room-12",
-    x: ROOM12_X + 885,
-    y: 330,
-    w: 75,
-    h: 160,
-    repeat: false,
-    fired: false,
-    messages: ["Proceed with caution."],
-    blocking: false
-  }
 ];
 function normalizeSystemLines(messages) {
   const lines = Array.isArray(messages) ? messages : [messages];
@@ -9261,26 +9177,6 @@ function drawPlatform(platform) {
   drawStandardPlatformRect(platform);
 }
 
-function drawRoomApproachAtmosphere(room) {
-  if (room.id !== "room-12") return;
-
-  ctx.save();
-  const pulse = 0.5 + Math.sin(performance.now() / 720) * 0.5;
-  ctx.fillStyle = `rgba(38, 23, 65, ${0.16 + pulse * 0.06})`;
-  ctx.fillRect(room.x, 0, room.w, canvas.height);
-
-  ctx.strokeStyle = `rgba(170, 118, 255, ${0.08 + pulse * 0.06})`;
-  ctx.lineWidth = 1.2;
-  for (let x = room.x + 140; x < room.x + room.w; x += 185) {
-    ctx.beginPath();
-    ctx.moveTo(x, 86);
-    ctx.lineTo(x + 42, 132);
-    ctx.lineTo(x - 18, 178);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function drawCheckpoints() {
   for (const marker of roomCheckpoints) {
     if (marker.roomId !== currentRoomId) continue;
@@ -9316,19 +9212,12 @@ function drawCheckpoints() {
 function drawRoom() {
   const room = getCurrentRoom();
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  if (room.id === "room-12") {
-    sky.addColorStop(0, "#101a38");
-    sky.addColorStop(1, "#233a5f");
-  } else {
-    sky.addColorStop(0, "#dff5ff");
-    sky.addColorStop(1, "#bfe7ff");
-  }
+  sky.addColorStop(0, "#dff5ff");
+  sky.addColorStop(1, "#bfe7ff");
   ctx.fillStyle = sky;
   ctx.fillRect(cameraX, 0, canvas.width, canvas.height);
-  drawRoomApproachAtmosphere(room);
-
-  ctx.fillStyle = room.id === "room-12" ? "#6f95c7" : "#9fd0f4";
-  ctx.strokeStyle = room.id === "room-12" ? "rgba(164, 201, 255, 0.34)" : "rgba(45, 126, 204, 0.48)";
+  ctx.fillStyle = "#9fd0f4";
+  ctx.strokeStyle = "rgba(45, 126, 204, 0.48)";
   for (const platform of platforms) drawPlatform(platform);
   drawCheckpoints();
 
